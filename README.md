@@ -1,61 +1,87 @@
-# React + TypeScript + Vite
+# ShuTong
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**ShuTong** is an intelligent, AI-powered screen time tracker that helps you understand how you spend your digital life. Built with Electron, React, and local AI capabilities, it records your activity and provides insightful analysis without compromising privacy.
 
-Currently, two official plugins are available:
+## ✨ Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **🔍 AI-Powered Analysis**: Automatically categorizes your activities and generates summaries using advanced LLMs (OpenAI, Gemini, etc.).
+- **🎥 Screen Recording & Timelapse**: Captures your day in the background and lets you review it with a high-performance timelapse player.
+- **🤖 MCP Support**: Built-in support for the Model Context Protocol (MCP) to extend capabilities with external tools.
+- **🔒 Privacy First**: All data is stored locally on your device. You own your data.
+- **⚡ Automation Ready**: Control recording via deep links (`shutong://`), perfect for integration with Raycast, Alfred, or Shortcuts.
 
-## Expanding the ESLint configuration
+## 🚀 Getting Started
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+### Prerequisites
 
-- Configure the top-level `parserOptions` property like this:
+- Node.js (v18 or higher)
+- npm or yarn
 
-```js
-export default {
-  // other rules...
-  parserOptions: {
-    ecmaVersion: 'latest',
-    sourceType: 'module',
-    project: ['./tsconfig.json', './tsconfig.node.json'],
-    tsconfigRootDir: __dirname,
-  },
-}
-```
+### Installation
 
-- Replace `plugin:@typescript-eslint/recommended` to `plugin:@typescript-eslint/recommended-type-checked` or `plugin:@typescript-eslint/strict-type-checked`
-- Optionally add `plugin:@typescript-eslint/stylistic-type-checked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and add `plugin:react/recommended` & `plugin:react/jsx-runtime` to the `extends` list
+1.  **Clone the repository**
+    ```bash
+    git clone https://github.com/hobbytp/ShuTong.git
+    cd ShuTong
+    ```
 
+2.  **Install dependencies**
+    ```bash
+    npm install
+    # or
+    yarn install
+    ```
 
+3.  **Run in development mode**
+    ```bash
+    npm run dev
+    ```
 
-## Package
+### Building for Production
 
-in windows, launch git bash by using administrator user and then goto project directory and then execute the following command to package the project.
+To create a distributable installer for your OS (Windows recommended for now):
+
 ```bash
-npm run package
+# On Windows (Git Bash recommended)
+npm run build
 ```
 
-## Deep Link 自动化支持
+The output files will be in the `release/` directory.
 
-ShuTong 支持使用 `shutong://` 协议进行自动化控制，方便与其他工具（如 Raycast, Shortcuts, 脚本）集成。
+## 🔗 Automation (Deep Links)
 
-**支持的命令：**
-- `shutong://start-recording`：开始录制（Start Recording）
-- `shutong://stop-recording`：停止录制（Stop Recording）
+ShuTong supports the `shutong://` protocol, allowing you to control recording from external applications or scripts.
 
-**使用示例：**
+### Supported Commands
 
-1. **Windows (CMD/PowerShell)**
-   ```batch
-   start shutong://start-recording
-   start shutong://stop-recording
-   ```
+- `shutong://start-recording` - Start screen recording
+- `shutong://stop-recording` - Stop screen recording
 
-2. **macOS (Terminal)**
-   ```bash
-   open shutong://start-recording
-   open shutong://stop-recording
-   ```
+### Examples
+
+**Windows (CMD/PowerShell)**
+```batch
+start shutong://start-recording
+start shutong://stop-recording
+```
+
+**macOS (Terminal)**
+```bash
+open shutong://start-recording
+open shutong://stop-recording
+```
+
+## 🛠 Tech Stack
+
+- **Frontend**: React, TypeScript, TailwindCSS, Vite
+- **Backend / Desktop**: Electron
+- **Database**: Better-SQLite3
+- **AI Integration**: OpenAI SDK, Google Generative AI
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📄 License
+
+[MIT](LICENSE) © RayTan
