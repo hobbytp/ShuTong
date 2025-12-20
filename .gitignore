@@ -65,3 +65,5 @@ venv/
 # Uncomment if you want to exclude local recordings from git
 # recordings/
 # *.sqlite
+
+docs/
