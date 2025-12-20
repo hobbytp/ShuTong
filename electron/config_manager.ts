@@ -1,0 +1,255 @@
+
+import { app } from 'electron';
+import fs from 'fs';
+import path from 'path';
+import { z } from 'zod';
+import { getSettings, setSetting } from './storage';
+
+// --- Types ---
+
+export interface ModelPricing {
+    inputTokensPrice: number;
+    outputTokensPrice: number;
+    currency: string;
+    per: number;
+}
+
+export interface ModelConfig {
+    displayName: string;
+    contextWindow: number;
+    maxOutputTokens: number;
+    supportsFunctionCalling: boolean;
+    supportsVision: boolean;
+    pricing?: ModelPricing;
+    [key: string]: any;
+}
+
+export interface ProviderConfig {
+    docUrl?: string;
+    apiBaseUrl: string;
+    apiKeyEnv: string;
+    openaiCompatible: boolean;
+    models: Record<string, ModelConfig>;
+    [key: string]: any;
+}
+
+export interface RoleConfig {
+    provider: string;
+    model: string;
+    temperature: number;
+    description: string;
+}
+
+export interface LLMGlobalConfig {
+    providers: Record<string, ProviderConfig>;
+    roleConfigs: Record<string, RoleConfig>;
+}
+
+export interface RuntimeProviderConfig extends ProviderConfig {
+    hasKey: boolean;
+    apiKey?: string; // Only populated if set by user override
+}
+
+// --- Implementation ---
+
+const CONFIG_FILENAME = 'llm_config.json';
+
+function getConfigFile(): LLMGlobalConfig {
+    // Try app root (dev) and resources (prod)
+    const possiblePaths = [
+        path.join(app.getAppPath(), CONFIG_FILENAME),
+        path.join(process.cwd(), CONFIG_FILENAME),
+        path.join(app.getAppPath(), '..', CONFIG_FILENAME) // Common in some builds
+    ];
+
+    for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+            try {
+                return JSON.parse(fs.readFileSync(p, 'utf-8'));
+            } catch (e) {
+                console.error(`[ConfigManager] Failed to parse ${p}:`, e);
+            }
+        }
+    }
+
+    console.error(`[ConfigManager] Could not find ${CONFIG_FILENAME}`);
+    return { providers: {}, roleConfigs: {} };
+}
+
+export function getMergedLLMConfig() {
+    const defaults = getConfigFile();
+    const settings = getSettings();
+
+    // Merge Providers
+    const mergedProviders: Record<string, RuntimeProviderConfig> = {};
+
+    if (defaults.providers) {
+        for (const [name, provider] of Object.entries(defaults.providers)) {
+            const settingKeyBase = `llm.provider.${name}`;
+            const userBaseUrl = settings[`${settingKeyBase}.baseUrl`];
+            const userApiKey = settings[`${settingKeyBase}.apiKey`];
+            // @ts-ignore
+            const envKey = process.env[provider.apiKeyEnv];
+
+            mergedProviders[name] = {
+                ...provider,
+                apiBaseUrl: userBaseUrl || provider.apiBaseUrl,
+                hasKey: !!(userApiKey || envKey),
+                apiKey: userApiKey || '' // Only return user-set key
+            };
+        }
+    }
+
+    // Merge Roles
+    const mergedRoles: Record<string, RoleConfig> = {};
+    if (defaults.roleConfigs) {
+        for (const [role, config] of Object.entries(defaults.roleConfigs)) {
+            const settingKeyBase = `llm.role.${role}`;
+            mergedRoles[role] = {
+                ...config,
+                provider: settings[`${settingKeyBase}.provider`] || config.provider,
+                model: settings[`${settingKeyBase}.model`] || config.model,
+                temperature: settings[`${settingKeyBase}.temperature`] ? parseFloat(settings[`${settingKeyBase}.temperature`]) : config.temperature
+            };
+        }
+    }
+
+    return {
+        providers: mergedProviders,
+        roleConfigs: mergedRoles
+    };
+}
+
+export function setLLMProviderConfig(providerName: string, config: { baseUrl?: string, apiKey?: string }) {
+    if (config.baseUrl !== undefined) {
+        setSetting(`llm.provider.${providerName}.baseUrl`, config.baseUrl);
+    }
+    if (config.apiKey !== undefined) {
+        setSetting(`llm.provider.${providerName}.apiKey`, config.apiKey);
+    }
+}
+
+export function setRoleConfig(roleName: string, config: { provider?: string, model?: string, temperature?: number }) {
+    if (config.provider) setSetting(`llm.role.${roleName}.provider`, config.provider);
+    if (config.model) setSetting(`llm.role.${roleName}.model`, config.model);
+    if (config.temperature !== undefined) setSetting(`llm.role.${roleName}.temperature`, config.temperature.toString());
+}
+
+// --- Raw Config I/O ---
+
+function getConfigPath(): string | null {
+    const possiblePaths = [
+        path.join(process.cwd(), CONFIG_FILENAME),
+        path.join(app.getAppPath(), CONFIG_FILENAME),
+        path.join(app.getAppPath(), '..', CONFIG_FILENAME)
+    ];
+
+    for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+            return p;
+        }
+    }
+    return null;
+}
+
+export function getRawLLMConfig(): { content: string, path: string } {
+    const p = getConfigPath();
+    if (p) {
+        return { content: fs.readFileSync(p, 'utf-8'), path: p };
+    }
+    return { content: '{}', path: '' };
+}
+
+// --- Validation Schemas ---
+
+const ModelPricingSchema = z
+    .object({
+        inputTokensPrice: z.number(),
+        outputTokensPrice: z.number(),
+        currency: z.string(),
+        per: z.number()
+    })
+    .passthrough();
+
+const ModelConfigSchema = z
+    .object({
+        displayName: z.string(),
+        contextWindow: z.number(),
+        maxOutputTokens: z.number(),
+        supportsFunctionCalling: z.boolean(),
+        supportsVision: z.boolean(),
+        pricing: ModelPricingSchema.optional()
+    })
+    .passthrough();
+
+const ProviderConfigSchema = z
+    .object({
+        docUrl: z.string().optional(),
+        apiBaseUrl: z.string(),
+        apiKeyEnv: z.string(),
+        openaiCompatible: z.boolean(),
+        models: z.record(z.string(), ModelConfigSchema)
+    })
+    .passthrough();
+
+const RoleConfigSchema = z.object({
+    provider: z.string(),
+    model: z.string(),
+    temperature: z.number(),
+    description: z.string()
+});
+
+const LLMGlobalConfigSchema = z.object({
+    providers: z.record(z.string(), ProviderConfigSchema),
+    roleConfigs: z.record(z.string(), RoleConfigSchema)
+});
+
+export function validateLLMConfig(content: string): { success: boolean, error?: string, data?: LLMGlobalConfig } {
+    try {
+        const json = JSON.parse(content);
+        const result = LLMGlobalConfigSchema.safeParse(json);
+
+        if (!result.success) {
+            // Format Zod errors into a readable string
+            const errorMsg = result.error.issues.map(iss => `${iss.path.join('.')}: ${iss.message}`).join('; ');
+            return { success: false, error: errorMsg };
+        }
+
+        const data = result.data as LLMGlobalConfig;
+
+        // Logical Check: Ensure roles point to existing providers
+        for (const [_roleName, role] of Object.entries(data.roleConfigs)) {
+            if (!data.providers[role.provider]) {
+                return { success: false, error: `provider "${role.provider}" does not exist` };
+            }
+        }
+
+        return { success: true, data };
+    } catch (e: any) {
+        if (e instanceof SyntaxError) {
+            // Normalize parse errors across Node/V8 versions for stable UX + tests
+            return { success: false, error: `Unexpected token: ${e.message}` };
+        }
+        return { success: false, error: e?.message ?? String(e) };
+    }
+}
+
+export function saveRawLLMConfig(content: string): { success: boolean, error?: string } {
+    const validation = validateLLMConfig(content);
+    if (!validation.success) {
+        return { success: false, error: validation.error };
+    }
+
+    try {
+        // Determine save path: prefer existing, else userData
+        let p = getConfigPath();
+        if (!p) {
+            p = path.join(app.getPath('userData'), CONFIG_FILENAME);
+        }
+
+        fs.writeFileSync(p, content, 'utf-8');
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
