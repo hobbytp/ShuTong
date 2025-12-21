@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'elect
 import { autoUpdater } from 'electron-updater'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { cancelMigration, commitMigration, getBootstrapConfig, PendingMigration, resolveUserDataPath, setPendingMigration } from './bootstrap'
+import { cancelMigration, commitMigration, getBootstrapConfig, PendingMigration, resolveUserDataPath, setCustomUserDataPath, setPendingMigration } from './bootstrap'
 import { getMergedLLMConfig, setLLMProviderConfig, setRoleConfig } from './config_manager'
 import { copyUserData } from './migration-utils'
 import { getIsQuitting, setupTray, updateTrayMenu } from './tray'
@@ -101,7 +101,7 @@ import { getIsRecording, setupScreenCapture, startRecording, stopRecording } fro
 import { cleanupOldSnapshots } from './cleanup'
 import { setupDeepLinks } from './deeplink'
 import { checkReminders, sendNotification } from './scheduler'
-import { getCardDetails, getReminderSettings, getRetentionSettings, getScreenshotsForCard, getTimelineCards, initStorage } from './storage'
+import { closeStorage, getCardDetails, getReminderSettings, getRetentionSettings, getScreenshotsForCard, getTimelineCards, initStorage } from './storage'
 
 app.on('activate', () => {
   // ...
@@ -333,16 +333,30 @@ async function startApp() {
       }
     });
 
-    ipcMain.handle('select-directory', async () => {
+    ipcMain.handle('select-directory', async (_, isOnboarding) => {
       if (!win) return null;
       const result = await dialog.showOpenDialog(win, {
         properties: ['openDirectory'],
         title: 'Select Data Storage Location',
-        message: 'All recordings, videos, and the database will be stored here. Requires restart.'
+        message: 'All recordings, videos, and the database will be stored here.' + (isOnboarding ? '' : ' Requires restart.')
       });
       if (result.canceled) return null;
 
       const newPath = result.filePaths[0];
+
+      if (isOnboarding === true) {
+        try {
+          console.log('[Main] Onboarding: Switching storage to', newPath);
+          closeStorage();
+          setCustomUserDataPath(newPath);
+          app.setPath('userData', newPath);
+          initStorage();
+          return newPath;
+        } catch (err) {
+          console.error('[Main] Onboarding storage switch failed:', err);
+          return null;
+        }
+      }
 
       // Use dynamic import to avoid circular dependency issues if any,
       // though top-level import is fine now. we use what we imported.

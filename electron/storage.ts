@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 
 let db: Database.Database | null = null;
+let ipcConfigured = false;
 
 function getDbPath() {
     return path.join(app.getPath('userData'), 'shutong.sqlite');
@@ -104,8 +105,18 @@ export function initStorage() {
     }
 }
 
+export function closeStorage() {
+    if (db) {
+        db.close();
+        db = null;
+        console.log('[ShuTong] Storage closed.');
+    }
+}
+
 // IPC Handlers for Storage
 function setupStorageIPC() {
+    if (ipcConfigured) return;
+
     ipcMain.handle('get-snapshots', (_: any, limit: any) => getSnapshots(limit));
     ipcMain.handle('get-snapshots-by-date', (_: any, date: any) => getSnapshotsByDate(date));
 
@@ -119,6 +130,8 @@ function setupStorageIPC() {
 
     // Dashboard Stats
     ipcMain.handle('get-dashboard-stats', () => getDashboardStats());
+
+    ipcConfigured = true;
 }
 
 // --- Phase 6: New Storage Functions ---
@@ -343,6 +356,10 @@ export function getSettings() {
         rows.forEach(row => {
             settings[row.key] = row.value;
         });
+
+        // Inject current user data path so UI always knows the real location
+        settings['recording_path'] = app.getPath('userData');
+
         return settings;
     } catch (err) {
         console.error('[ShuTong] Failed to get settings:', err);
