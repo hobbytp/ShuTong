@@ -1,13 +1,32 @@
 import { app } from 'electron';
-import ffmpegPath from 'ffmpeg-static';
+import ffmpegStaticImport from 'ffmpeg-static';
 import ffmpeg from 'fluent-ffmpeg';
 import fs from 'fs';
 import path from 'path';
 import { getScreenshotsForCard, updateCardVideoUrl } from './storage';
 
+// Handle ESM import - ffmpeg-static might return { default: path } or just the path
+const ffmpegPath = typeof ffmpegStaticImport === 'string'
+    ? ffmpegStaticImport
+    : (ffmpegStaticImport as any)?.default || null;
+
 // Set ffmpeg path
-if (ffmpegPath) {
-    ffmpeg.setFfmpegPath(ffmpegPath.replace('app.asar', 'app.asar.unpacked'));
+console.log('[Video] ffmpeg-static raw import:', ffmpegStaticImport);
+console.log('[Video] Resolved ffmpeg path:', ffmpegPath);
+
+if (ffmpegPath && typeof ffmpegPath === 'string') {
+    const resolvedPath = ffmpegPath.replace('app.asar', 'app.asar.unpacked');
+    console.log('[Video] Setting ffmpeg path to:', resolvedPath);
+
+    // Verify the binary exists
+    if (fs.existsSync(resolvedPath)) {
+        ffmpeg.setFfmpegPath(resolvedPath);
+        console.log('[Video] ffmpeg binary verified at:', resolvedPath);
+    } else {
+        console.error('[Video] ffmpeg binary NOT FOUND at:', resolvedPath);
+    }
+} else {
+    console.warn('[Video] ffmpeg-static path is null/undefined. Using system PATH or may fail.');
 }
 
 function getVideosDir() {
@@ -28,27 +47,40 @@ export async function generateCardVideo(cardId: number): Promise<string | null> 
             return null;
         }
 
+        console.log(`[Video] Found ${screenshots.length} screenshots for card ${cardId}`);
+
+        // Validate that screenshot files exist
+        const validScreenshots = screenshots.filter((s: any) => {
+            const exists = fs.existsSync(s.file_path);
+            if (!exists) {
+                console.warn(`[Video] Screenshot file missing: ${s.file_path}`);
+            }
+            return exists;
+        });
+
+        if (validScreenshots.length === 0) {
+            console.error('[Video] All screenshot files are missing! Cannot generate video.');
+            return null;
+        }
+
+        if (validScreenshots.length < screenshots.length) {
+            console.warn(`[Video] ${screenshots.length - validScreenshots.length} screenshots were missing, using ${validScreenshots.length} available.`);
+        }
+
         // Create a temporary input file for ffmpeg concat demuxer
-        // Format: file '/path/to/image.jpg'
-        //         duration 0.5
         const videosDir = getVideosDir();
         const inputFilePath = path.join(videosDir, `input_${cardId}.txt`);
         const outputVideoPath = path.join(videosDir, `activity_${cardId}.mp4`);
 
-        // Calculate duration per frame to target a reasonable video length
-        // e.g., 60 screenshots -> 5 mins actual time -> maybe 10 seconds video?
-        // Let's stick to a fixed frame rate for now, e.g., 2 FPS (0.5s per image)
         const durationPerFrame = 0.5;
 
-        const fileContent = screenshots.map((s: any) => {
+        const fileContent = validScreenshots.map((s: any) => {
             // Escape backslashes for Windows ffmpeg
             const safePath = s.file_path.replace(/\\/g, '/');
             return `file '${safePath}'\nduration ${durationPerFrame}`;
         }).join('\n');
 
-        // Add the last file again without duration to prevent the last frame from being skipped
-        // or just rely on standard concat behavior. fluent-ffmpeg concat protocol might be easier 
-        // but explicit file control is more robust for image sequences.
+        console.log(`[Video] Input file content (first 500 chars):\n${fileContent.substring(0, 500)}`);
 
         fs.writeFileSync(inputFilePath, fileContent);
 

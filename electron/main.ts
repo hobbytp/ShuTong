@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'electron'
+import { app, BrowserWindow, dialog, screen as electronScreen, ipcMain, net, protocol, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -127,56 +127,84 @@ protocol.registerSchemesAsPrivileged([
 async function startApp() {
   try {
     console.log('[Main] App ready')
-    initStorage()
-    console.log('[Main] Storage initialized')
-    setupScreenCapture()
-    console.log('[Main] Screen capture setup')
 
-    startAnalysisJob()
-    console.log('[Main] Analysis job started')
+    // ========================================
+    // STEP 1: Register ALL IPC handlers FIRST (SYNCHRONOUS)
+    // This prevents race conditions with window loading
+    // ========================================
 
-    createWindow()
-    console.log('[Main] Window created')
-
-    setupTray(() => win);
-
-    // Sync Tray with Recording State
-    // @ts-ignore
-    app.on('recording-changed', (recording: boolean) => {
-      updateTrayMenu(() => win, recording);
-      win?.webContents.send('recording-state-changed', recording);
-    });
-
-    // Handle Tray Toggle
-    // @ts-ignore
-    app.on('tray-toggle-recording', async () => {
-      const recording = getIsRecording();
-      if (recording) {
-        stopRecording();
-      } else {
-        startRecording();
+    // Core Handlers
+    ipcMain.handle('get-available-screens', () => {
+      try {
+        const displays = electronScreen.getAllDisplays();
+        console.log(`[Main] Found ${displays.length} display(s)`);
+        return displays.map((d: Electron.Display, idx: number) => ({
+          id: d.id,
+          name: d.label || `Display ${idx + 1} (${d.bounds.width}x${d.bounds.height})`
+        }));
+      } catch (err) {
+        console.error('[Main] Failed to get screens:', err);
+        return [{ id: 0, name: 'Primary Display' }];
       }
     });
 
-
-    // Start Planner Loop (every minute)
-    setInterval(() => {
-      const settings = getReminderSettings();
-      const notificationType = checkReminders(new Date(), settings);
-      if (notificationType) {
-        sendNotification(notificationType);
+    // Phase 5: Pulse Cards
+    ipcMain.handle('get-pulse-cards', async (_, limit?: number) => {
+      try {
+        const { getPulseCards } = await import('./storage');
+        const cards = getPulseCards(limit || 20);
+        return { success: true, cards };
+      } catch (err: any) {
+        console.error('[Main] Failed to get pulse cards:', err);
+        return { success: false, error: err.message, cards: [] };
       }
-    }, 60 * 1000);
+    });
 
-    // Run Cleanup on startup (with small delay)
-    setTimeout(() => {
-      const retention = getRetentionSettings().storage_retention_days;
-      cleanupOldSnapshots(retention);
-    }, 10000); // 10s after startup
+    ipcMain.handle('generate-pulse-card', async (_, type: string) => {
+      try {
+        const { pulseAgent } = await import('./agent/pulse-agent');
+        const { savePulseCard } = await import('./storage');
+        // @ts-ignore
+        const card = await pulseAgent.generateCard(type);
+        const cardWithMeta = {
+          id: `${type}-${Date.now()}`,
+          type,
+          title: card.title,
+          content: card.content,
+          suggested_actions: card.suggested_actions,
+          created_at: Math.floor(Date.now() / 1000)
+        };
+        const saved = savePulseCard(cardWithMeta);
+        if (!saved) console.warn('[Main] Failed to save pulse card');
+        return { success: true, card: { ...card, created_at: cardWithMeta.created_at * 1000 } };
+      } catch (err: any) {
+        console.error('[Main] Pulse card generation failed:', err);
+        return { success: false, error: err.message };
+      }
+    });
 
-    ipcMain.handle('trigger-cleanup', async (_event, days) => {
-      const count = await cleanupOldSnapshots(days);
-      return count;
+    // Phase 3: Pulse Agent
+    ipcMain.handle('ask-pulse', async (_, question: string) => {
+      try {
+        const { pulseAgent } = await import('./agent/pulse-agent');
+        const update = await pulseAgent.run(question);
+        return { success: true, response: update };
+      } catch (err: any) {
+        console.error('[Main] Pulse agent failed:', err);
+        return { success: false, error: err.message };
+      }
+    });
+
+    // Phase 2: Semantic Search
+    ipcMain.handle('search-semantic', async (_, query: string, limit?: number) => {
+      try {
+        const { vectorStorage } = await import('./storage/vector-storage');
+        const results = await vectorStorage.search(query, limit || 10);
+        return { success: true, results };
+      } catch (err: any) {
+        console.error('[Main] Semantic search failed:', err);
+        return { success: false, error: err.message, results: [] };
+      }
     });
 
     // Phase 7: UI Data
@@ -192,20 +220,29 @@ async function startApp() {
       return getScreenshotsForCard(cardId);
     });
 
+    ipcMain.handle('trigger-cleanup', async (_event, days) => {
+      const count = await cleanupOldSnapshots(days);
+      return count;
+    });
+
     // LLM Configuration
     ipcMain.handle('get-llm-config', () => getMergedLLMConfig());
 
     ipcMain.handle('set-llm-provider-config', (_, providerName, config) => {
       setLLMProviderConfig(providerName, config);
+      import('./storage/vector-storage').then(({ vectorStorage }) => {
+        vectorStorage.refreshEmbeddingsConfig().catch(err => console.error('[Main] Failed to refresh embeddings config:', err));
+      });
     });
 
     ipcMain.handle('set-role-config', (_, roleName, config) => {
       setRoleConfig(roleName, config);
+      import('./storage/vector-storage').then(({ vectorStorage }) => {
+        vectorStorage.refreshEmbeddingsConfig().catch(err => console.error('[Main] Failed to refresh embeddings config:', err));
+      });
     });
 
-    // Recording Control handlers are registered in setupScreenCapture()
-
-    // --- Raw Config Handlers ---
+    // Raw Config Handlers
     ipcMain.handle('get-raw-llm-config', async () => {
       const { getRawLLMConfig } = await import('./config_manager');
       return getRawLLMConfig();
@@ -213,7 +250,13 @@ async function startApp() {
 
     ipcMain.handle('save-raw-llm-config', async (_, content) => {
       const { saveRawLLMConfig } = await import('./config_manager');
-      return saveRawLLMConfig(content);
+      const result = saveRawLLMConfig(content);
+      if (result.success) {
+        import('./storage/vector-storage').then(({ vectorStorage }) => {
+          vectorStorage.refreshEmbeddingsConfig().catch(err => console.error('[Main] Failed to refresh embeddings config:', err));
+        });
+      }
+      return result;
     });
 
     ipcMain.handle('import-llm-config', async () => {
@@ -227,7 +270,7 @@ async function startApp() {
       try {
         const fs = await import('fs');
         const content = fs.readFileSync(result.filePaths[0], 'utf-8');
-        return { success: true, content }; // Return content to UI, don't save yet
+        return { success: true, content };
       } catch (e: any) {
         return { success: false, error: e.message };
       }
@@ -263,7 +306,6 @@ async function startApp() {
 
       return exportTimelineMarkdown(date, result.filePath);
     });
-    // ---------------------------
 
     ipcMain.handle('test-llm-connection', async (_, providerName, config, passedModelName) => {
       try {
@@ -286,14 +328,167 @@ async function startApp() {
 
         const provider = createLLMProviderFromConfig(providerName, config.apiKey, config.apiBaseUrl || '', modelName);
 
-        // Simple "Hello" prompt
-        await provider.generateContent({ prompt: 'Hello' });
+        // Check if it's an embedding model to test with embedQuery instead of generateContent
+        const isEmbedding = modelName.toLowerCase().includes('embedding') ||
+          modelName.toLowerCase().includes('bge') ||
+          modelName.toLowerCase().includes('reranker');
+
+        if (isEmbedding) {
+          console.log(`[Main] Testing embedding for ${modelName}...`);
+          if (!provider.embedQuery) {
+            throw new Error(`Provider does not support embeddings for model: ${modelName}`);
+          }
+          await provider.embedQuery('Hello world');
+        } else {
+          console.log(`[Main] Testing chat completion for ${modelName}...`);
+          await provider.generateContent({ prompt: 'Hello' });
+        }
+
         return { success: true, message: 'Connection successful!' };
       } catch (error: any) {
         console.error(`[Main] Connection test failed for ${providerName}:`, error);
         return { success: false, message: error.message || 'Connection failed' };
       }
     });
+
+    ipcMain.handle('select-directory', async (_, isOnboarding) => {
+      if (!win) return null;
+      const result = await dialog.showOpenDialog(win, {
+        properties: ['openDirectory'],
+        title: 'Select Data Storage Location',
+        message: 'All recordings, videos, and the database will be stored here.' + (isOnboarding ? '' : ' Requires restart.')
+      });
+      if (result.canceled) return null;
+
+      const newPath = result.filePaths[0];
+
+      if (isOnboarding === true) {
+        try {
+          console.log('[Main] Onboarding: Switching storage to', newPath);
+          closeStorage();
+          setCustomUserDataPath(newPath);
+          app.setPath('userData', newPath);
+          initStorage();
+          return newPath;
+        } catch (err) {
+          console.error('[Main] Onboarding storage switch failed:', err);
+          return null;
+        }
+      }
+
+      setPendingMigration(newPath);
+
+      const button = await dialog.showMessageBox(win, {
+        type: 'info',
+        title: 'Restart Required',
+        message: 'The application needs to restart to move your data to the new location.',
+        buttons: ['Restart Now', 'Cancel'],
+        cancelId: 1
+      });
+
+      if (button.response === 0) {
+        app.relaunch();
+        app.quit();
+        return newPath;
+      } else {
+        cancelMigration();
+        return null;
+      }
+    });
+
+    ipcMain.handle('open-data-folder', () => {
+      shell.openPath(app.getPath('userData'));
+    });
+
+    ipcMain.handle('get-app-path', (_, name) => {
+      return app.getPath(name);
+    });
+
+    console.log('[Main] IPC handlers registered')
+
+    // ========================================
+    // STEP 2: Initialize Storage (SYNCHRONOUS)
+    // This MUST happen before window creation to ensure storage IPC handlers are ready
+    // ========================================
+    initStorage()
+    console.log('[Main] Storage initialized')
+
+    // ========================================
+    // STEP 3: Create Window (handlers are ready now)
+    // ========================================
+    createWindow()
+    console.log('[Main] Window created')
+
+    // ========================================
+    // STEP 4: Initialize async services (AFTER window created)
+    // ========================================
+
+    // Initialize Vector Storage (Async) - wrapped in try-catch to not block app startup
+    try {
+      const { vectorStorage } = await import('./storage/vector-storage');
+      await vectorStorage.init();
+      console.log('[Main] Vector storage initialized')
+
+      // Phase 5: Check/Generate Daily Briefing (only if vector storage succeeds)
+      const { checkAndGenerateBriefing } = await import('./scheduler');
+      checkAndGenerateBriefing().catch(err => console.error('[Main] Scheduler error:', err));
+    } catch (err) {
+      console.error('[Main] Vector storage initialization failed:', err);
+      // App continues without vector storage - semantic search will gracefully fail
+    }
+
+    setupScreenCapture()
+    console.log('[Main] Screen capture setup')
+
+    // Check if auto-start recording is enabled
+    try {
+      const { getSetting } = await import('./storage');
+      const autoStart = getSetting('auto_start_recording');
+      if (autoStart === 'true') {
+        console.log('[Main] Auto-start recording enabled, starting...');
+        startRecording();
+      }
+    } catch (err) {
+      console.error('[Main] Failed to check auto-start setting:', err);
+    }
+
+    startAnalysisJob()
+    console.log('[Main] Analysis job started')
+
+    setupTray(() => win);
+
+    // Sync Tray with Recording State
+    // @ts-ignore
+    app.on('recording-changed', (recording: boolean) => {
+      updateTrayMenu(() => win, recording);
+      win?.webContents.send('recording-state-changed', recording);
+    });
+
+    // Handle Tray Toggle
+    // @ts-ignore
+    app.on('tray-toggle-recording', async () => {
+      const recording = getIsRecording();
+      if (recording) {
+        stopRecording();
+      } else {
+        startRecording();
+      }
+    });
+
+    // Start Planner Loop (every minute)
+    setInterval(() => {
+      const settings = getReminderSettings();
+      const notificationType = checkReminders(new Date(), settings);
+      if (notificationType) {
+        sendNotification(notificationType);
+      }
+    }, 60 * 1000);
+
+    // Run Cleanup on startup (with small delay)
+    setTimeout(() => {
+      const retention = getRetentionSettings().storage_retention_days;
+      cleanupOldSnapshots(retention);
+    }, 10000); // 10s after startup
 
     // Auto-Updater Logic
     if (!VITE_DEV_SERVER_URL) {
@@ -331,61 +526,6 @@ async function startApp() {
       if (win) {
         dialog.showErrorBox(error.title, error.message);
       }
-    });
-
-    ipcMain.handle('select-directory', async (_, isOnboarding) => {
-      if (!win) return null;
-      const result = await dialog.showOpenDialog(win, {
-        properties: ['openDirectory'],
-        title: 'Select Data Storage Location',
-        message: 'All recordings, videos, and the database will be stored here.' + (isOnboarding ? '' : ' Requires restart.')
-      });
-      if (result.canceled) return null;
-
-      const newPath = result.filePaths[0];
-
-      if (isOnboarding === true) {
-        try {
-          console.log('[Main] Onboarding: Switching storage to', newPath);
-          closeStorage();
-          setCustomUserDataPath(newPath);
-          app.setPath('userData', newPath);
-          initStorage();
-          return newPath;
-        } catch (err) {
-          console.error('[Main] Onboarding storage switch failed:', err);
-          return null;
-        }
-      }
-
-      // Use dynamic import to avoid circular dependency issues if any,
-      // though top-level import is fine now. we use what we imported.
-      setPendingMigration(newPath);
-
-      const button = await dialog.showMessageBox(win, {
-        type: 'info',
-        title: 'Restart Required',
-        message: 'The application needs to restart to move your data to the new location.',
-        buttons: ['Restart Now', 'Cancel'],
-        cancelId: 1
-      });
-
-      if (button.response === 0) {
-        app.relaunch();
-        app.quit();
-        return newPath;
-      } else {
-        cancelMigration();
-        return null;
-      }
-    });
-
-    ipcMain.handle('open-data-folder', () => {
-      shell.openPath(app.getPath('userData'));
-    });
-
-    ipcMain.handle('get-app-path', (_, name) => {
-      return app.getPath(name);
     });
 
     protocol.handle('media', (request) => {

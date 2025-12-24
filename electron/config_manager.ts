@@ -120,6 +120,52 @@ export function getMergedLLMConfig() {
     };
 }
 
+/**
+ * Get config for Main process (includes secrets from Env)
+ */
+export function getLLMConfigForMain() {
+    const defaults = getConfigFile();
+    const settings = getSettings();
+
+    const mergedProviders: Record<string, RuntimeProviderConfig> = {};
+
+    if (defaults.providers) {
+        for (const [name, provider] of Object.entries(defaults.providers)) {
+            const settingKeyBase = `llm.provider.${name}`;
+            const userBaseUrl = settings[`${settingKeyBase}.baseUrl`];
+            const userApiKey = settings[`${settingKeyBase}.apiKey`];
+            // @ts-ignore
+            const envKey = process.env[provider.apiKeyEnv];
+
+            mergedProviders[name] = {
+                ...provider,
+                apiBaseUrl: userBaseUrl || provider.apiBaseUrl,
+                hasKey: !!(userApiKey || envKey),
+                apiKey: userApiKey || envKey || '' // Include Env Key for Backend
+            };
+        }
+    }
+
+    // Merge Roles (Same as frontend)
+    const mergedRoles: Record<string, RoleConfig> = {};
+    if (defaults.roleConfigs) {
+        for (const [role, config] of Object.entries(defaults.roleConfigs)) {
+            const settingKeyBase = `llm.role.${role}`;
+            mergedRoles[role] = {
+                ...config,
+                provider: settings[`${settingKeyBase}.provider`] || config.provider,
+                model: settings[`${settingKeyBase}.model`] || config.model,
+                temperature: settings[`${settingKeyBase}.temperature`] ? parseFloat(settings[`${settingKeyBase}.temperature`]) : config.temperature
+            };
+        }
+    }
+
+    return {
+        providers: mergedProviders,
+        roleConfigs: mergedRoles
+    };
+}
+
 export function setLLMProviderConfig(providerName: string, config: { baseUrl?: string, apiKey?: string }) {
     if (config.baseUrl !== undefined) {
         setSetting(`llm.provider.${providerName}.baseUrl`, config.baseUrl);

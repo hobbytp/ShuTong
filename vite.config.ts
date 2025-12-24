@@ -5,6 +5,13 @@ import electron from 'vite-plugin-electron/simple'
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  resolve: {
+    alias: {
+      'mock-aws-s3': path.join(__dirname, 'electron/stub.ts'),
+      'aws-sdk': path.join(__dirname, 'electron/stub.ts'),
+      'nock': path.join(__dirname, 'electron/stub.ts'),
+    }
+  },
   plugins: [
     react(),
     electron({
@@ -14,8 +21,15 @@ export default defineConfig({
         vite: {
           build: {
             rollupOptions: {
-              external: ['better-sqlite3', 'ffmpeg-static', 'fluent-ffmpeg'],
+              external: ['better-sqlite3', 'ffmpeg-static', 'fluent-ffmpeg', '@lancedb/lancedb', 'get-windows'],
             },
+          },
+          resolve: {
+            alias: {
+              'mock-aws-s3': path.join(__dirname, 'electron/stub.ts'),
+              'aws-sdk': path.join(__dirname, 'electron/stub.ts'),
+              'nock': path.join(__dirname, 'electron/stub.ts'),
+            }
           },
         },
       },

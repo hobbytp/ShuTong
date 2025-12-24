@@ -19,13 +19,12 @@ export interface LLMRequest {
 
 export interface LLMProvider {
     generateContent(request: LLMRequest): Promise<string>;
+    embedQuery?(text: string): Promise<number[]>;
 }
 
-
-// Simple factory for now
+// Factory for role-based provider selection
 import { getMergedLLMConfig } from '../config_manager';
 
-// Factory for role-based provider selection
 export function getLLMProvider(role: string): LLMProvider {
     const config = getMergedLLMConfig();
 
@@ -70,11 +69,9 @@ export function createLLMProviderFromConfig(providerName: string, apiKey: string
 
 class MockProvider implements LLMProvider {
     async generateContent(request: LLMRequest): Promise<string> {
-        await new Promise(r => setTimeout(r, 1000)); // Simulate latency
-
-        // Return valid JSON based on prompt detection (crude but effective for mock)
+        // ... (existing mock implementation)
+        await new Promise(r => setTimeout(r, 1000));
         if (request.prompt.includes('"observations": [')) {
-            // Transcription mock
             return JSON.stringify({
                 observations: [
                     { start_index: 0, end_index: 0, text: "User is checking email in Outlook" },
@@ -82,7 +79,6 @@ class MockProvider implements LLMProvider {
                 ]
             });
         } else if (request.prompt.includes('"cards": [')) {
-            // Card mock
             return JSON.stringify({
                 cards: [
                     {
@@ -97,6 +93,10 @@ class MockProvider implements LLMProvider {
             });
         }
         return JSON.stringify({ message: "Mock response" });
+    }
+
+    async embedQuery(text: string): Promise<number[]> {
+        return new Array(1536).fill(0.1); // Mock embedding
     }
 }
 
@@ -114,6 +114,7 @@ class OpenAIProvider implements LLMProvider {
     }
 
     async generateContent(request: LLMRequest): Promise<string> {
+        // ... (existing generateContent implementation)
         const url = `${this.baseUrl}/chat/completions`;
 
         const content: any[] = [
@@ -176,15 +177,12 @@ class OpenAIProvider implements LLMProvider {
 
                     if (!response.ok) {
                         const errText = await response.text();
-                        // Check for JSON mode error specifically or generic 400
                         if (useJsonMode && response.status === 400) {
                             throw new Error(`JSON_MODE_ERROR: ${errText}`);
                         }
-                        // Don't retry 4xx errors (client faults), except maybe 429
                         if (response.status >= 400 && response.status < 500 && response.status !== 429) {
                             throw new Error(`${this.providerName} API Error ${response.status}: ${errText}`);
                         }
-                        // Retry 5xx or 429
                         throw new Error(`Server Error ${response.status}: ${errText}`);
                     }
 
@@ -193,11 +191,9 @@ class OpenAIProvider implements LLMProvider {
 
                 } catch (err: any) {
                     lastError = err;
-                    // If strictly JSON mode error, abort retry loop to switch strategies
                     if (err.message.includes('JSON_MODE_ERROR')) {
                         throw err;
                     }
-                    // If client error (not 429), abort
                     if (err.message.includes(`${this.providerName} API Error`)) {
                         throw err;
                     }
@@ -210,7 +206,6 @@ class OpenAIProvider implements LLMProvider {
         };
 
         try {
-            // Try with JSON mode first
             return await makeRequest(true);
         } catch (err: any) {
             if (err.message.includes('JSON_MODE_ERROR') || err.message.includes('Json mode is not supported')) {
@@ -218,6 +213,38 @@ class OpenAIProvider implements LLMProvider {
                 return await makeRequest(false);
             }
             throw err;
+        }
+    }
+
+    async embedQuery(text: string): Promise<number[]> {
+        const url = `${this.baseUrl}/embeddings`;
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.apiKey}`
+                },
+                body: JSON.stringify({
+                    input: text,
+                    model: this.model
+                })
+            });
+
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`${this.providerName} Embedding Error ${response.status}: ${errText}`);
+            }
+
+            const data = await response.json();
+            if (data.data && data.data.length > 0) {
+                return data.data[0].embedding;
+            }
+            throw new Error("Invalid embedding response format");
+        } catch (error: any) {
+            console.error(`[${this.providerName}] Embed query failed:`, error);
+            throw error;
         }
     }
 }
@@ -232,6 +259,7 @@ class GeminiProvider implements LLMProvider {
     }
 
     async generateContent(request: LLMRequest): Promise<string> {
+        // ... (existing implementation)
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
 
         const contents: any[] = [{
@@ -239,11 +267,7 @@ class GeminiProvider implements LLMProvider {
         }];
 
         if (request.images && request.images.length > 0) {
-            // Gemini expects inline data for images
-            // In a real app we might upload or just send base64
-            // Since this runs in Electron (Node), we can read files
             const fs = await import('fs/promises');
-
             for (const img of request.images) {
                 try {
                     const b64 = await fs.readFile(img.path, { encoding: 'base64' });
@@ -263,7 +287,7 @@ class GeminiProvider implements LLMProvider {
             contents,
             generationConfig: {
                 temperature: 0.2,
-                response_mime_type: "application/json" // Force JSON
+                response_mime_type: "application/json"
             }
         };
 
@@ -284,5 +308,11 @@ class GeminiProvider implements LLMProvider {
         } catch (e) {
             throw new Error("Unexpected Gemini response format");
         }
+    }
+
+    // Gemini embedding support could be added here if needed, 
+    // but for now leaving as undefined or throwing not supported
+    async embedQuery(text: string): Promise<number[]> {
+        throw new Error("Embedding text is not yet implemented for GeminiProvider in this context");
     }
 }

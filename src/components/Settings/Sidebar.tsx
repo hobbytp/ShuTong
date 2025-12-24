@@ -1,4 +1,4 @@
-import { ArrowLeft, Cpu, HardDrive, Plug, Settings, Sliders } from 'lucide-react';
+import { ArrowLeft, Cpu, HardDrive, Plug, Settings, Sliders, Video } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 interface SidebarProps {
@@ -10,6 +10,7 @@ interface SidebarProps {
 export function Sidebar({ activeTab, onTabChange, onBack }: SidebarProps) {
     const tabs = [
         { id: 'general', label: 'General', icon: Sliders },
+        { id: 'recording', label: 'Recording', icon: Video },
         { id: 'llm', label: 'AI Models', icon: Cpu },
         { id: 'mcp', label: 'MCP Tools', icon: Plug },
         { id: 'storage', label: 'Storage', icon: HardDrive },

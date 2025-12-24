@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Button } from './Shared';
 
 export function MCPSettings() {
-    const [servers, setServers] = useState([
+    const [servers, _setServers] = useState([
         { id: 1, name: 'Filesystem', status: 'connected', type: 'stdio' },
         { id: 2, name: 'Browser', status: 'connected', type: 'stdio' }
     ]);

@@ -4,6 +4,7 @@ import { Sidebar } from '../components/Settings/Sidebar';
 
 import { GeneralSettings } from '../components/Settings/GeneralSettings';
 import { MCPSettings } from '../components/Settings/MCPSettings';
+import { RecordingSettings } from '../components/Settings/RecordingSettings';
 import { StorageSettings } from '../components/Settings/StorageSettings';
 
 export function Settings({ onBack }: { onBack: () => void }) {
@@ -12,6 +13,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
     const renderContent = () => {
         switch (activeTab) {
             case 'general': return <GeneralSettings />;
+            case 'recording': return <RecordingSettings />;
             case 'llm': return <LLMSettings />;
             case 'mcp': return <MCPSettings />;
             case 'storage': return <StorageSettings />;

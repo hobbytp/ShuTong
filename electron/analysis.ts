@@ -115,6 +115,18 @@ async function processBatch(batchId: number) {
                 generateCardVideo(Number(cardId)).catch((err: any) => {
                     console.error(`[Analysis] Video generation failed for card ${cardId}:`, err);
                 });
+
+                // Trigger Vector Storage (Async)
+                import('./storage/vector-storage').then(({ vectorStorage }) => {
+                    vectorStorage.addActivity({
+                        id: Number(cardId),
+                        category: card.category,
+                        title: card.title,
+                        summary: card.summary,
+                        start_ts: startObs.start,
+                        end_ts: endObs.end
+                    }).catch(err => console.error('[Analysis] Vector indexing failed:', err));
+                });
             }
         }
 

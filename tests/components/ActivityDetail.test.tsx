@@ -21,7 +21,7 @@ describe('ActivityDetail', () => {
 
     it('renders placeholder when no card selected', () => {
         render(<ActivityDetail cardId={null} />);
-        expect(screen.getByText('Select an activity to view details')).toBeDefined();
+        expect(screen.getByText('Select an activity to explore')).toBeDefined();
     });
 
     it('fetches and renders card details', async () => {

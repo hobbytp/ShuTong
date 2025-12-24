@@ -22,7 +22,7 @@ export function setupDeepLinks(actions: DeepLinkActions) {
     });
 
     // Windows/Linux Handler
-    app.on('second-instance', (event, argv) => {
+    app.on('second-instance', (_event, argv) => {
         // Find the argument that looks like a url
         const url = argv.find(arg => arg.startsWith('shutong://'));
         if (url) {

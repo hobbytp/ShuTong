@@ -96,12 +96,93 @@ export function initStorage() {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
             CREATE INDEX IF NOT EXISTS idx_timeline_cards_start_ts ON timeline_cards(start_ts);
+
+            -- 6. Pulse Cards (Agents Output)
+            CREATE TABLE IF NOT EXISTS pulse_cards (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                suggested_actions TEXT, -- JSON array
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_pulse_cards_created_at ON pulse_cards(created_at);
         `);
 
         setupStorageIPC();
+        ipcConfigured = true;
         console.log('[ShuTong] Storage initialized at', getDbPath());
     } catch (err) {
         console.error('[ShuTong] Failed to init storage:', err);
+    }
+}
+
+// ... existing code ...
+
+// Pulse Card Operations
+export interface PulseCard {
+    id: string;
+    type: string;
+    title: string;
+    content: string;
+    suggested_actions: string[];
+    created_at: number;
+}
+
+export function savePulseCard(card: PulseCard) {
+    if (!db) return;
+    try {
+        const stmt = db.prepare(`
+            INSERT INTO pulse_cards (id, type, title, content, suggested_actions, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run(
+            card.id,
+            card.type,
+            card.title,
+            card.content,
+            JSON.stringify(card.suggested_actions || []),
+            card.created_at
+        );
+        return true;
+    } catch (err) {
+        console.error('Failed to save pulse card:', err);
+        return false;
+    }
+}
+
+export function getPulseCards(limit = 50): PulseCard[] {
+    if (!db) return [];
+    try {
+        const stmt = db.prepare(`
+            SELECT * FROM pulse_cards ORDER BY created_at DESC LIMIT ?
+        `);
+        const rows = stmt.all(limit) as any[];
+        return rows.map(row => ({
+            ...row,
+            suggested_actions: JSON.parse(row.suggested_actions || '[]')
+        }));
+    } catch (err) {
+        console.error('Failed to get pulse cards:', err);
+        return [];
+    }
+}
+
+export function getLatestPulseCard(type: string): PulseCard | null {
+    if (!db) return null;
+    try {
+        const stmt = db.prepare(`
+            SELECT * FROM pulse_cards WHERE type = ? ORDER BY created_at DESC LIMIT 1
+        `);
+        const row = stmt.get(type) as any;
+        if (!row) return null;
+        return {
+            ...row,
+            suggested_actions: JSON.parse(row.suggested_actions || '[]')
+        };
+    } catch (err) {
+        console.error('Failed to get latest pulse card:', err);
+        return null;
     }
 }
 
@@ -137,16 +218,22 @@ function setupStorageIPC() {
 // --- Phase 6: New Storage Functions ---
 
 /**
- * Saves a screenshot with Unix timestamp.
+ * Saves a screenshot with Unix timestamp and optional metadata.
  */
-export function saveScreenshot(filePath: string, capturedAt: number, fileSize?: number) {
+export function saveScreenshot(
+    filePath: string,
+    capturedAt: number,
+    fileSize?: number,
+    captureType?: string,
+    appName?: string
+) {
     if (!db) return;
     try {
         const stmt = db.prepare(`
-            INSERT INTO screenshots(captured_at, file_path, file_size)
-        VALUES(?, ?, ?)
-            `);
-        const info = stmt.run(capturedAt, filePath, fileSize || null);
+            INSERT INTO screenshots(captured_at, file_path, file_size, capture_type, app_bundle_id)
+            VALUES(?, ?, ?, ?, ?)
+        `);
+        const info = stmt.run(capturedAt, filePath, fileSize || null, captureType || null, appName || null);
         return info.lastInsertRowid;
     } catch (err) {
         console.error('[ShuTong] Failed to save screenshot:', err);
@@ -367,6 +454,18 @@ export function getSettings() {
     }
 }
 
+export function getSetting(key: string): string | null {
+    if (!db) return null;
+    try {
+        const stmt = db.prepare('SELECT value FROM settings WHERE key = ?');
+        const row = stmt.get(key) as { value: string } | undefined;
+        return row?.value ?? null;
+    } catch (err) {
+        console.error('[ShuTong] Failed to get setting:', err);
+        return null;
+    }
+}
+
 export function getReminderSettings() {
     const s = getSettings();
     return {
@@ -416,11 +515,14 @@ export function deleteSnapshotsBefore(timestamp: number) {
 }
 
 export function setSetting(key: string, value: string) {
-    if (!db) return;
+    if (!db) {
+        console.error(`[ShuTong] Cannot set setting ${key}, DB not initialized`);
+        return;
+    }
     try {
         const stmt = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
-        stmt.run(key, value);
-        console.log(`[ShuTong] Set setting ${key} = ${value} `);
+        const result = stmt.run(key, value);
+        console.log(`[ShuTong] Set setting ${key} = ${value}, Changes: ${result.changes}`);
     } catch (err) {
         console.error('[ShuTong] Failed to set setting:', err);
     }

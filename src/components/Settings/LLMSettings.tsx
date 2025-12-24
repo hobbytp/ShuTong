@@ -28,10 +28,20 @@ interface LLMConfig {
 export function LLMSettings() {
     const [config, setConfig] = useState<LLMConfig | null>(null);
     const [activeSubTab, setActiveSubTab] = useState<'providers' | 'roles' | 'config'>('providers');
+    const [toastState, setToastState] = useState<'idle' | 'saved'>('idle');
 
     useEffect(() => {
         loadConfig();
     }, []);
+
+    useEffect(() => {
+        if (toastState === 'saved') {
+            const timer = setTimeout(() => setToastState('idle'), 2000);
+            return () => clearTimeout(timer);
+        }
+    }, [toastState]);
+
+    const showSavedToast = () => setToastState('saved');
 
     const loadConfig = async () => {
         if (window.ipcRenderer) {
@@ -200,6 +210,7 @@ export function LLMSettings() {
                                                 }}
                                                 hasKey={currentProvider?.hasKey || false}
                                                 modelName={roleCfg.model}
+                                                onSuccess={showSavedToast}
                                             />
                                         </div>
                                     </div>
@@ -212,6 +223,18 @@ export function LLMSettings() {
 
             {/* Config Tab */}
             {activeSubTab === 'config' && <ConfigEditor />}
+
+            {/* Save Toast (matches Capture Settings pattern) */}
+            <div className={`fixed bottom-8 right-8 flex items-center gap-2 px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-full shadow-lg transition-all duration-300 ${toastState === 'idle' ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'}`}>
+                <div className="w-4 h-4 bg-emerald-500 rounded-full flex items-center justify-center">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-3 h-3 text-zinc-900">
+                        <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                </div>
+                <span className="text-sm font-medium text-zinc-200">
+                    Changes saved
+                </span>
+            </div>
         </div>
     );
 }
@@ -348,7 +371,7 @@ function ConfigEditor() {
     );
 }
 
-function TestButton({ providerName, config, hasKey, modelName }: { providerName: string, config: { apiKey: string, apiBaseUrl: string }, hasKey: boolean, modelName?: string }) {
+function TestButton({ providerName, config, hasKey, modelName, onSuccess }: { providerName: string, config: { apiKey: string, apiBaseUrl: string }, hasKey: boolean, modelName?: string, onSuccess?: () => void }) {
     const [status, setStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
     const [msg, setMsg] = useState('');
 
@@ -363,10 +386,16 @@ function TestButton({ providerName, config, hasKey, modelName }: { providerName:
         setMsg('');
 
         try {
+            if (!window.ipcRenderer) {
+                setStatus('error');
+                setMsg('Not running in Electron');
+                return;
+            }
             const result = await window.ipcRenderer.invoke('test-llm-connection', providerName, config, modelName);
             if (result.success) {
                 setStatus('success');
                 setMsg('Connected');
+                onSuccess?.();
                 setTimeout(() => setStatus('idle'), 3000);
             } else {
                 setStatus('error');

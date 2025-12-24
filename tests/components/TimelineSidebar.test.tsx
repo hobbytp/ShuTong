@@ -38,7 +38,7 @@ describe('TimelineSidebar', () => {
                 onCategorySelect={() => { }}
             />
         );
-        expect(screen.getByText('No activity yet.')).toBeDefined();
+        expect(screen.getByText('No activities yet.')).toBeDefined();
     });
 
     it('renders list of cards', () => {
@@ -69,9 +69,9 @@ describe('TimelineSidebar', () => {
                 onCategorySelect={() => { }}
             />
         );
-        // We look for the selected style (bg-gray-800)
+        // We look for the selected style
         const selectedItem = screen.getByText('Coding Task').closest('div')?.parentElement;
-        expect(selectedItem?.className).toContain('bg-gray-800');
+        expect(selectedItem?.className).toContain('bg-zinc-900/80');
     });
 
     it('calls onSelectCard when clicked', () => {

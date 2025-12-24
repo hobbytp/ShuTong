@@ -307,7 +307,35 @@
             "apiKeyEnv": "ARK_API_KEY",
             "openaiCompatible": true,
             "models": {
-                "doubao-seed-1.6-thinking": {
+                "doubao-seed-1-6-flash-250828": { 
+                    "displayName": "doubao-seed-1-6-flash-250828",
+                    "contextWindow": 256000,
+                    "maxInputTokens": 224000,
+                    "maxOutputTokens": 32000,
+                    "supportsFunctionCalling": true,
+                    "supportsVision": true,
+                    "pricing": {
+                        "inputTokensPrice": 0.6,
+                        "outputTokensPrice": 6,
+                        "currency": "CNY",
+                        "per": 1000000
+                    }                    
+                },
+                "doubao-seed-1-8-251215": { 
+                    "displayName": "doubao-seed-1.8-251215",
+                    "contextWindow": 256000,
+                    "maxInputTokens": 224000,
+                    "maxOutputTokens": 32000,
+                    "supportsFunctionCalling": true,
+                    "supportsVision": true,
+                    "pricing": {
+                        "inputTokensPrice": 4,
+                        "outputTokensPrice": 8,
+                        "currency": "CNY",
+                        "per": 1000000
+                    }
+                },
+                "doubao-seed-1-6-thinking-250615": {
                     "displayName": "doubao-seed-1.6-thinking",
                     "contextWindow": 224000,
                     "maxOutputTokens": 16384,
@@ -316,6 +344,21 @@
                     "pricing": {
                         "inputTokensPrice": 4,
                         "outputTokensPrice": 8,
+                        "currency": "CNY",
+                        "per": 1000000
+                    }
+                },
+                "doubao-embedding-large-text-250515": {
+                    "displayName": "doubao-embedding-large-text-250515",
+                    "isEmbedding": true,
+                    "contextWindow": 4096,
+                    "maxOutputTokens": 4096,
+                    "maxVecDimension": 2048,
+                    "supportsFunctionCalling": false,
+                    "supportsVision": false,
+                    "pricing": {
+                        "inputTokensPrice": 0.7,
+                        "outputTokensPrice": 0,
                         "currency": "CNY",
                         "per": 1000000
                     }
@@ -499,15 +542,15 @@
                         "per": 1000000
                     }
                 },
-                "deepseek-ai/DeepSeek-V3": {
+                "deepseek-ai/DeepSeek-V3.2": {
                     "displayName": "DeepSeek V3",
-                    "contextWindow": 64000,
-                    "maxOutputTokens": 16384,
+                    "contextWindow": 160000,
+                    "maxOutputTokens": 160000,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
                     "pricing": {
-                        "inputTokensPrice": 4,
-                        "outputTokensPrice": 16,
+                        "inputTokensPrice": 2,
+                        "outputTokensPrice": 3,
                         "currency": "CNY",
                         "per": 1000000
                     }
@@ -521,6 +564,36 @@
                     "pricing": {
                         "inputTokensPrice": 4,
                         "outputTokensPrice": 16,
+                        "currency": "CNY",
+                        "per": 1000000
+                    }
+                },
+                "BAAI/bge-m3": {
+                    "displayName": "BAAI BGE M3",
+                    "isEmbedding": true,
+                    "contextWindow": 8192,
+                    "maxOutputTokens": 8192,
+                    "maxVecDimension": 1024,
+                    "supportsFunctionCalling": false,
+                    "supportsVision": false,
+                    "pricing": {
+                        "inputTokensPrice": 0.0,
+                        "outputTokensPrice": 0.0,
+                        "currency": "CNY",
+                        "per": 1000000
+                    }
+                },
+                "Qwen/Qwen3-Embedding-8B": {
+                    "displayName": "Qwen3-Embedding-8B",
+                    "isEmbedding": true,
+                    "contextWindow": 32000,
+                    "maxOutputTokens": 4096,
+                    "maxVecDimension": 4096,
+                    "supportsFunctionCalling": false,
+                    "supportsVision": false,
+                    "pricing": {
+                        "inputTokensPrice": 0.28,
+                        "outputTokensPrice": 0,
                         "currency": "CNY",
                         "per": 1000000
                     }
@@ -880,6 +953,12 @@
             "model": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
             "temperature": 0.0,
             "description": "处理代码生成与执行"
+        },
+        "EMBEDDING": {
+            "provider": "SiliconFlow",
+            "model": "BAAI/bge-m3",
+            "temperature": 0.0,
+            "description": "文本嵌入向量化"
         }
     }
 }

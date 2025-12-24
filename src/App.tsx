@@ -5,12 +5,13 @@ import { TimelineSidebar } from './components/Timeline/TimelineSidebar'
 import { Dashboard } from './pages/Dashboard'
 import { Journal } from './pages/Journal'
 import { Onboarding } from './pages/Onboarding'
+import { PulseFeed } from './pages/PulseFeed'
 import { Settings } from './pages/Settings'
 import { Timelapse } from './pages/Timelapse'
 import { ActivityCard } from './types'
 
 function App() {
-  const [page, setPage] = useState<'home' | 'settings' | 'onboarding' | 'journal' | 'timelapse' | 'timeline'>('home')
+  const [page, setPage] = useState<'home' | 'settings' | 'onboarding' | 'journal' | 'timelapse' | 'timeline' | 'pulse'>('home')
   const [loading, setLoading] = useState(true)
   const [selectedCardId, setSelectedCardId] = useState<number | null>(null)
 
@@ -69,6 +70,8 @@ function App() {
       {page === 'journal' && <Journal />}
 
       {page === 'timelapse' && <Timelapse />}
+
+      {page === 'pulse' && <PulseFeed />}
 
       {/* Settings handles its own internal layout, but we might want to unify styles later. 
               For now, render it within the shell's content area. 
