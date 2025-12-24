@@ -307,7 +307,7 @@
             "apiKeyEnv": "ARK_API_KEY",
             "openaiCompatible": true,
             "models": {
-                "doubao-seed-1-6-flash-250828": { 
+                "doubao-seed-1-6-flash-250828": {
                     "displayName": "doubao-seed-1-6-flash-250828",
                     "contextWindow": 256000,
                     "maxInputTokens": 224000,
@@ -319,9 +319,9 @@
                         "outputTokensPrice": 6,
                         "currency": "CNY",
                         "per": 1000000
-                    }                    
+                    }
                 },
-                "doubao-seed-1-8-251215": { 
+                "doubao-seed-1-8-251215": {
                     "displayName": "doubao-seed-1.8-251215",
                     "contextWindow": 256000,
                     "maxInputTokens": 224000,
@@ -484,6 +484,35 @@
             "models": {
                 "Qwen/Qwen3-Next-80B-A3B-Instruct": {
                     "displayName": "Qwen3-Next-80B-A3B-Instruct",
+                    "docUrl": "https://www.modelscope.cn/models/Qwen/Qwen3-Next-80B-A3B-Instruct",
+                    "contextWindow": 262144,
+                    "maxOutputTokens": 16384,
+                    "supportsFunctionCalling": true,
+                    "supportsVision": true,
+                    "pricing": {
+                        "inputTokensPrice": 0.14,
+                        "outputTokensPrice": 0.28,
+                        "currency": "USD",
+                        "per": 1000000
+                    }
+                },
+                "Qwen/Qwen3-235B-A22B-Instruct-2507": {
+                    "displayName": "Qwen3-235B-A22B-Instruct-2507",
+                    "docUrl": "https://www.modelscope.cn/models/Qwen/Qwen3-235B-A22B-Instruct-2507",
+                    "contextWindow": 262144,
+                    "maxOutputTokens": 16384,
+                    "supportsFunctionCalling": true,
+                    "supportsVision": true,
+                    "pricing": {
+                        "inputTokensPrice": 0.14,
+                        "outputTokensPrice": 0.28,
+                        "currency": "USD",
+                        "per": 1000000
+                    }
+                },
+                "Qwen/Qwen3-235B-A22B-Thinking-2507": {
+                    "displayName": "Qwen3-235B-A22B-Thinking-2507",
+                    "docUrl": "https://www.modelscope.cn/models/Qwen/Qwen3-235B-A22B-Thinking-2507",
                     "contextWindow": 262144,
                     "maxOutputTokens": 16384,
                     "supportsFunctionCalling": true,
@@ -925,21 +954,21 @@
             "description": "分析屏幕内容"
         },
         "TEXT_SUMMARY": {
-            "provider": "Google",
-            "model": "gemini-2.5-pro",
+            "provider": "SiliconFlow",
+            "model": "zai-org/GLM-4.6",
             "temperature": 0.0,
             "description": "文本总结"
         },
         "DAILY_REPORT": {
             "provider": "Google",
-            "model": "gemini-2.5-pro",
+            "model": "gemini-3-flash-preview",
             "temperature": 0.0,
             "description": "生成每日报告"
         },
         "DEEP_THINKING": {
             "provider": "SiliconFlow",
             "model": "deepseek-ai/DeepSeek-V3.2",
-            "temperature": 0.3,
+            "temperature": 0.6,
             "description": "深度思考"
         },
         "CRITIQUE": {
@@ -959,6 +988,12 @@
             "model": "BAAI/bge-m3",
             "temperature": 0.0,
             "description": "文本嵌入向量化"
+        },
+        "PULSE_AGENT": {
+            "provider": "ModelScope",
+            "model": "Qwen/Qwen3-235B-A22B-Thinking-2507",
+            "temperature": 0.6,
+            "description": "Pulse Agent用的模型"
         }
     }
 }

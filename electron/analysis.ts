@@ -5,9 +5,11 @@ import {
     saveObservation,
     saveTimelineCard,
     screenshotsForBatch,
-    updateBatchStatus
+    updateBatchStatus,
+    getSetting
 } from './storage';
 import { generateCardVideo } from './video';
+import { getMergedLLMConfig } from './config_manager';
 
 // ... existing interfaces ...
 
@@ -81,9 +83,13 @@ async function processBatch(batchId: number) {
         console.log(`[Analysis] Transcribing Batch #${batchId} (Sampled ${sampledScreenshots.length}/${screenshots.length} shots)...`);
         const observations = await llmService.transcribeBatch(sampledScreenshots);
 
+        const cfg = getMergedLLMConfig();
+        const screenAnalyzeRole = cfg.roleConfigs?.SCREEN_ANALYZE;
+        const observationModelLabel = screenAnalyzeRole ? `${screenAnalyzeRole.provider}:${screenAnalyzeRole.model}` : undefined;
+
         // Save observations
         for (const obs of observations) {
-            saveObservation(batchId, obs.start, obs.end, obs.text, 'gemini-1.5-flash');
+            saveObservation(batchId, obs.start, obs.end, obs.text, observationModelLabel);
         }
 
         // 2. Generate Cards
@@ -160,16 +166,36 @@ interface BatchingConfig {
     minBatchDuration: number; // Seconds (e.g., 5 min = 300)
 }
 
-// Config per provider (aligned with Swift codebase)
-// Test/Prod: 15 min batches, 5 min max gap
-// Dev: 1 min batches, 10s max gap (for feedback)
+// NOTE: Batching is evaluated repeatedly (every analysis tick), so it should be computed at runtime.
+// In dev, users often increase "Capture Interval" to 10s+; a fixed maxGap=10s would then split
+// activity into many single-screenshot batches, producing near-zero-length videos.
+// We therefore scale maxGap with the current capture interval.
 const isTest = process.env.NODE_ENV === 'test';
 
-export const CONFIG: BatchingConfig = {
-    targetDuration: isTest ? 15 * 60 : 60,
-    maxGap: isTest ? 5 * 60 : 10,
-    minBatchDuration: isTest ? 5 * 60 : 10
-};
+export function getBatchingConfig(): BatchingConfig {
+    // Keep unit tests deterministic.
+    if (isTest) {
+        return {
+            targetDuration: 15 * 60,
+            maxGap: 5 * 60,
+            minBatchDuration: 5 * 60
+        };
+    }
+
+    const intervalMsStr = getSetting('capture_interval_ms');
+    const intervalMs = Math.max(1000, parseInt(intervalMsStr || '1000', 10) || 1000);
+    const intervalSeconds = Math.max(1, Math.ceil(intervalMs / 1000));
+
+    // maxGap must be larger than the capture interval; otherwise each screenshot becomes its own batch.
+    // Using 1.5x leaves room for timer jitter and occasional capture delays.
+    const maxGapSeconds = Math.max(10, Math.ceil(intervalSeconds * 1.5));
+
+    return {
+        targetDuration: 60,
+        maxGap: maxGapSeconds,
+        minBatchDuration: 10
+    };
+}
 
 let analysisTimer: NodeJS.Timeout | null = null;
 let isProcessing = false;
@@ -195,6 +221,8 @@ export function stopAnalysisJob() {
 export function createScreenshotBatches(screenshots: Screenshot[]): ScreenshotBatch[] {
     if (screenshots.length === 0) return [];
 
+    const config = getBatchingConfig();
+
     // Ensure sorted
     const ordered = [...screenshots].sort((a, b) => a.captured_at - b.captured_at);
 
@@ -212,10 +240,10 @@ export function createScreenshotBatches(screenshots: Screenshot[]): ScreenshotBa
 
         const first = bucket[0];
         const currentDuration = screenshot.captured_at - first.captured_at;
-        const wouldBurst = currentDuration > CONFIG.targetDuration;
+        const wouldBurst = currentDuration > config.targetDuration;
 
         // Close batch if gap is too large OR duration exceeds target
-        if (gap > CONFIG.maxGap || wouldBurst) {
+        if (gap > config.maxGap || wouldBurst) {
             batches.push({
                 screenshots: [...bucket],
                 start: first.captured_at,
@@ -242,7 +270,7 @@ export function createScreenshotBatches(screenshots: Screenshot[]): ScreenshotBa
         const now = Math.floor(Date.now() / 1000);
         const timeSinceLast = now - last.captured_at;
 
-        if (duration >= CONFIG.minBatchDuration || timeSinceLast > CONFIG.maxGap) {
+        if (duration >= config.minBatchDuration || timeSinceLast > config.maxGap) {
             batches.push({
                 screenshots: [...bucket],
                 start: first.captured_at,

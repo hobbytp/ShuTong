@@ -522,7 +522,15 @@ export function setSetting(key: string, value: string) {
     try {
         const stmt = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
         const result = stmt.run(key, value);
-        console.log(`[ShuTong] Set setting ${key} = ${value}, Changes: ${result.changes}`);
+        const lowerKey = String(key).toLowerCase();
+        const isSensitive =
+            lowerKey.includes('apikey') ||
+            lowerKey.includes('api_key') ||
+            lowerKey.includes('token') ||
+            lowerKey.startsWith('llm.provider.') && lowerKey.endsWith('.apikey');
+
+        const safeValue = isSensitive ? '<redacted>' : value;
+        console.log(`[ShuTong] Set setting ${key} = ${safeValue}, Changes: ${result.changes}`);
     } catch (err) {
         console.error('[ShuTong] Failed to set setting:', err);
     }

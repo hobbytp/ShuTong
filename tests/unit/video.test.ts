@@ -18,14 +18,18 @@ vi.mock('../../electron/storage', () => ({
 // Mock ffmpeg
 const mockInputOptions = vi.fn().mockReturnThis();
 const mockInput = vi.fn().mockReturnThis();
+const mockInputFormat = vi.fn().mockReturnThis();
 const mockOutputOptions = vi.fn().mockReturnThis();
+const mockDuration = vi.fn().mockReturnThis();
 const mockSave = vi.fn().mockReturnThis();
 const mockOn = vi.fn().mockReturnThis();
 
 const mockFfmpegInstance = {
     input: mockInput,
+    inputFormat: mockInputFormat,
     inputOptions: mockInputOptions,
     outputOptions: mockOutputOptions,
+    duration: mockDuration,
     save: mockSave,
     on: mockOn
 };
@@ -50,6 +54,12 @@ vi.mock('ffmpeg-static', () => ({
 describe('Video Service', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+
+        // Avoid touching the real filesystem in unit tests.
+        vi.spyOn(fs, 'existsSync').mockReturnValue(true as any);
+        vi.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined as any);
+        vi.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined as any);
+        vi.spyOn(fs, 'unlinkSync').mockImplementation(() => undefined as any);
     });
 
     it('should return null if no screenshots found', async () => {
@@ -69,10 +79,6 @@ describe('Video Service', () => {
 
         // Simulate ffmpeg 'end' event
         const endCallback = (mockOn.mock.calls as any[]).find((call: any[]) => call[0] === 'end')[1];
-
-        // Mock fs.writeFileSync and fs.unlinkSync to avoid file system errors during test
-        vi.spyOn(fs, 'writeFileSync').mockImplementation(() => { });
-        vi.spyOn(fs, 'unlinkSync').mockImplementation(() => { });
 
         // Trigger success
         await endCallback();

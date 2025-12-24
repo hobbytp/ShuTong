@@ -5,6 +5,8 @@ import fs from 'fs';
 import path from 'path';
 import { getScreenshotsForCard, updateCardVideoUrl } from './storage';
 
+type CardScreenshot = { file_path: string };
+
 // Handle ESM import - ffmpeg-static might return { default: path } or just the path
 const ffmpegPath = typeof ffmpegStaticImport === 'string'
     ? ffmpegStaticImport
@@ -37,10 +39,16 @@ function getVideosDir() {
     return dir;
 }
 
+function toFfmpegConcatPath(filePath: string) {
+    // Concat demuxer list uses single quotes, so escape any single quotes.
+    // Also normalize Windows backslashes to forward slashes.
+    return filePath.replace(/\\/g, '/').replace(/'/g, "'\\''");
+}
+
 export async function generateCardVideo(cardId: number): Promise<string | null> {
     try {
         console.log(`[Video] Starting video generation for card ${cardId}`);
-        const screenshots = getScreenshotsForCard(cardId);
+        const screenshots = getScreenshotsForCard(cardId) as CardScreenshot[];
 
         if (screenshots.length === 0) {
             console.log('[Video] No screenshots found for card', cardId);
@@ -50,7 +58,7 @@ export async function generateCardVideo(cardId: number): Promise<string | null> 
         console.log(`[Video] Found ${screenshots.length} screenshots for card ${cardId}`);
 
         // Validate that screenshot files exist
-        const validScreenshots = screenshots.filter((s: any) => {
+        const validScreenshots = screenshots.filter((s: CardScreenshot) => {
             const exists = fs.existsSync(s.file_path);
             if (!exists) {
                 console.warn(`[Video] Screenshot file missing: ${s.file_path}`);
@@ -67,47 +75,117 @@ export async function generateCardVideo(cardId: number): Promise<string | null> 
             console.warn(`[Video] ${screenshots.length - validScreenshots.length} screenshots were missing, using ${validScreenshots.length} available.`);
         }
 
-        // Create a temporary input file for ffmpeg concat demuxer
         const videosDir = getVideosDir();
-        const inputFilePath = path.join(videosDir, `input_${cardId}.txt`);
         const outputVideoPath = path.join(videosDir, `activity_${cardId}.mp4`);
 
         const durationPerFrame = 0.5;
 
-        const fileContent = validScreenshots.map((s: any) => {
-            // Escape backslashes for Windows ffmpeg
-            const safePath = s.file_path.replace(/\\/g, '/');
-            return `file '${safePath}'\nduration ${durationPerFrame}`;
-        }).join('\n');
+        // Fast path: a single image is common for very short batches.
+        // Use -loop 1 instead of concat to avoid edge cases and improve reliability.
+        if (validScreenshots.length === 1) {
+            const imagePath = validScreenshots[0].file_path;
+
+            return new Promise((resolve, reject) => {
+                const stderrTail: string[] = [];
+                let commandLine = '';
+
+                ffmpeg()
+                    .input(imagePath)
+                    .inputOptions(['-loop 1'])
+                    .outputOptions([
+                        '-c:v libx264',
+                        '-vf pad=ceil(iw/2)*2:ceil(ih/2)*2',
+                        '-pix_fmt yuv420p',
+                        '-r 30',
+                        '-movflags +faststart'
+                    ])
+                    .duration(durationPerFrame)
+                    .save(outputVideoPath)
+                    .on('start', (cmd: string) => {
+                        commandLine = cmd;
+                    })
+                    .on('stderr', (line: string) => {
+                        stderrTail.push(line);
+                        if (stderrTail.length > 40) stderrTail.shift();
+                    })
+                    .on('end', async () => {
+                        console.log(`[Video] Generated: ${outputVideoPath}`);
+
+                        const normalizedPath = outputVideoPath.replace(/\\/g, '/');
+                        updateCardVideoUrl(cardId, `media:///${normalizedPath}`);
+                        resolve(outputVideoPath);
+                    })
+                    .on('error', (err: any) => {
+                        console.error('[Video] Error generating video:', err);
+                        if (commandLine) {
+                            console.error('[Video] ffmpeg command:', commandLine);
+                        }
+                        if (stderrTail.length > 0) {
+                            console.error('[Video] ffmpeg stderr (tail):\n' + stderrTail.join('\n'));
+                        }
+                        reject(err);
+                    });
+            });
+        }
+
+        // Create a temporary input file for ffmpeg concat demuxer
+        const inputFilePath = path.join(videosDir, `input_${cardId}.txt`);
+
+        const lines: string[] = [];
+        for (const s of validScreenshots) {
+            const safePath = toFfmpegConcatPath(s.file_path);
+            lines.push(`file '${safePath}'`);
+            lines.push(`duration ${durationPerFrame}`);
+        }
+        // Concat demuxer ignores the last duration unless the last file is repeated.
+        const lastSafePath = toFfmpegConcatPath(validScreenshots[validScreenshots.length - 1].file_path);
+        lines.push(`file '${lastSafePath}'`);
+
+        const fileContent = lines.join('\n');
 
         console.log(`[Video] Input file content (first 500 chars):\n${fileContent.substring(0, 500)}`);
 
         fs.writeFileSync(inputFilePath, fileContent);
 
         return new Promise((resolve, reject) => {
+            const stderrTail: string[] = [];
+            let commandLine = '';
+
             ffmpeg()
                 .input(inputFilePath)
-                .inputOptions(['-f concat', '-safe 0'])
+                .inputFormat('concat')
+                .inputOptions(['-safe 0'])
                 .outputOptions([
                     '-c:v libx264',
-                    '-pix_fmt yuv420p', // Compatibility check
-                    '-r 30',            // Output frame rate
+                    '-vf pad=ceil(iw/2)*2:ceil(ih/2)*2',
+                    '-pix_fmt yuv420p',
+                    '-r 30',
                     '-movflags +faststart'
                 ])
                 .save(outputVideoPath)
+                .on('start', (cmd: string) => {
+                    commandLine = cmd;
+                })
+                .on('stderr', (line: string) => {
+                    stderrTail.push(line);
+                    if (stderrTail.length > 40) stderrTail.shift();
+                })
                 .on('end', async () => {
                     console.log(`[Video] Generated: ${outputVideoPath}`);
-                    // Clean up input file
                     fs.unlinkSync(inputFilePath);
 
-                    // Update DB
-                    // Normalize path for URL (forward slashes) and ensure media protocol format
                     const normalizedPath = outputVideoPath.replace(/\\/g, '/');
                     updateCardVideoUrl(cardId, `media:///${normalizedPath}`);
                     resolve(outputVideoPath);
                 })
                 .on('error', (err: any) => {
                     console.error('[Video] Error generating video:', err);
+                    if (commandLine) {
+                        console.error('[Video] ffmpeg command:', commandLine);
+                    }
+                    if (stderrTail.length > 0) {
+                        console.error('[Video] ffmpeg stderr (tail):\n' + stderrTail.join('\n'));
+                    }
                     if (fs.existsSync(inputFilePath)) fs.unlinkSync(inputFilePath);
                     reject(err);
                 });

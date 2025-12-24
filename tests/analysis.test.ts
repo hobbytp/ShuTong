@@ -7,7 +7,8 @@ vi.mock('../electron/storage', () => ({
     updateBatchStatus: vi.fn(),
     saveObservation: vi.fn(),
     saveTimelineCard: vi.fn(),
-    getSettings: vi.fn(() => ({})) // Mock Settings for LLM Provider
+    getSettings: vi.fn(() => ({})), // Mock Settings for LLM Provider
+    getSetting: vi.fn(() => null)
 }));
 
 import { createScreenshotBatches } from '../electron/analysis';

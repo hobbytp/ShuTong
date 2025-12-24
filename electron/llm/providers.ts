@@ -96,6 +96,7 @@ class MockProvider implements LLMProvider {
     }
 
     async embedQuery(text: string): Promise<number[]> {
+        void text;
         return new Array(1536).fill(0.1); // Mock embedding
     }
 }
@@ -259,7 +260,6 @@ class GeminiProvider implements LLMProvider {
     }
 
     async generateContent(request: LLMRequest): Promise<string> {
-        // ... (existing implementation)
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
 
         const contents: any[] = [{
@@ -291,28 +291,97 @@ class GeminiProvider implements LLMProvider {
             }
         };
 
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
+        const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-        if (!response.ok) {
-            const err = await response.text();
-            throw new Error(`Gemini API Error ${response.status}: ${err}`);
+        const parseRetryAfterMs = (errText: string) => {
+            try {
+                const parsed = JSON.parse(errText);
+                const delay = parsed?.error?.details?.find((d: any) => typeof d?.retryDelay === 'string')?.retryDelay;
+                if (typeof delay === 'string') {
+                    const m = delay.match(/(\d+(?:\.\d+)?)s/);
+                    if (m) return Math.ceil(Number(m[1]) * 1000);
+                }
+            } catch {
+                // ignore
+            }
+
+            const m1 = errText.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
+            if (m1) return Math.ceil(Number(m1[1]) * 1000);
+
+            const m2 = errText.match(/Please retry in\s+(\d+(?:\.\d+)?)s/i);
+            if (m2) return Math.ceil(Number(m2[1]) * 1000);
+
+            return null;
+        };
+
+        let lastError: any;
+        const MAX_RETRIES = 3;
+
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    const errText = await response.text();
+
+                    if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+                        throw new Error(`Gemini API Error ${response.status}: ${errText}`);
+                    }
+
+                    if (response.status === 429) {
+                        const retryAfterHeader = response.headers.get('retry-after');
+                        const retryAfterHeaderMs = retryAfterHeader ? Math.ceil(Number(retryAfterHeader) * 1000) : null;
+                        const retryAfterMs = retryAfterHeaderMs ?? parseRetryAfterMs(errText) ?? (1000 * (attempt + 1));
+                        throw new Error(`GEMINI_RATE_LIMIT:${retryAfterMs}:${errText}`);
+                    }
+
+                    throw new Error(`Server Error ${response.status}: ${errText}`);
+                }
+
+                const data = await response.json();
+                try {
+                    return data.candidates[0].content.parts[0].text;
+                } catch {
+                    throw new Error('Unexpected Gemini response format');
+                }
+            } catch (err: any) {
+                lastError = err;
+
+                const msg = String(err?.message || err);
+                if (msg.startsWith('Gemini API Error')) {
+                    throw err;
+                }
+
+                if (msg.startsWith('GEMINI_RATE_LIMIT:')) {
+                    const parts = msg.split(':');
+                    const retryMs = Number(parts[1]) || (1000 * (attempt + 1));
+                    console.warn(`[Gemini] Attempt ${attempt + 1} rate-limited. Retrying in ${retryMs}ms...`);
+                    await sleep(retryMs);
+                    continue;
+                }
+
+                console.warn(`[Gemini] Attempt ${attempt + 1} failed: ${msg}. Retrying in ${1000 * (attempt + 1)}ms...`);
+                await sleep(1000 * (attempt + 1));
+            }
         }
 
-        const data = await response.json();
-        try {
-            return data.candidates[0].content.parts[0].text;
-        } catch (e) {
-            throw new Error("Unexpected Gemini response format");
-        }
+        throw lastError;
     }
 
     // Gemini embedding support could be added here if needed, 
     // but for now leaving as undefined or throwing not supported
     async embedQuery(text: string): Promise<number[]> {
+        void text;
         throw new Error("Embedding text is not yet implemented for GeminiProvider in this context");
     }
 }

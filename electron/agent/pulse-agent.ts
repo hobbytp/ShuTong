@@ -1,7 +1,7 @@
-import { BaseMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { AIMessage, BaseMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { END, START, StateGraph } from "@langchain/langgraph";
 import { ChatOpenAI } from "@langchain/openai";
-import { getMergedLLMConfig } from "../config_manager";
+import { getLLMConfigForMain } from "../config_manager";
 import { vectorStorage } from "../storage/vector-storage";
 import { PulseState } from "./schema";
 
@@ -138,53 +138,254 @@ If the user asks specific questions, use the timestamps and details to answer ac
      * Uses 'PULSE_AGENT' role if available, or falls back to OpenAI default
      */
     private getLLMClient() {
-        const config = getMergedLLMConfig();
+        const config = getLLMConfigForMain();
 
-        // Try to find a suitable configuration
-        // Priority: PULSE_AGENT -> DEEP_THINKING -> OpenAI Provider
+        type ChatModel = {
+            invoke(messages: BaseMessage[]): Promise<BaseMessage>;
+        };
+
+        const toTextContent = (content: any) => {
+            if (typeof content === 'string') return content;
+            try {
+                return JSON.stringify(content);
+            } catch {
+                return String(content);
+            }
+        };
+
+        const toPrompt = (messages: BaseMessage[]) => {
+            return messages
+                .map(m => {
+                    const content = toTextContent((m as any).content);
+                    if (m instanceof SystemMessage) return `System: ${content}`;
+                    if (m instanceof HumanMessage) return `User: ${content}`;
+                    return `Assistant: ${content}`;
+                })
+                .join('\n\n');
+        };
+
+        const createGeminiNativeModel = (opts: { apiKey: string; model: string; temperature: number }): ChatModel => {
+            const apiKey = opts.apiKey;
+            const model = opts.model;
+            const temperature = opts.temperature;
+
+            const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+            const parseRetryAfterMs = (errText: string) => {
+                try {
+                    const parsed = JSON.parse(errText);
+                    const delay = parsed?.error?.details?.find((d: any) => typeof d?.retryDelay === 'string')?.retryDelay;
+                    if (typeof delay === 'string') {
+                        const m = delay.match(/(\d+(?:\.\d+)?)s/);
+                        if (m) return Math.ceil(Number(m[1]) * 1000);
+                    }
+                } catch {
+                    // ignore
+                }
+
+                const m1 = errText.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
+                if (m1) return Math.ceil(Number(m1[1]) * 1000);
+
+                const m2 = errText.match(/Please retry in\s+(\d+(?:\.\d+)?)s/i);
+                if (m2) return Math.ceil(Number(m2[1]) * 1000);
+
+                return null;
+            };
+
+            return {
+                async invoke(messages: BaseMessage[]) {
+                    const prompt = toPrompt(messages);
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+                    const payload = {
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: { temperature }
+                    };
+
+                    let lastError: any;
+                    const MAX_RETRIES = 3;
+
+                    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                        try {
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+                            const response = await fetch(url, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload),
+                                signal: controller.signal
+                            });
+
+                            clearTimeout(timeoutId);
+
+                            if (!response.ok) {
+                                const errText = await response.text();
+
+                                if (response.status === 429) {
+                                    const retryAfterHeader = response.headers.get('retry-after');
+                                    const retryAfterHeaderMs = retryAfterHeader ? Math.ceil(Number(retryAfterHeader) * 1000) : null;
+                                    const retryAfterMs = retryAfterHeaderMs ?? parseRetryAfterMs(errText) ?? (1000 * (attempt + 1));
+                                    await sleep(retryAfterMs);
+                                    continue;
+                                }
+
+                                throw new Error(`Gemini API Error ${response.status}: ${errText}`);
+                            }
+
+                            const data = await response.json();
+                            const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                            if (typeof text !== 'string') {
+                                throw new Error('Unexpected Gemini response format');
+                            }
+
+                            return new AIMessage(text);
+                        } catch (err: any) {
+                            lastError = err;
+                            const msg = String(err?.message || err);
+                            if (msg.startsWith('Gemini API Error')) throw err;
+                            await sleep(1000 * (attempt + 1));
+                        }
+                    }
+
+                    throw lastError;
+                }
+            };
+        };
+
+        const pickFirstModel = (provider: any): string | undefined => {
+            const models = provider?.models ? Object.keys(provider.models) : [];
+            return models.length > 0 ? models[0] : undefined;
+        };
+
+        const resolveModel = (providerName: string, requested: string | undefined): string => {
+            const provider = (config.providers as any)?.[providerName];
+            const fallback = pickFirstModel(provider) || 'gpt-4o';
+            if (!requested) return fallback;
+            if (provider?.models && !provider.models[requested]) {
+                console.warn(
+                    `[PulseAgent] Model "${requested}" not found in provider "${providerName}". Falling back to "${fallback}".`
+                );
+                return fallback;
+            }
+            return requested;
+        };
+
+        // Pulse is expected to use the user-selected PULSE_AGENT role.
+        // We only fall back to other roles/providers when PULSE_AGENT is not configured at all.
+        let selectedProviderName: string | undefined;
         let apiKey: string | undefined;
         let baseURL: string | undefined;
-        let modelName = "gpt-4o";
+        let modelName: string | undefined;
+        let temperature = 0.5;
 
-        // Check for role config
-        const role = config.roleConfigs?.['PULSE_AGENT'] || config.roleConfigs?.['DEEP_THINKING'];
-        if (role) {
-            const provider = config.providers[role.provider];
-            if (provider?.apiKey) {
+        let geminiNative: ChatModel | undefined;
+
+        const tryRole = (roleName: string): boolean => {
+            const role = (config.roleConfigs as any)?.[roleName];
+            if (!role) return false;
+            const provider = (config.providers as any)?.[role.provider];
+            if (!provider?.apiKey) {
+                if (roleName === 'PULSE_AGENT') {
+                    throw new Error(`LLM_API_KEY_MISSING:PULSE_AGENT:${role.provider}`);
+                }
+                return false;
+            }
+
+            if (role.provider === 'Google') {
+                selectedProviderName = role.provider;
+                console.log(
+                    `[PulseAgent] Using provider=Google (native) model=${role.model} env=${provider.apiKeyEnv} envPresent=${Boolean(process.env[provider.apiKeyEnv])}`
+                );
+                geminiNative = createGeminiNativeModel({
+                    apiKey: provider.apiKey,
+                    model: role.model,
+                    temperature: typeof role.temperature === 'number' ? role.temperature : temperature
+                });
+                return true;
+            }
+
+            if (!provider.openaiCompatible) {
+                if (roleName === 'PULSE_AGENT') {
+                    throw new Error(`LLM_PROVIDER_UNSUPPORTED:PULSE_AGENT:${role.provider}`);
+                }
+                console.warn(`[PulseAgent] Provider "${role.provider}" for role "${roleName}" is not supported; skipping.`);
+                return false;
+            }
+
+            selectedProviderName = role.provider;
+            apiKey = provider.apiKey;
+            baseURL = provider.apiBaseUrl;
+            modelName = resolveModel(role.provider, role.model);
+            temperature = typeof role.temperature === 'number' ? role.temperature : temperature;
+
+            let host = '';
+            try {
+                host = baseURL ? new URL(baseURL).host : '';
+            } catch {
+                host = '';
+            }
+            console.log(
+                `[PulseAgent] Using provider=${selectedProviderName} model=${modelName} baseURLHost=${host} env=${provider.apiKeyEnv} envPresent=${Boolean(process.env[provider.apiKeyEnv])}`
+            );
+            return true;
+        };
+
+        const hasPulseRole = Boolean((config.roleConfigs as any)?.PULSE_AGENT);
+        if (hasPulseRole) {
+            // Strict: if user configured PULSE_AGENT, do not silently fall back.
+            tryRole('PULSE_AGENT');
+        } else {
+            tryRole('DEEP_THINKING');
+        }
+
+        if (geminiNative) {
+            return geminiNative;
+        }
+
+        // Fallback to OpenAI provider
+        if (!apiKey) {
+            const providerName = 'OpenAI';
+            const provider = (config.providers as any)?.[providerName];
+            if (provider?.apiKey && provider.openaiCompatible) {
+                selectedProviderName = providerName;
                 apiKey = provider.apiKey;
                 baseURL = provider.apiBaseUrl;
-                modelName = role.model || modelName;
+                modelName = provider.models?.['gpt-4o'] ? 'gpt-4o' : resolveModel(providerName, undefined);
             }
         }
 
-        // Fallback to OpenAI direct
-        if (!apiKey && config.providers['OpenAI']?.apiKey) {
-            apiKey = config.providers['OpenAI'].apiKey;
-            baseURL = config.providers['OpenAI'].apiBaseUrl;
-            modelName = "gpt-4o";
-        }
-
-        // Fallback to any compatible provider
+        // Fallback to any openaiCompatible provider
         if (!apiKey) {
-            for (const [, provider] of Object.entries(config.providers)) {
-                if (provider.openaiCompatible && provider.hasKey && provider.apiKey) {
-                    apiKey = provider.apiKey;
-                    baseURL = provider.apiBaseUrl;
+            for (const [name, provider] of Object.entries(config.providers || {})) {
+                const anyProvider: any = provider;
+                if (anyProvider.openaiCompatible && anyProvider.apiKey) {
+                    selectedProviderName = name;
+                    apiKey = anyProvider.apiKey;
+                    baseURL = anyProvider.apiBaseUrl;
+                    modelName = resolveModel(name, undefined);
                     break;
                 }
             }
         }
 
         if (!apiKey) {
-            // Avoid triggering noisy 401s with a dummy key.
             throw new Error('LLM_API_KEY_MISSING');
         }
 
+        if (!selectedProviderName) {
+            selectedProviderName = 'Unknown';
+        }
+
+        if (!modelName) {
+            modelName = 'gpt-4o';
+        }
+
         return new ChatOpenAI({
-            openAIApiKey: apiKey,
+            apiKey,
             configuration: { baseURL },
-            modelName: modelName,
-            temperature: 0.5
+            modelName,
+            temperature
         });
     }
 
