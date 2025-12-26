@@ -3,9 +3,14 @@
 interface Window {
     ipcRenderer?: {
         invoke(channel: string, ...args: any[]): Promise<any>;
-        on(channel: string, func: (...args: any[]) => void): void;
+        on(channel: string, func: (...args: any[]) => void): () => void;
+        off(channel: string, func: (...args: any[]) => void): void;
         once(channel: string, func: (...args: any[]) => void): void;
         removeListener(channel: string, func: (...args: any[]) => void): void;
         send(channel: string, ...args: any[]): void;
+    };
+
+    videoAPI?: {
+        saveVideo(buffer: ArrayBuffer, filePath: string): Promise<void>;
     };
 }

@@ -67,6 +67,8 @@ describe('Video Renderer', () => {
         });
 
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
             blob: vi.fn().mockResolvedValue(new Blob())
         }));
 

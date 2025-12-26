@@ -29,7 +29,7 @@ export default defineConfig({
         vite: {
           build: {
             rollupOptions: {
-              external: ['better-sqlite3', '@lancedb/lancedb', 'get-windows'],
+              external: ['electron', 'better-sqlite3', '@lancedb/lancedb', 'get-windows'],
             },
           },
           resolve: {

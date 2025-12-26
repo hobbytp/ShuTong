@@ -107,6 +107,19 @@ export function initStorage() {
                 created_at INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_pulse_cards_created_at ON pulse_cards(created_at);
+
+            -- 7. Window Switches (Smart Capture Guard)
+            CREATE TABLE IF NOT EXISTS window_switches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp INTEGER NOT NULL,        -- Unix timestamp (seconds)
+                from_app TEXT,
+                from_title TEXT,
+                to_app TEXT NOT NULL,
+                to_title TEXT NOT NULL,
+                screenshot_id INTEGER,             -- FK to screenshots if captured
+                skip_reason TEXT                   -- Why capture was skipped (if any)
+            );
+            CREATE INDEX IF NOT EXISTS idx_window_switches_timestamp ON window_switches(timestamp);
         `);
 
         setupStorageIPC();
@@ -225,6 +238,96 @@ export function getLatestPulseCard(type: string): PulseCard | null {
     } catch (err) {
         console.error('Failed to get latest pulse card:', err);
         return null;
+    }
+}
+
+// --- Window Switch Events (Smart Capture Guard) ---
+
+export interface WindowSwitchRecord {
+    id?: number;
+    timestamp: number;
+    from_app: string | null;
+    from_title: string | null;
+    to_app: string;
+    to_title: string;
+    screenshot_id?: number | null;
+    skip_reason?: string | null;
+}
+
+/**
+ * Save a window switch event to the database.
+ */
+export function saveWindowSwitch(event: WindowSwitchRecord): number | null {
+    if (!db) return null;
+    try {
+        const stmt = db.prepare(`
+            INSERT INTO window_switches (timestamp, from_app, from_title, to_app, to_title, screenshot_id, skip_reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        const result = stmt.run(
+            event.timestamp,
+            event.from_app,
+            event.from_title,
+            event.to_app,
+            event.to_title,
+            event.screenshot_id || null,
+            event.skip_reason || null
+        );
+        return result.lastInsertRowid as number;
+    } catch (err) {
+        console.error('[Storage] Failed to save window switch:', err);
+        return null;
+    }
+}
+
+/**
+ * Get window switch events within a time range.
+ */
+export function getWindowSwitches(startTs: number, endTs: number, limit = 100): WindowSwitchRecord[] {
+    if (!db) return [];
+    try {
+        const stmt = db.prepare(`
+            SELECT * FROM window_switches
+            WHERE timestamp >= ? AND timestamp <= ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+        `);
+        return stmt.all(startTs, endTs, limit) as WindowSwitchRecord[];
+    } catch (err) {
+        console.error('[Storage] Failed to get window switches:', err);
+        return [];
+    }
+}
+
+/**
+ * Get dwell time statistics for windows in a time range.
+ * Returns array of { app, title, dwell_seconds } sorted by dwell time.
+ */
+export function getWindowDwellStats(startTs: number, endTs: number): { app: string; total_seconds: number }[] {
+    if (!db) return [];
+    try {
+        // Calculate dwell time as difference between consecutive switches
+        const stmt = db.prepare(`
+            WITH ranked AS (
+                SELECT 
+                    to_app,
+                    timestamp,
+                    LEAD(timestamp) OVER (ORDER BY timestamp) as next_ts
+                FROM window_switches
+                WHERE timestamp >= ? AND timestamp <= ?
+            )
+            SELECT 
+                to_app as app,
+                SUM(COALESCE(next_ts, ?) - timestamp) as total_seconds
+            FROM ranked
+            WHERE to_app IS NOT NULL
+            GROUP BY to_app
+            ORDER BY total_seconds DESC
+        `);
+        return stmt.all(startTs, endTs, endTs) as { app: string; total_seconds: number }[];
+    } catch (err) {
+        console.error('[Storage] Failed to get window dwell stats:', err);
+        return [];
     }
 }
 

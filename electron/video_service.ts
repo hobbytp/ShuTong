@@ -32,45 +32,119 @@ export function createVideoGenerationWindow() {
         console.log('[VideoService] Video generator window loaded');
     });
     
-    videoWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    videoWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
         console.error('[VideoService] Failed to load video generator:', errorCode, errorDescription);
     });
 }
 
-export function generateVideo(images: string[], outputPath: string, durationPerFrame: number = 0.5): Promise<string> {
+export function resetVideoServiceState() {
+    videoWindow = null;
+    requestQueue.length = 0;
+    isProcessing = false;
+}
+
+function replaceExtension(filePath: string, newExtension: string) {
+    const normalizedExt = newExtension.startsWith('.') ? newExtension : `.${newExtension}`;
+    return filePath.replace(/\.[^.\\/]+$/, normalizedExt);
+}
+
+const requestQueue: Array<() => Promise<void>> = [];
+let isProcessing = false;
+
+export function generateVideo(
+    images: string[],
+    outputPath: string,
+    durationPerFrame: number = 0.5,
+    outputFormat: 'mp4' | 'webm' = 'mp4'
+): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const task = async () => {
+            try {
+                const result = await executeVideoGeneration(images, outputPath, durationPerFrame, outputFormat);
+                resolve(result);
+            } catch (error) {
+                reject(error);
+            }
+        };
+        
+        requestQueue.push(task);
+        processNextTask();
+    });
+}
+
+async function processNextTask() {
+    if (isProcessing || requestQueue.length === 0) return;
+    isProcessing = true;
+    
+    const task = requestQueue.shift();
+    if (task) {
+        try {
+            await task();
+        } catch (err) {
+            console.error('[VideoService] Task failed:', err);
+        } finally {
+            isProcessing = false;
+            // Add a small delay to allow cleanup/GC if needed
+            setTimeout(processNextTask, 100);
+        }
+    } else {
+        isProcessing = false;
+    }
+}
+
+function executeVideoGeneration(
+    images: string[],
+    outputPath: string,
+    durationPerFrame: number,
+    outputFormat: 'mp4' | 'webm'
+): Promise<string> {
     return new Promise((resolve, reject) => {
         if (!videoWindow || videoWindow.isDestroyed()) {
             createVideoGenerationWindow();
         }
         
-        // Wait for window to be ready if it's loading?
-        // For now assume it's fast enough or we can queue.
-        // Ideally we should wait for 'did-finish-load' if it's new.
-        
         const requestId = Date.now().toString() + Math.random().toString().slice(2, 5);
+        const timeoutMs = 5 * 60 * 1000; // 5 minutes timeout
+
+        const timeoutTimer = setTimeout(() => {
+            cleanup();
+            reject(new Error('Video generation timed out'));
+        }, timeoutMs);
         
-        const onComplete = (event: any, data: any) => {
+        const onComplete = (_event: any, data: any) => {
             if (data.requestId === requestId) {
                 cleanup();
                 resolve(data.outputPath);
             }
         };
         
-        const onError = (event: any, data: any) => {
-             if (data.requestId === requestId) {
-                cleanup();
-                reject(new Error(data.error));
+        const onError = (_event: any, data: any) => {
+            if (data.requestId !== requestId) return;
+
+            const errorMessage = String(data?.error ?? 'Video generation failed');
+            cleanup();
+
+            if (outputFormat === 'mp4' && /H\.264 not supported/i.test(errorMessage)) {
+                console.warn('[VideoService] H.264 not supported, falling back to WebM');
+                const fallbackPath = replaceExtension(outputPath, '.webm');
+                // Re-queue as a new task
+                generateVideo(images, fallbackPath, durationPerFrame, 'webm')
+                    .then(resolve)
+                    .catch(reject);
+                return;
             }
+
+            reject(new Error(errorMessage));
         };
 
-        const onProgress = (event: any, data: any) => {
+        const onProgress = (_event: any, data: any) => {
             if (data.requestId === requestId) {
                 // Optional: emit progress event to main app
-                // console.log(`[VideoService] Progress: ${data.progress}`);
             }
         }
         
         const cleanup = () => {
+            clearTimeout(timeoutTimer);
             ipcMain.removeListener('video-generated', onComplete);
             ipcMain.removeListener('video-error', onError);
             ipcMain.removeListener('video-progress', onProgress);
@@ -80,25 +154,21 @@ export function generateVideo(images: string[], outputPath: string, durationPerF
         ipcMain.on('video-error', onError);
         ipcMain.on('video-progress', onProgress);
         
+        const sendParams = {
+            requestId,
+            images,
+            durationPerFrame,
+            outputFormat,
+            outputPath
+        };
+
         // Ensure window is ready
         if (videoWindow?.webContents.isLoading()) {
              videoWindow.webContents.once('did-finish-load', () => {
-                 videoWindow?.webContents.send('generate-video', {
-                    requestId,
-                    images,
-                    durationPerFrame,
-                    outputFormat: 'mp4',
-                    outputPath
-                });
+                 videoWindow?.webContents.send('generate-video', sendParams);
              });
         } else {
-            videoWindow?.webContents.send('generate-video', {
-                requestId,
-                images,
-                durationPerFrame,
-                outputFormat: 'mp4',
-                outputPath
-            });
+            videoWindow?.webContents.send('generate-video', sendParams);
         }
     });
 }

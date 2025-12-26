@@ -46,13 +46,13 @@ export async function generateCardVideo(cardId: number): Promise<string | null> 
 
         const imagePaths = validScreenshots.map(s => s.file_path);
         
-        await generateVideo(imagePaths, outputVideoPath, durationPerFrame);
+        const generatedVideoPath = await generateVideo(imagePaths, outputVideoPath, durationPerFrame);
         
-        console.log(`[Video] Generated: ${outputVideoPath}`);
-        const normalizedPath = outputVideoPath.replace(/\\/g, '/');
+        console.log(`[Video] Generated: ${generatedVideoPath}`);
+        const normalizedPath = generatedVideoPath.replace(/\\/g, '/');
         updateCardVideoUrl(cardId, `media:///${normalizedPath}`);
         
-        return outputVideoPath;
+        return generatedVideoPath;
 
     } catch (err) {
         console.error('[Video] Failed to generate video:', err);

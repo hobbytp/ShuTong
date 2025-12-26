@@ -1,11 +1,16 @@
 import { app, desktopCapturer, ipcMain } from 'electron';
 import fs from 'fs';
 import path from 'path';
+import {
+    notifyWindowChange,
+    shouldSkipCapture
+} from './capture-guard';
 import { getSetting, saveScreenshot } from './storage';
 
 let captureInterval: NodeJS.Timeout | null = null;
 let isRecording = false;
 let currentIntervalMs = 1000; // Track current interval for dynamic updates
+let lastCapturedWindowApp: string | null = null;
 
 interface CaptureConfig {
     interval: number;
@@ -214,6 +219,28 @@ export function startRecording() {
     app.emit('recording-changed', true);
     console.log('[ShuTong] Started recording');
 
+    // Initialize Smart Capture Guard
+    initCaptureGuard();
+
+    // Set up window switch event handler to persist events
+    onWindowSwitch((event) => {
+        saveWindowSwitch({
+            timestamp: event.timestamp,
+            from_app: event.from_app,
+            from_title: event.from_title,
+            to_app: event.to_app,
+            to_title: event.to_title,
+            skip_reason: null
+        });
+        console.log(`[ShuTong] Window switch: ${event.from_app || 'null'} -> ${event.to_app}`);
+    });
+
+    // Set up debounced capture callback (triggers capture after window switch settles)
+    onDebouncedCapture(() => {
+        const config = getCaptureConfig();
+        captureFrame(config);
+    });
+
     const config = getCaptureConfig();
     currentIntervalMs = config.interval;
     captureFrame(config);
@@ -245,6 +272,9 @@ export function stopRecording() {
         clearInterval(captureInterval);
         captureInterval = null;
     }
+    // Clear any pending debounced window captures
+    clearPendingWindowCapture();
+    lastCapturedWindowApp = null;
     console.log('[ShuTong] Stopped recording');
 }
 
@@ -262,10 +292,30 @@ async function captureFrame(config: CaptureConfig) {
             return;
         }
 
-        // Privacy filter check
+        // Get active window info for all checks
         const activeWindow = await getActiveWindow();
+        const currentApp = activeWindow?.owner.name || null;
+        const currentTitle = activeWindow?.title || '';
+
+        // Smart Capture Guard: Check if we should skip this capture
+        const skipReason = shouldSkipCapture(currentApp || undefined);
+        if (skipReason) {
+            // If it's a window switch, still log the event even though we skip capture
+            if (currentApp && currentApp !== lastCapturedWindowApp) {
+                notifyWindowChange(currentApp, currentTitle);
+            }
+            return; // Skip this frame due to guard condition
+        }
+
+        // Privacy filter check (existing exclusion logic)
         if (shouldExcludeWindow(activeWindow, config.excludedApps, config.excludedTitlePatterns)) {
             return; // Skip this frame
+        }
+
+        // Detect window change for event tracking
+        if (currentApp && currentApp !== lastCapturedWindowApp) {
+            notifyWindowChange(currentApp, currentTitle);
+            lastCapturedWindowApp = currentApp;
         }
 
         let jpeg: Buffer;

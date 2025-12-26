@@ -1,23 +1,6 @@
 import { Muxer as MP4Muxer, ArrayBufferTarget as MP4ArrayBufferTarget } from 'mp4-muxer';
 import { Muxer as WebMMuxer, ArrayBufferTarget as WebMArrayBufferTarget } from 'webm-muxer';
 
-// Define types for exposed APIs
-interface IpcRenderer {
-    on(channel: string, listener: (event: any, ...args: any[]) => void): () => void;
-    send(channel: string, ...args: any[]): void;
-}
-
-interface VideoAPI {
-    saveVideo(buffer: ArrayBuffer, filePath: string): Promise<void>;
-}
-
-declare global {
-    interface Window {
-        ipcRenderer: IpcRenderer;
-        videoAPI: VideoAPI;
-    }
-}
-
 export async function generateVideoFromImages({ requestId, images, durationPerFrame, outputFormat, outputPath }: {
     requestId: string;
     images: string[];
@@ -26,6 +9,21 @@ export async function generateVideoFromImages({ requestId, images, durationPerFr
     outputPath: string;
 }) {
     try {
+        const ipc = window.ipcRenderer;
+        const videoAPI = window.videoAPI;
+        if (!ipc) {
+            console.error('Video generation failed: ipcRenderer not available');
+            return;
+        }
+        if (!videoAPI) {
+            ipc.send('video-error', { requestId, error: 'videoAPI not available' });
+            return;
+        }
+        if (!Array.isArray(images) || images.length === 0) {
+            ipc.send('video-error', { requestId, error: 'No images provided' });
+            return;
+        }
+
         console.log('Starting video generation', { requestId, imagesCount: images.length, outputFormat, outputPath });
         
         const width = 1920; 
@@ -109,6 +107,9 @@ export async function generateVideoFromImages({ requestId, images, durationPerFr
             const imageUrl = `local-file://${imagePath}`;
             
             const response = await fetch(imageUrl);
+            if (!response.ok) {
+                throw new Error(`Failed to load image (${response.status}): ${imagePath}`);
+            }
             const blob = await response.blob();
             const bitmap = await createImageBitmap(blob);
             
@@ -137,7 +138,7 @@ export async function generateVideoFromImages({ requestId, images, durationPerFr
                 frameIndex++;
                 
                 if (frameIndex % 10 === 0) {
-                    window.ipcRenderer.send('video-progress', { requestId, progress: frameIndex / totalFrames });
+                    ipc.send('video-progress', { requestId, progress: frameIndex / totalFrames });
                 }
             }
             
@@ -148,16 +149,16 @@ export async function generateVideoFromImages({ requestId, images, durationPerFr
         muxer.finalize();
         
         const buffer = muxer.target.buffer;
-        await window.videoAPI.saveVideo(buffer, outputPath);
+        await videoAPI.saveVideo(buffer, outputPath);
         
-        window.ipcRenderer.send('video-generated', { requestId, outputPath });
+        ipc.send('video-generated', { requestId, outputPath });
 
     } catch (error: any) {
         console.error('Video generation failed', error);
-        window.ipcRenderer.send('video-error', { requestId, error: error.message });
+        window.ipcRenderer?.send('video-error', { requestId, error: error.message });
     }
 }
 
 if (typeof window !== 'undefined' && window.ipcRenderer) {
-    window.ipcRenderer.on('generate-video', (event, params) => generateVideoFromImages(params));
+    window.ipcRenderer.on('generate-video', (_event, params) => generateVideoFromImages(params));
 }
