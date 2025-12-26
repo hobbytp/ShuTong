@@ -183,6 +183,70 @@ async function startApp() {
       }
     });
 
+    // Phase 8: Pulse Research Proposals (v1)
+    ipcMain.handle('generate-research-proposal', async () => {
+      try {
+        const { generateResearchProposalCard } = await import('./research/pulse-research');
+        const { getPulseCardById } = await import('./storage');
+        const result = await generateResearchProposalCard();
+        if ('error' in result) return { success: false, error: result.error };
+        const card = getPulseCardById(result.cardId);
+        return { success: true, card };
+      } catch (err: any) {
+        console.error('[Main] Failed to generate research proposal:', err);
+        return { success: false, error: err.message };
+      }
+    });
+
+    ipcMain.handle('dismiss-research-proposal', async (_evt, cardId: string) => {
+      try {
+        const { dismissResearchProposal } = await import('./research/pulse-research');
+        const result = await dismissResearchProposal(cardId);
+        if ('error' in result) return { success: false, error: result.error };
+        return { success: true };
+      } catch (err: any) {
+        console.error('[Main] Failed to dismiss proposal:', err);
+        return { success: false, error: err.message };
+      }
+    });
+
+    ipcMain.handle('start-research-from-proposal', async (_evt, payload: { cardId: string; mode: 'auto' | 'fast' | 'deep' }) => {
+      try {
+        const { startResearchFromProposal } = await import('./research/pulse-research');
+        const result = await startResearchFromProposal(payload.cardId, payload.mode);
+        if ('error' in result) return { success: false, error: result.error };
+        return { success: true, deliverableCardIds: result.deliverableCardIds };
+      } catch (err: any) {
+        console.error('[Main] Failed to start research from proposal:', err);
+        return { success: false, error: err.message };
+      }
+    });
+
+    // Save Gate: Save or Discard deliverable cards
+    ipcMain.handle('save-deliverable', async (_evt, cardId: string) => {
+      try {
+        const { saveDeliverable } = await import('./research/pulse-research');
+        const result = await saveDeliverable(cardId);
+        if ('error' in result) return { success: false, error: result.error };
+        return { success: true };
+      } catch (err: any) {
+        console.error('[Main] Failed to save deliverable:', err);
+        return { success: false, error: err.message };
+      }
+    });
+
+    ipcMain.handle('discard-deliverable', async (_evt, cardId: string) => {
+      try {
+        const { discardDeliverable } = await import('./research/pulse-research');
+        const result = await discardDeliverable(cardId);
+        if ('error' in result) return { success: false, error: result.error };
+        return { success: true };
+      } catch (err: any) {
+        console.error('[Main] Failed to discard deliverable:', err);
+        return { success: false, error: err.message };
+      }
+    });
+
     // Phase 3: Pulse Agent
     ipcMain.handle('ask-pulse', async (_, question: string) => {
       try {

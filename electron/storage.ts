@@ -168,6 +168,48 @@ export function getPulseCards(limit = 50): PulseCard[] {
     }
 }
 
+export function getPulseCardById(id: string): PulseCard | null {
+    if (!db) return null;
+    try {
+        const stmt = db.prepare(`
+            SELECT * FROM pulse_cards WHERE id = ? LIMIT 1
+        `);
+        const row = stmt.get(id) as any;
+        if (!row) return null;
+        return {
+            ...row,
+            suggested_actions: JSON.parse(row.suggested_actions || '[]')
+        };
+    } catch (err) {
+        console.error('Failed to get pulse card by id:', err);
+        return null;
+    }
+}
+
+export function updatePulseCard(card: Pick<PulseCard, 'id'> & Partial<Omit<PulseCard, 'id'>>) {
+    if (!db) return false;
+    try {
+        const existing = getPulseCardById(card.id);
+        if (!existing) return false;
+
+        const title = card.title ?? existing.title;
+        const content = card.content ?? existing.content;
+        const suggestedActions = card.suggested_actions ?? existing.suggested_actions;
+        const createdAt = card.created_at ?? existing.created_at;
+
+        const stmt = db.prepare(`
+            UPDATE pulse_cards
+            SET title = ?, content = ?, suggested_actions = ?, created_at = ?
+            WHERE id = ?
+        `);
+        stmt.run(title, content, JSON.stringify(suggestedActions || []), createdAt, card.id);
+        return true;
+    } catch (err) {
+        console.error('Failed to update pulse card:', err);
+        return false;
+    }
+}
+
 export function getLatestPulseCard(type: string): PulseCard | null {
     if (!db) return null;
     try {
