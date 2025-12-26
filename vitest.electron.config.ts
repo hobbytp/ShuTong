@@ -1,12 +1,11 @@
 /// <reference types="vitest" />
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
     test: {
         globals: true,
-        environment: 'jsdom',
-        setupFiles: './tests/setup.ts',
-        include: ['**/*.test.ts', '**/*.test.tsx'],
+        environment: 'node',
+        include: ['tests/unit/**/*.{test,spec}.{js,ts,tsx}'],
     },
     resolve: {
         extensions: ['.ts', '.tsx', '.js', '.jsx', '.json']

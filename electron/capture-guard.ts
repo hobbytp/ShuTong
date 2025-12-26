@@ -9,7 +9,7 @@
  * - Window switch event tracking with debounce
  */
 
-import { powerMonitor, app } from 'electron';
+import { powerMonitor } from 'electron';
 
 // --- Types ---
 
@@ -19,6 +19,13 @@ export interface CaptureGuardSettings {
     blacklistedApps: string[];             // Default: ["1Password", "KeePass", "Bitwarden"]
     enableIdleDetection: boolean;          // Default: true
     enableLockDetection: boolean;          // Default: true
+    // Power-Aware Capture (v2)
+    enableBatteryMode: boolean;            // Default: true
+    batteryModeIntervalMultiplier: number; // Default: 2.0
+    criticalBatteryThreshold: number;      // Default: 20 (percent)
+    // Whitelist Mode (v2)
+    enableWhitelistMode: boolean;          // Default: false
+    whitelistedApps: string[];             // Default: []
 }
 
 export interface WindowSwitchEvent {
@@ -30,23 +37,55 @@ export interface WindowSwitchEvent {
     screenshot_id?: number;  // FK to screenshots if captured
 }
 
-export type CaptureSkipReason = 
+export type CaptureSkipReason =
     | 'idle'
     | 'locked'
     | 'suspended'
     | 'blacklisted'
     | 'similar_frame'
+    | 'low_battery'
+    | 'not_whitelisted'
     | null;
+
+// Skip log entry for Guard Status Visibility (v2)
+export interface SkipLogEntry {
+    timestamp: number;      // Unix timestamp in seconds
+    reason: CaptureSkipReason;
+    appName?: string;       // App that was active when skipped
+}
+
+// Guard statistics for status visibility
+export interface GuardStatistics {
+    totalCaptures: number;
+    totalSkips: number;
+    skipsByReason: Record<string, number>;
+    lastSkipTime: number | null;
+    lastSkipReason: CaptureSkipReason;
+}
 
 // --- State ---
 
 let isScreenLocked = false;
 let isSystemSuspended = false;
+let isOnBatteryPower = false;
 let lastWindowApp: string | null = null;
 let lastWindowTitle: string | null = null;
 let pendingWindowCapture: NodeJS.Timeout | null = null;
 let windowSwitchCallback: ((event: WindowSwitchEvent) => void) | null = null;
 let debouncedCaptureCallback: (() => void) | null = null;
+
+// Skip log (circular buffer, max 100 entries)
+const MAX_SKIP_LOG_SIZE = 100;
+let skipLog: SkipLogEntry[] = [];
+
+// Guard statistics
+let guardStats: GuardStatistics = {
+    totalCaptures: 0,
+    totalSkips: 0,
+    skipsByReason: {},
+    lastSkipTime: null,
+    lastSkipReason: null
+};
 
 // Default settings
 let guardSettings: CaptureGuardSettings = {
@@ -54,7 +93,12 @@ let guardSettings: CaptureGuardSettings = {
     windowSwitchDebounceMs: 2000,
     blacklistedApps: ['1Password', 'KeePass', 'Bitwarden', 'LastPass'],
     enableIdleDetection: true,
-    enableLockDetection: true
+    enableLockDetection: true,
+    enableBatteryMode: true,
+    batteryModeIntervalMultiplier: 2.0,
+    criticalBatteryThreshold: 20,
+    enableWhitelistMode: false,
+    whitelistedApps: []
 };
 
 // --- Initialization ---
@@ -93,6 +137,17 @@ export function initCaptureGuard(settings?: Partial<CaptureGuardSettings>) {
     powerMonitor.on('resume', () => {
         isSystemSuspended = false;
         console.log('[CaptureGuard] System resumed - resuming capture');
+    });
+
+    // Battery power detection (Power-Aware Capture v2)
+    powerMonitor.on('on-battery', () => {
+        isOnBatteryPower = true;
+        console.log('[CaptureGuard] Switched to battery power - may throttle captures');
+    });
+
+    powerMonitor.on('on-ac', () => {
+        isOnBatteryPower = false;
+        console.log('[CaptureGuard] Switched to AC power - normal capture rate');
     });
 
     console.log('[CaptureGuard] Initialized with settings:', guardSettings);
@@ -143,6 +198,13 @@ export function shouldSkipCapture(activeAppName?: string): CaptureSkipReason {
         return 'blacklisted';
     }
 
+    // Check whitelist mode - if enabled, skip apps that are NOT on the whitelist
+    if (guardSettings.enableWhitelistMode && activeAppName) {
+        if (!isAppWhitelisted(activeAppName)) {
+            return 'not_whitelisted';
+        }
+    }
+
     return null;
 }
 
@@ -153,6 +215,19 @@ export function isAppBlacklisted(appName: string): boolean {
     const normalizedName = appName.toLowerCase().replace(/\.exe$/i, '');
     return guardSettings.blacklistedApps.some(
         blacklisted => normalizedName.includes(blacklisted.toLowerCase())
+    );
+}
+
+/**
+ * Check if an app is in the whitelist (for whitelist mode).
+ */
+export function isAppWhitelisted(appName: string): boolean {
+    if (guardSettings.whitelistedApps.length === 0) {
+        return false; // No apps whitelisted means nothing passes
+    }
+    const normalizedName = appName.toLowerCase().replace(/\.exe$/i, '');
+    return guardSettings.whitelistedApps.some(
+        whitelisted => normalizedName.includes(whitelisted.toLowerCase())
     );
 }
 
@@ -219,7 +294,7 @@ export function notifyWindowChange(appName: string, windowTitle: string) {
             // Only trigger if we're still on the same window
             if (appName === lastWindowApp && windowTitle === lastWindowTitle) {
                 console.log(`[CaptureGuard] Debounced capture triggered for: ${appName}`);
-                debouncedCaptureCallback();
+                if (debouncedCaptureCallback) debouncedCaptureCallback();
             }
         }, guardSettings.windowSwitchDebounceMs);
     }
@@ -251,4 +326,102 @@ export function getIdleTime(): number {
 
 export function getLastWindow(): { app: string | null; title: string | null } {
     return { app: lastWindowApp, title: lastWindowTitle };
+}
+
+// --- Power-Aware Capture (v2) ---
+
+/**
+ * Check if device is currently running on battery power.
+ */
+export function isOnBattery(): boolean {
+    return isOnBatteryPower;
+}
+
+/**
+ * Get the interval multiplier based on current power state.
+ * Returns 1.0 when on AC power, or the configured multiplier when on battery.
+ */
+export function getIntervalMultiplier(): number {
+    if (!guardSettings.enableBatteryMode) {
+        return 1.0;
+    }
+    return isOnBatteryPower ? guardSettings.batteryModeIntervalMultiplier : 1.0;
+}
+
+/**
+ * Check if device is in critical battery state (should pause capture).
+ * Note: Electron's powerMonitor doesn't directly expose battery level,
+ * so this needs to be called with the current battery percentage.
+ */
+export function shouldPauseForLowBattery(batteryPercent: number): boolean {
+    if (!guardSettings.enableBatteryMode) {
+        return false;
+    }
+    return isOnBatteryPower && batteryPercent < guardSettings.criticalBatteryThreshold;
+}
+
+// --- Guard Status Visibility (v2) ---
+
+/**
+ * Record a skip event for statistics and logging.
+ * Called when a capture is skipped for any reason.
+ */
+export function recordSkip(reason: CaptureSkipReason, appName?: string): void {
+    if (!reason) return;
+
+    const now = Math.floor(Date.now() / 1000);
+
+    // Update statistics
+    guardStats.totalSkips++;
+    guardStats.lastSkipTime = now;
+    guardStats.lastSkipReason = reason;
+    guardStats.skipsByReason[reason] = (guardStats.skipsByReason[reason] || 0) + 1;
+
+    // Add to skip log (circular buffer)
+    const entry: SkipLogEntry = { timestamp: now, reason, appName };
+    skipLog.push(entry);
+    if (skipLog.length > MAX_SKIP_LOG_SIZE) {
+        skipLog.shift();
+    }
+
+    console.log(`[CaptureGuard] Skip recorded: ${reason}${appName ? ` (${appName})` : ''}`);
+}
+
+/**
+ * Record a successful capture for statistics.
+ */
+export function recordCapture(): void {
+    guardStats.totalCaptures++;
+}
+
+/**
+ * Get current guard statistics.
+ */
+export function getGuardStats(): GuardStatistics {
+    return { ...guardStats, skipsByReason: { ...guardStats.skipsByReason } };
+}
+
+/**
+ * Get recent skip log entries.
+ * @param limit Maximum number of entries to return (default: all)
+ */
+export function getSkipLog(limit?: number): SkipLogEntry[] {
+    if (limit && limit > 0) {
+        return skipLog.slice(-limit);
+    }
+    return [...skipLog];
+}
+
+/**
+ * Reset guard statistics and skip log.
+ */
+export function resetGuardStats(): void {
+    guardStats = {
+        totalCaptures: 0,
+        totalSkips: 0,
+        skipsByReason: {},
+        lastSkipTime: null,
+        lastSkipReason: null
+    };
+    skipLog = [];
 }

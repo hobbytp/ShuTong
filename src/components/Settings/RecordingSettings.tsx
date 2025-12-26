@@ -12,6 +12,13 @@ interface RecordingConfig {
     excluded_apps: string[];
     excluded_title_patterns: string[];
     min_disk_space_gb: number;
+    // Smart Capture Guard
+    guard_idle_threshold: number;
+    guard_enable_idle_detection: boolean;
+    guard_enable_lock_detection: boolean;
+    guard_debounce_ms: number;
+    // Frame Deduplication
+    dedup_enable: boolean;
 }
 
 const RESOLUTION_OPTIONS = [
@@ -38,6 +45,11 @@ export function RecordingSettings() {
         excluded_apps: [],
         excluded_title_patterns: [],
         min_disk_space_gb: 1,
+        guard_idle_threshold: 30,
+        guard_enable_idle_detection: true,
+        guard_enable_lock_detection: true,
+        guard_debounce_ms: 2000,
+        dedup_enable: true,
     });
     const [screens, setScreens] = useState<{ id: number; name: string }[]>([]);
     const [excludedAppsText, setExcludedAppsText] = useState('');
@@ -82,6 +94,11 @@ export function RecordingSettings() {
                 excluded_apps: safeParse(settings.excluded_apps, []),
                 excluded_title_patterns: safeParse(settings.excluded_title_patterns, []),
                 min_disk_space_gb: parseFloat(settings.min_disk_space_gb) || 1,
+                guard_idle_threshold: parseInt(settings.guard_idle_threshold) || 30,
+                guard_enable_idle_detection: settings.guard_enable_idle_detection !== 'false',
+                guard_enable_lock_detection: settings.guard_enable_lock_detection !== 'false',
+                guard_debounce_ms: parseInt(settings.guard_debounce_ms) || 2000,
+                dedup_enable: settings.dedup_enable !== 'false',
             });
 
             setExcludedAppsText(safeParse(settings.excluded_apps, []).join('\n'));
@@ -317,10 +334,123 @@ export function RecordingSettings() {
                 </div>
             </div>
 
+            {/* Smart Capture Guard */}
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
+                <h3 className="text-lg font-bold text-zinc-100 mb-6 flex items-center gap-2">
+                    <Shield size={20} className="text-blue-400" />
+                    Smart Capture Guard
+                </h3>
+
+                <div className="space-y-6">
+                    {/* Idle Detection */}
+                    <div className="flex items-center justify-between p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
+                        <div className="flex items-center gap-4">
+                            <div>
+                                <div className="text-sm font-medium text-zinc-200">System Idle Threshold</div>
+                                <div className="text-xs text-zinc-500">Pause recording after seconds of inactivity</div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="w-20">
+                                <Input
+                                    type="number"
+                                    min="5"
+                                    max="300"
+                                    step="5"
+                                    value={String(config.guard_idle_threshold)}
+                                    onChange={(e) => updateSetting('guard_idle_threshold', parseInt(e.target.value))}
+                                />
+                            </div>
+                            <span className="text-sm text-zinc-500">sec</span>
+                        </div>
+                    </div>
+
+                    {/* Idle Detection Toggle */}
+                    <div className="flex items-center justify-between p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
+                        <div className="flex items-center gap-4">
+                            <div>
+                                <div className="text-sm font-medium text-zinc-200">Pause When Idle</div>
+                                <div className="text-xs text-zinc-500">Skip captures when system is inactive</div>
+                            </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={config.guard_enable_idle_detection}
+                                onChange={(e) => updateSetting('guard_enable_idle_detection', e.target.checked)}
+                                className="sr-only peer"
+                            />
+                            <div className="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                        </label>
+                    </div>
+
+                    {/* Lock Screen Detection */}
+                    <div className="flex items-center justify-between p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
+                        <div className="flex items-center gap-4">
+                            <div>
+                                <div className="text-sm font-medium text-zinc-200">Pause on Lock Screen</div>
+                                <div className="text-xs text-zinc-500">Automatically pause when screen is locked or sleeping</div>
+                            </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={config.guard_enable_lock_detection}
+                                onChange={(e) => updateSetting('guard_enable_lock_detection', e.target.checked)}
+                                className="sr-only peer"
+                            />
+                            <div className="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                        </label>
+                    </div>
+
+                    {/* Window Switch Debounce */}
+                    <div className="flex items-center justify-between p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
+                        <div className="flex items-center gap-4">
+                            <div>
+                                <div className="text-sm font-medium text-zinc-200">Window Switch Delay</div>
+                                <div className="text-xs text-zinc-500">Wait before capturing new active window (avoids Alt+Tab spam)</div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="w-24">
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    max="5000"
+                                    step="100"
+                                    value={String(config.guard_debounce_ms)}
+                                    onChange={(e) => updateSetting('guard_debounce_ms', parseInt(e.target.value))}
+                                />
+                            </div>
+                            <span className="text-sm text-zinc-500">ms</span>
+                        </div>
+                    </div>
+
+                    {/* Similar Frame Deduplication */}
+                    <div className="flex items-center justify-between p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
+                        <div className="flex items-center gap-4">
+                            <div>
+                                <div className="text-sm font-medium text-zinc-200">Skip Similar Frames</div>
+                                <div className="text-xs text-zinc-500">Avoid storing redundant screenshots when screen is static</div>
+                            </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={config.dedup_enable}
+                                onChange={(e) => updateSetting('dedup_enable', e.target.checked)}
+                                className="sr-only peer"
+                            />
+                            <div className="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
             {/* Privacy Filters */}
             <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
                 <h3 className="text-lg font-bold text-zinc-100 mb-6 flex items-center gap-2">
-                    <Shield size={20} className="text-emerald-400" />
+                    <EyeOff size={20} className="text-emerald-400" />
                     Privacy Filters
                 </h3>
 

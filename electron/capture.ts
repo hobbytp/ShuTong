@@ -2,10 +2,23 @@ import { app, desktopCapturer, ipcMain } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import {
+    clearPendingWindowCapture,
+    getIntervalMultiplier,
+    initCaptureGuard,
     notifyWindowChange,
-    shouldSkipCapture
+    onDebouncedCapture,
+    onWindowSwitch,
+    recordCapture,
+    recordSkip,
+    shouldSkipCapture,
+    updateGuardSettings
 } from './capture-guard';
-import { getSetting, saveScreenshot } from './storage';
+import {
+    isFrameSimilar,
+    resetLastFrame,
+    updateDedupSettings
+} from './frame-dedup';
+import { getSetting, saveScreenshot, saveWindowSwitch } from './storage';
 
 let captureInterval: NodeJS.Timeout | null = null;
 let isRecording = false;
@@ -21,6 +34,16 @@ interface CaptureConfig {
     captureMode: 'screen' | 'window';
     excludedApps: string[];
     excludedTitlePatterns: string[];
+    guard: {
+        idleThreshold: number;
+        enableIdleDetection: boolean;
+        enableLockDetection: boolean;
+        debounceMs: number;
+    };
+    dedup: {
+        similarityThreshold: number;
+        enableSimilarityDedup: boolean;
+    };
 }
 
 interface ActiveWindowInfo {
@@ -42,6 +65,16 @@ function getCaptureConfig(): CaptureConfig {
     const excludedAppsStr = getSetting('excluded_apps');
     const excludedPatternsStr = getSetting('excluded_title_patterns');
 
+    // Smart Capture Guard Settings
+    const idleThresholdStr = getSetting('guard_idle_threshold');
+    const enableIdleStr = getSetting('guard_enable_idle_detection');
+    const lockDetectionStr = getSetting('guard_enable_lock_detection');
+    const debounceMsStr = getSetting('guard_debounce_ms');
+
+    // Frame Deduplication Settings
+    const similarityThresholdStr = getSetting('dedup_similarity_threshold');
+    const enableDedupStr = getSetting('dedup_enable');
+
     const [width, height] = (resolutionStr || '1920x1080').split('x').map(Number);
 
     let excludedApps: string[] = [];
@@ -51,6 +84,14 @@ function getCaptureConfig(): CaptureConfig {
         if (excludedPatternsStr) excludedPatterns = JSON.parse(excludedPatternsStr);
     } catch { /* ignore parse errors */ }
 
+    // Defaults
+    const idleThreshold = idleThresholdStr ? parseInt(idleThresholdStr) : 30;
+    const enableIdleDetection = enableIdleStr !== 'false'; // Default true
+    const enableLockDetection = lockDetectionStr !== 'false'; // Default true
+    const debounceMs = debounceMsStr ? parseInt(debounceMsStr) : 2000;
+    const similarityThreshold = similarityThresholdStr ? parseFloat(similarityThresholdStr) : 0.05;
+    const enableSimilarityDedup = enableDedupStr !== 'false'; // Default true
+
     return {
         interval: parseInt(intervalStr || '1000'),
         resolution: { width: width || 1920, height: height || 1080 },
@@ -59,7 +100,17 @@ function getCaptureConfig(): CaptureConfig {
         minDiskSpaceGB: parseFloat(minDiskSpaceStr || '1'),
         captureMode: (captureModeStr as 'screen' | 'window') || 'screen',
         excludedApps,
-        excludedTitlePatterns: excludedPatterns
+        excludedTitlePatterns: excludedPatterns,
+        guard: {
+            idleThreshold,
+            enableIdleDetection,
+            enableLockDetection,
+            debounceMs
+        },
+        dedup: {
+            similarityThreshold,
+            enableSimilarityDedup
+        }
     };
 }
 
@@ -153,7 +204,7 @@ function findMatchingSource(
 ): Electron.DesktopCapturerSource | null {
     // Strategy 1: Match by window ID (format: "window:123:0" on some platforms)
     if (activeWindow.id) {
-        const idMatch = sources.find(s => s.id.includes(`:${activeWindow.id}:`));
+        const idMatch = sources.find(s => s.id.includes(`:${activeWindow.id}: `));
         if (idMatch) return idMatch;
     }
 
@@ -219,8 +270,22 @@ export function startRecording() {
     app.emit('recording-changed', true);
     console.log('[ShuTong] Started recording');
 
-    // Initialize Smart Capture Guard
-    initCaptureGuard();
+    let lastConfig = getCaptureConfig();
+
+    // Initialize Smart Capture Guard with settings
+    initCaptureGuard({
+        idleThresholdSeconds: lastConfig.guard.idleThreshold,
+        windowSwitchDebounceMs: lastConfig.guard.debounceMs,
+        enableIdleDetection: lastConfig.guard.enableIdleDetection,
+        enableLockDetection: lastConfig.guard.enableLockDetection,
+        blacklistedApps: lastConfig.excludedApps // Reuse existing excluded apps list
+    });
+
+    // Initialize Frame Deduplication settings
+    updateDedupSettings({
+        similarityThreshold: lastConfig.dedup.similarityThreshold,
+        enableSimilarityDedup: lastConfig.dedup.enableSimilarityDedup
+    });
 
     // Set up window switch event handler to persist events
     onWindowSwitch((event) => {
@@ -232,7 +297,7 @@ export function startRecording() {
             to_title: event.to_title,
             skip_reason: null
         });
-        console.log(`[ShuTong] Window switch: ${event.from_app || 'null'} -> ${event.to_app}`);
+        console.log(`[ShuTong] Window switch: ${event.from_app || 'null'} -> ${event.to_app} `);
     });
 
     // Set up debounced capture callback (triggers capture after window switch settles)
@@ -241,16 +306,49 @@ export function startRecording() {
         captureFrame(config);
     });
 
-    const config = getCaptureConfig();
-    currentIntervalMs = config.interval;
-    captureFrame(config);
+    currentIntervalMs = Math.round(lastConfig.interval * getIntervalMultiplier());
+    captureFrame(lastConfig);
     captureInterval = setInterval(() => {
-        const config = getCaptureConfig();
+        const newConfig = getCaptureConfig();
 
-        // Dynamic interval: restart timer if interval changed
-        if (config.interval !== currentIntervalMs) {
-            console.log(`[ShuTong] Interval changed from ${currentIntervalMs}ms to ${config.interval}ms, restarting timer`);
-            currentIntervalMs = config.interval;
+        // Only update guard settings if they actually changed (avoid excessive logging)
+        const currentSettings = {
+            idleThresholdSeconds: lastConfig.guard.idleThreshold,
+            windowSwitchDebounceMs: lastConfig.guard.debounceMs,
+            enableIdleDetection: lastConfig.guard.enableIdleDetection,
+            enableLockDetection: lastConfig.guard.enableLockDetection,
+        };
+        const newSettings = {
+            idleThresholdSeconds: newConfig.guard.idleThreshold,
+            windowSwitchDebounceMs: newConfig.guard.debounceMs,
+            enableIdleDetection: newConfig.guard.enableIdleDetection,
+            enableLockDetection: newConfig.guard.enableLockDetection,
+        };
+        if (JSON.stringify(currentSettings) !== JSON.stringify(newSettings) ||
+            JSON.stringify(lastConfig.excludedApps) !== JSON.stringify(newConfig.excludedApps)) {
+            updateGuardSettings({
+                idleThresholdSeconds: newConfig.guard.idleThreshold,
+                windowSwitchDebounceMs: newConfig.guard.debounceMs,
+                enableIdleDetection: newConfig.guard.enableIdleDetection,
+                enableLockDetection: newConfig.guard.enableLockDetection,
+                blacklistedApps: newConfig.excludedApps
+            });
+        }
+
+        // Update dedup settings at runtime
+        if (lastConfig.dedup.similarityThreshold !== newConfig.dedup.similarityThreshold ||
+            lastConfig.dedup.enableSimilarityDedup !== newConfig.dedup.enableSimilarityDedup) {
+            updateDedupSettings({
+                similarityThreshold: newConfig.dedup.similarityThreshold,
+                enableSimilarityDedup: newConfig.dedup.enableSimilarityDedup
+            });
+        }
+
+        // Dynamic interval: apply battery mode multiplier and restart timer if interval changed
+        const effectiveInterval = Math.round(newConfig.interval * getIntervalMultiplier());
+        if (effectiveInterval !== currentIntervalMs) {
+            console.log(`[ShuTong] Interval changed from ${currentIntervalMs}ms to ${effectiveInterval}ms (base: ${newConfig.interval}ms, multiplier: ${getIntervalMultiplier()})`);
+            currentIntervalMs = effectiveInterval;
             if (captureInterval) {
                 clearInterval(captureInterval);
                 captureInterval = setInterval(() => {
@@ -260,8 +358,11 @@ export function startRecording() {
             }
         }
 
-        captureFrame(config);
-    }, config.interval);
+        captureFrame(newConfig);
+
+        // Update lastConfig for next iteration comparison
+        lastConfig = newConfig;
+    }, lastConfig.interval);
 }
 
 export function stopRecording() {
@@ -278,16 +379,32 @@ export function stopRecording() {
     console.log('[ShuTong] Stopped recording');
 }
 
+// --- Test Helpers ---
+
+export function __test__resetCaptureState() {
+    if (captureInterval) {
+        clearInterval(captureInterval);
+        captureInterval = null;
+    }
+    isRecording = false;
+    currentIntervalMs = 1000;
+    lastCapturedWindowApp = null;
+}
+
+export function __test__setLastCapturedWindowApp(appName: string | null) {
+    lastCapturedWindowApp = appName;
+}
+
 async function captureFrame(config: CaptureConfig) {
     try {
         // Pre-check disk space
         const hasSpace = await checkDiskSpace(config.minDiskSpaceGB);
         if (!hasSpace) {
-            console.warn(`[ShuTong] Low disk space (< ${config.minDiskSpaceGB}GB). Stopping recording.`);
+            console.warn(`[ShuTong] Low disk space(<${config.minDiskSpaceGB}GB).Stopping recording.`);
             stopRecording();
             app.emit('capture-error', {
                 title: 'Low Disk Space',
-                message: `Recording stopped because disk space fell below ${config.minDiskSpaceGB}GB.`
+                message: `Recording stopped because disk space fell below ${config.minDiskSpaceGB} GB.`
             });
             return;
         }
@@ -300,25 +417,32 @@ async function captureFrame(config: CaptureConfig) {
         // Smart Capture Guard: Check if we should skip this capture
         const skipReason = shouldSkipCapture(currentApp || undefined);
         if (skipReason) {
-            // If it's a window switch, still log the event even though we skip capture
+            // Even when skipping, track window change for accurate dwell time
             if (currentApp && currentApp !== lastCapturedWindowApp) {
                 notifyWindowChange(currentApp, currentTitle);
+                lastCapturedWindowApp = currentApp; // Update tracking
             }
+            recordSkip(skipReason, currentApp || undefined);
             return; // Skip this frame due to guard condition
         }
 
-        // Privacy filter check (existing exclusion logic)
-        if (shouldExcludeWindow(activeWindow, config.excludedApps, config.excludedTitlePatterns)) {
-            return; // Skip this frame
+        // Privacy filter check: only check title patterns here
+        // (app blacklist is already handled by shouldSkipCapture above)
+        if (shouldExcludeWindow(activeWindow, [], config.excludedTitlePatterns)) {
+            recordSkip('blacklisted', activeWindow?.owner?.name);
+            return; // Skip this frame due to title pattern match
         }
 
-        // Detect window change for event tracking
-        if (currentApp && currentApp !== lastCapturedWindowApp) {
+        // Detect window change for event tracking (only if not already notified above)
+        const windowChanged = currentApp && currentApp !== lastCapturedWindowApp;
+        if (windowChanged) {
             notifyWindowChange(currentApp, currentTitle);
             lastCapturedWindowApp = currentApp;
+            // Reset last frame on window change to ensure we capture
+            resetLastFrame();
         }
 
-        let jpeg: Buffer;
+        let thumbnail: Electron.NativeImage | null = null;
         let appName: string | null = null;
         let captureType: 'screen' | 'window' = 'screen';
 
@@ -343,10 +467,10 @@ async function captureFrame(config: CaptureConfig) {
                 });
                 const screen = screens[config.screenIndex] || screens[0];
                 if (!screen) return;
-                jpeg = screen.thumbnail.toJPEG(config.quality);
+                thumbnail = screen.thumbnail;
                 captureType = 'screen';
             } else {
-                jpeg = matchedSource.thumbnail.toJPEG(config.quality);
+                thumbnail = matchedSource.thumbnail;
                 appName = activeWindow.owner.name;
                 captureType = 'window';
             }
@@ -359,13 +483,33 @@ async function captureFrame(config: CaptureConfig) {
             });
             const selectedSource = sources[config.screenIndex] || sources[0];
             if (!selectedSource) return;
-            jpeg = selectedSource.thumbnail.toJPEG(config.quality);
+            thumbnail = selectedSource.thumbnail;
 
             // Still record active window info for metadata
             if (activeWindow) {
                 appName = activeWindow.owner.name;
             }
         }
+
+        if (!thumbnail || thumbnail.isEmpty()) return;
+
+        // Frame deduplication check using raw bitmap
+        // Only check if window hasn't changed (window change always captures)
+        if (!windowChanged && config.dedup.enableSimilarityDedup) {
+            const size = thumbnail.getSize();
+            const bitmap = thumbnail.toBitmap();
+            // Estimate JPEG size (typically ~5-10% of raw bitmap for quality 60)
+            const estimatedJpegBytes = Math.round(bitmap.length * 0.07);
+            if (isFrameSimilar(bitmap, size.width, size.height, estimatedJpegBytes)) {
+                // Skip this frame - too similar to last one
+                console.log('[ShuTong] Skipped similar frame (dedup)');
+                recordSkip('similar_frame', appName || undefined);
+                return;
+            }
+        }
+
+        // Convert to JPEG for storage
+        const jpeg = thumbnail.toJPEG(config.quality);
 
         const now = new Date();
         const dateStr = now.toISOString().split('T')[0];
@@ -385,8 +529,11 @@ async function captureFrame(config: CaptureConfig) {
 
         // Log capture info in window mode
         if (config.captureMode === 'window' && appName) {
-            console.log(`[ShuTong] Captured [${captureType}]: ${appName}`);
+            console.log(`[ShuTong] Captured[${captureType}]: ${appName} `);
         }
+
+        // Record successful capture for statistics
+        recordCapture();
     } catch (error: any) {
         console.error('[ShuTong] Capture error:', error);
 
@@ -399,4 +546,8 @@ async function captureFrame(config: CaptureConfig) {
             });
         }
     }
+}
+
+export async function __test__captureFrame(config: CaptureConfig) {
+    await captureFrame(config);
 }
