@@ -110,6 +110,8 @@ app.on('activate', () => {
   }
 })
 
+import { createVideoGenerationWindow } from './video_service'
+
 // Register custom protocol privileges
 protocol.registerSchemesAsPrivileged([
   {
@@ -120,6 +122,15 @@ protocol.registerSchemesAsPrivileged([
       standard: true,
       stream: true, // Optimizes video streaming
       bypassCSP: true // Helps with CSP issues
+    }
+  },
+  {
+    scheme: 'local-file',
+    privileges: {
+      secure: true,
+      supportFetchAPI: true,
+      standard: true,
+      bypassCSP: true
     }
   }
 ]);
@@ -608,6 +619,22 @@ async function startApp() {
       const targetUrl = 'file:///' + filePath
       return net.fetch(targetUrl)
     })
+
+    protocol.handle('local-file', (request) => {
+      let filePath = request.url.slice('local-file://'.length);
+      filePath = decodeURIComponent(filePath);
+      while (filePath.startsWith('/')) {
+        filePath = filePath.slice(1);
+      }
+      if (/^[a-zA-Z]\//.test(filePath)) {
+        filePath = filePath[0] + ':' + filePath.slice(1);
+      }
+      const targetUrl = 'file:///' + filePath;
+      return net.fetch(targetUrl);
+    });
+
+    createVideoGenerationWindow();
+    console.log('[Main] Video generation service started');
 
   } catch (error) {
     console.error('[Main] Startup error:', error)

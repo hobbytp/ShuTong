@@ -12,6 +12,14 @@ export default defineConfig({
       'nock': path.join(__dirname, 'electron/stub.ts'),
     }
   },
+  build: {
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        video_generator: path.resolve(__dirname, 'src/video-generator/index.html'),
+      },
+    },
+  },
   plugins: [
     react(),
     electron({
@@ -21,7 +29,7 @@ export default defineConfig({
         vite: {
           build: {
             rollupOptions: {
-              external: ['better-sqlite3', 'ffmpeg-static', 'fluent-ffmpeg', '@lancedb/lancedb', 'get-windows'],
+              external: ['better-sqlite3', '@lancedb/lancedb', 'get-windows'],
             },
           },
           resolve: {
