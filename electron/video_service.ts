@@ -29,24 +29,31 @@ export function createVideoGenerationWindow() {
 
     const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
     const APP_ROOT = process.env.APP_ROOT || path.join(__dirname, '..');
+    const preloadPath = path.join(APP_ROOT, 'dist-electron', 'preload.mjs');
+
+    console.log('[VideoService] Creating window with preload:', preloadPath);
 
     videoWindow = new BrowserWindow({
         show: false,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            sandbox: false, // Ensure we have access to full Node/Electron capabilities where allowed
             backgroundThrottling: false,
-            preload: path.join(__dirname, 'preload.mjs')
+            preload: preloadPath
         }
     });
 
     if (VITE_DEV_SERVER_URL) {
-        videoWindow.loadURL(`${VITE_DEV_SERVER_URL}/src/video-generator/index.html`);
+        const url = `${VITE_DEV_SERVER_URL}/src/video-generator/index.html`;
+        console.log('[VideoService] Loading URL:', url);
+        videoWindow.loadURL(url);
     } else {
         // In production, vite builds to dist/src/video-generator/index.html 
         // OR dist/video-generator/index.html depending on config.
-        // Let's assume dist/src/video-generator/index.html based on input structure
-        videoWindow.loadFile(path.join(APP_ROOT, 'dist/src/video-generator/index.html'));
+        const prodPath = path.join(APP_ROOT, 'dist/src/video-generator/index.html');
+        console.log('[VideoService] Loading file:', prodPath);
+        videoWindow.loadFile(prodPath);
     }
 
     videoWindow.webContents.on('did-finish-load', () => {
@@ -55,6 +62,9 @@ export function createVideoGenerationWindow() {
 
     videoWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
         console.error('[VideoService] Failed to load video generator:', errorCode, errorDescription);
+        // Destroy the window so next request will recreate it
+        videoWindow?.destroy();
+        videoWindow = null;
     });
 }
 
@@ -185,10 +195,13 @@ function executeVideoGeneration(
 
         // Ensure window is ready
         if (videoWindow?.webContents.isLoading()) {
+            console.log('[VideoService] Window loading... queuing trigger');
             videoWindow.webContents.once('did-finish-load', () => {
+                console.log('[VideoService] Window loaded. Sending generate-video');
                 videoWindow?.webContents.send('generate-video', sendParams);
             });
         } else {
+            console.log('[VideoService] Window ready. Sending generate-video');
             videoWindow?.webContents.send('generate-video', sendParams);
         }
     });

@@ -79,6 +79,7 @@ export function RecordingSettings() {
     const [screens, setScreens] = useState<{ id: number; name: string }[]>([]);
     const [excludedAppsText, setExcludedAppsText] = useState('');
     const [excludedPatternsText, setExcludedPatternsText] = useState('');
+    const [whitelistedAppsText, setWhitelistedAppsText] = useState('');
     const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
     const [guardStats, setGuardStats] = useState<GuardStatistics | null>(null);
     const [skipLog, setSkipLog] = useState<SkipLogEntry[]>([]);
@@ -162,6 +163,7 @@ export function RecordingSettings() {
 
             setExcludedAppsText(safeParse(settings.excluded_apps, []).join('\n'));
             setExcludedPatternsText(safeParse(settings.excluded_title_patterns, []).join('\n'));
+            setWhitelistedAppsText(safeParse(settings.whitelisted_apps, []).join('\n'));
         } catch (err) {
             console.error('Failed to load recording config:', err);
         }
@@ -204,6 +206,12 @@ export function RecordingSettings() {
         setExcludedPatternsText(text);
         const patterns = text.split('\n').map(s => s.trim()).filter(Boolean);
         await updateSetting('excluded_title_patterns', patterns);
+    };
+
+    const handleWhitelistedAppsChange = async (text: string) => {
+        setWhitelistedAppsText(text);
+        const apps = text.split('\n').map(s => s.trim()).filter(Boolean);
+        await updateSetting('whitelisted_apps', apps);
     };
 
     return (
@@ -560,88 +568,122 @@ export function RecordingSettings() {
                         </div>
                     )}
 
-                    {/* Whitelist Mode (v2) */}
-                    <div className="flex items-center justify-between p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
-                        <div className="flex items-center gap-4">
-                            <div>
-                                <div className="text-sm font-medium text-zinc-200">Whitelist Mode</div>
-                                <div className="text-xs text-zinc-500">Only capture specified apps (focus mode)</div>
-                            </div>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                            <input
-                                type="checkbox"
-                                checked={config.guard_enable_whitelist_mode}
-                                onChange={(e) => updateSetting('guard_enable_whitelist_mode', e.target.checked)}
-                                className="sr-only peer"
-                            />
-                            <div className="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
-                        </label>
-                    </div>
 
-                    {config.guard_enable_whitelist_mode && (
-                        <div className="ml-4 p-3 bg-zinc-950/50 border border-zinc-800/50 rounded-lg">
-                            <div className="text-sm text-zinc-400 mb-2">Whitelisted Apps (one per line)</div>
-                            <textarea
-                                className="w-full h-24 bg-zinc-900 border border-zinc-700 rounded-lg p-2 text-sm text-zinc-200 resize-none"
-                                placeholder="VSCode&#10;Chrome&#10;Slack"
-                                value={config.whitelisted_apps.join('\n')}
-                                onChange={(e) => {
-                                    const apps = e.target.value.split('\n').map(s => s.trim()).filter(Boolean);
-                                    updateSetting('whitelisted_apps', apps);
-                                }}
-                            />
-                            <div className="text-xs text-amber-500 mt-1">
-                                ⚠️ When enabled, only these apps will be captured
-                            </div>
-                        </div>
-                    )}
                 </div>
             </div>
 
-            {/* Privacy Filters */}
+            {/* Privacy & Scope */}
             <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
                 <h3 className="text-lg font-bold text-zinc-100 mb-6 flex items-center gap-2">
                     <EyeOff size={20} className="text-emerald-400" />
-                    Privacy Filters
+                    Privacy & Scope
                 </h3>
 
                 <div className="space-y-6">
-                    {/* Excluded Apps */}
+                    {/* Capture Strategy Selector */}
                     <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
-                        <div className="flex items-center gap-2 mb-3">
-                            <EyeOff size={16} className="text-zinc-400" />
-                            <span className="text-sm font-medium text-zinc-200">Excluded Applications</span>
+                        <div className="flex flex-col gap-4">
+                            <div className="flex items-center gap-4">
+                                <div className="p-2 bg-emerald-500/10 rounded-lg">
+                                    <Shield size={18} className="text-emerald-400" />
+                                </div>
+                                <div>
+                                    <div className="text-sm font-medium text-zinc-200">Capture Strategy</div>
+                                    <div className="text-xs text-zinc-500">Choose how to filter captured content</div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                                <button
+                                    onClick={() => updateSetting('guard_enable_whitelist_mode', false)}
+                                    className={`relative flex items-center p-3 rounded-lg border transition-all ${!config.guard_enable_whitelist_mode ? 'bg-zinc-800 border-indigo-500/50 ring-1 ring-indigo-500/20' : 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800/50'}`}
+                                >
+                                    <div className="flex-1 text-left">
+                                        <div className={`text-sm font-medium ${!config.guard_enable_whitelist_mode ? 'text-indigo-400' : 'text-zinc-300'}`}>Default (Blacklist)</div>
+                                        <div className="text-xs text-zinc-500 mt-0.5">Capture everything except excluded apps</div>
+                                    </div>
+                                    {!config.guard_enable_whitelist_mode && (
+                                        <div className="h-2 w-2 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]" />
+                                    )}
+                                </button>
+
+                                <button
+                                    onClick={() => updateSetting('guard_enable_whitelist_mode', true)}
+                                    className={`relative flex items-center p-3 rounded-lg border transition-all ${config.guard_enable_whitelist_mode ? 'bg-zinc-800 border-amber-500/50 ring-1 ring-amber-500/20' : 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800/50'}`}
+                                >
+                                    <div className="flex-1 text-left">
+                                        <div className={`text-sm font-medium ${config.guard_enable_whitelist_mode ? 'text-amber-400' : 'text-zinc-300'}`}>Focus (Whitelist)</div>
+                                        <div className="text-xs text-zinc-500 mt-0.5">Only capture specific approved apps</div>
+                                    </div>
+                                    {config.guard_enable_whitelist_mode && (
+                                        <div className="h-2 w-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
+                                    )}
+                                </button>
+                            </div>
                         </div>
-                        <p className="text-xs text-zinc-500 mb-3">
-                            Recording will pause when these applications are in focus (one per line)
-                        </p>
-                        <textarea
-                            value={excludedAppsText}
-                            onChange={(e) => handleExcludedAppsChange(e.target.value)}
-                            placeholder="e.g.&#10;1Password&#10;KeePass&#10;Bitwarden"
-                            rows={4}
-                            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none"
-                        />
                     </div>
 
-                    {/* Excluded Window Title Patterns */}
-                    <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
-                        <div className="flex items-center gap-2 mb-3">
-                            <EyeOff size={16} className="text-zinc-400" />
-                            <span className="text-sm font-medium text-zinc-200">Excluded Window Titles</span>
+                    {/* Conditional Settings */}
+                    {!config.guard_enable_whitelist_mode ? (
+                        <>
+                            {/* Excluded Apps */}
+                            <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-lg animate-in fade-in slide-in-from-top-2 duration-300">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <EyeOff size={16} className="text-zinc-400" />
+                                    <span className="text-sm font-medium text-zinc-200">Excluded Applications</span>
+                                </div>
+                                <p className="text-xs text-zinc-500 mb-3">
+                                    Recording will pause when these applications are in focus (one per line)
+                                </p>
+                                <textarea
+                                    value={excludedAppsText}
+                                    onChange={(e) => handleExcludedAppsChange(e.target.value)}
+                                    placeholder="e.g.&#10;1Password&#10;KeePass&#10;Bitwarden"
+                                    rows={4}
+                                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none"
+                                />
+                            </div>
+
+                            {/* Excluded Window Title Patterns */}
+                            <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-lg animate-in fade-in slide-in-from-top-2 duration-300 delay-75">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <EyeOff size={16} className="text-zinc-400" />
+                                    <span className="text-sm font-medium text-zinc-200">Excluded Window Titles</span>
+                                </div>
+                                <p className="text-xs text-zinc-500 mb-3">
+                                    Recording will pause when window title contains these keywords (one per line)
+                                </p>
+                                <textarea
+                                    value={excludedPatternsText}
+                                    onChange={(e) => handleExcludedPatternsChange(e.target.value)}
+                                    placeholder="e.g.&#10;Password&#10;密码&#10;Credential&#10;Private"
+                                    rows={4}
+                                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none"
+                                />
+                            </div>
+                        </>
+                    ) : (
+                        /* Whitelisted Apps */
+                        <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-lg animate-in fade-in slide-in-from-top-2 duration-300">
+                            <div className="flex items-center gap-2 mb-3">
+                                <Shield size={16} className="text-amber-400" />
+                                <span className="text-sm font-medium text-zinc-200">Whitelisted Applications</span>
+                            </div>
+                            <p className="text-xs text-zinc-500 mb-3">
+                                Only captures from these applications will be recorded (one per line)
+                            </p>
+                            <textarea
+                                className="w-full h-32 bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-sm text-zinc-200 resize-none focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                placeholder="VSCode&#10;Chrome&#10;Slack"
+                                value={whitelistedAppsText}
+                                onChange={(e) => handleWhitelistedAppsChange(e.target.value)}
+                            />
+                            <div className="flex items-center gap-2 mt-3 p-2 bg-amber-500/10 rounded text-xs text-amber-200/80 border border-amber-500/20">
+                                <Shield size={12} className="shrink-0" />
+                                <span>Blacklist rules are disabled while Whitelist Mode is active.</span>
+                            </div>
                         </div>
-                        <p className="text-xs text-zinc-500 mb-3">
-                            Recording will pause when window title contains these keywords (one per line)
-                        </p>
-                        <textarea
-                            value={excludedPatternsText}
-                            onChange={(e) => handleExcludedPatternsChange(e.target.value)}
-                            placeholder="e.g.&#10;Password&#10;密码&#10;Credential&#10;Private"
-                            rows={4}
-                            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none"
-                        />
-                    </div>
+                    )}
                 </div>
             </div>
             {/* Guard Statistics & Log */}
