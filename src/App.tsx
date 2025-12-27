@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AppShell } from './components/Shell/AppShell'
 import { ActivityDetail } from './components/Timeline/ActivityDetail'
 import { TimelineSidebar } from './components/Timeline/TimelineSidebar'
+import type { TimelineCard } from './lib/ipc'
 import { Analytics } from './pages/Analytics'
 import { Dashboard } from './pages/Dashboard'
 import { Journal } from './pages/Journal'
@@ -9,7 +10,6 @@ import { Onboarding } from './pages/Onboarding'
 import { PulseFeed } from './pages/PulseFeed'
 import { Settings } from './pages/Settings'
 import { Timelapse } from './pages/Timelapse'
-import { ActivityCard } from './types'
 
 function App() {
   const [page, setPage] = useState<'home' | 'settings' | 'onboarding' | 'journal' | 'timelapse' | 'timeline' | 'pulse' | 'analytics'>('home')
@@ -23,13 +23,11 @@ function App() {
   useEffect(() => {
     const checkState = async () => {
       try {
-        // @ts-ignore
-        if (window.ipcRenderer) {
-          // @ts-ignore
-          const settings = await window.ipcRenderer.invoke('get-settings');
-          if (settings && !settings.onboarding_complete) {
-            setPage('onboarding');
-          }
+        // Using typed IPC - no more @ts-ignore!
+        const { invoke } = await import('./lib/ipc');
+        const settings = await invoke('get-settings');
+        if (settings && !settings.onboarding_complete) {
+          setPage('onboarding');
         }
       } catch (e) {
         console.error("Failed to load settings:", e);
@@ -85,19 +83,20 @@ function App() {
 }
 
 function TimelineContainer({ selectedCardId, onSelectCard }: { selectedCardId: number | null, onSelectCard: (id: number) => void }) {
-  const [cards, setCards] = useState<ActivityCard[]>([])
+  const [cards, setCards] = useState<TimelineCard[]>([])
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState<string | undefined>(undefined)
 
   useEffect(() => {
-    const fetch = async () => {
-      // @ts-ignore
-      const data = await window.ipcRenderer.invoke('get-timeline-cards', 50, 0, search, category)
-      setCards(data)
+    const fetchCards = async () => {
+      // Using typed IPC - no more @ts-ignore!
+      const { invoke } = await import('./lib/ipc');
+      const data = await invoke('get-timeline-cards', 50, 0, search, category);
+      setCards(data);
     }
 
-    fetch()
-    const interval = setInterval(fetch, 5000) // Poll every 5s for new cards
+    fetchCards()
+    const interval = setInterval(fetchCards, 5000) // Poll every 5s for new cards
     return () => clearInterval(interval)
   }, [search, category]) // Re-fetch on filter change
 

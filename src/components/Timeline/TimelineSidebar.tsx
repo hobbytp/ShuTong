@@ -1,6 +1,6 @@
 import { ChevronRight, Download, Filter, Loader2, Search, Sparkles } from 'lucide-react';
 import { useState } from 'react';
-import { ActivityCard } from '../../types';
+import type { TimelineCard } from '../../lib/ipc';
 
 interface SemanticResult {
     id: string;
@@ -14,7 +14,7 @@ interface SemanticResult {
 }
 
 interface TimelineSidebarProps {
-    cards: ActivityCard[];
+    cards: TimelineCard[];
     selectedCardId: number | null;
     onSelectCard: (id: number) => void;
     searchQuery: string;

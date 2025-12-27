@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { app, ipcMain } from 'electron';
+import { app } from 'electron';
 import fs from 'fs';
 import path from 'path';
 
@@ -343,19 +343,23 @@ export function closeStorage() {
 function setupStorageIPC() {
     if (ipcConfigured) return;
 
-    ipcMain.handle('get-snapshots', (_: any, limit: any) => getSnapshots(limit));
-    ipcMain.handle('get-snapshots-by-date', (_: any, date: any) => getSnapshotsByDate(date));
+    // Using typed IPC wrapper for type-safe handlers (runtime require to avoid circular deps)
+    const { typedHandle } = require('./infrastructure/ipc/typed-ipc');
+
+    // Snapshots
+    typedHandle('get-snapshots', (_event: unknown, limit: number) => getSnapshots(limit));
+    typedHandle('get-snapshots-by-date', (_event: unknown, date: string) => getSnapshotsByDate(date));
 
     // Settings
-    ipcMain.handle('get-settings', () => getSettings());
-    ipcMain.handle('set-setting', (_: any, key: any, value: any) => setSetting(key, value));
+    typedHandle('get-settings', () => getSettings());
+    typedHandle('set-setting', (_event: unknown, key: string, value: string) => setSetting(key, value));
 
     // Journal
-    ipcMain.handle('get-journal-entries', () => getJournalEntries());
-    ipcMain.handle('add-journal-entry', (_: any, entry: any) => addJournalEntry(entry));
+    typedHandle('get-journal-entries', () => getJournalEntries());
+    typedHandle('add-journal-entry', (_event: unknown, entry: { content: string; type: 'intention' | 'reflection' }) => addJournalEntry(entry));
 
     // Dashboard Stats
-    ipcMain.handle('get-dashboard-stats', () => getDashboardStats());
+    typedHandle('get-dashboard-stats', () => getDashboardStats());
 
     ipcConfigured = true;
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { invoke } from '../lib/ipc'
 
 type Step = 'welcome' | 'storage' | 'complete'
 
@@ -11,24 +12,21 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     const [recordingPath, setRecordingPath] = useState('');
 
     useEffect(() => {
-        // Load initial settings
-        // @ts-ignore
-        window.ipcRenderer.invoke('get-settings').then((settings: any) => {
+        // Load initial settings using typed IPC
+        invoke('get-settings').then((settings) => {
             if (settings.recording_path) setRecordingPath(settings.recording_path);
         });
     }, []);
 
-
-
     const handleFinish = async () => {
-        // @ts-ignore
-        await window.ipcRenderer.invoke('set-setting', 'onboarding_complete', 'true')
+        // Using typed IPC - no more @ts-ignore!
+        await invoke('set-setting', 'onboarding_complete', 'true')
         onComplete()
     }
 
     const handleSelectDirectory = async () => {
-        // @ts-ignore
-        const path = await window.ipcRenderer.invoke('select-directory', true); // true = onboarding mode (hot swap, no restart)
+        // Using typed IPC - true = onboarding mode (hot swap, no restart)
+        const path = await invoke('select-directory', true);
         if (path) {
             setRecordingPath(path);
         }
@@ -157,8 +155,6 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                         </button>
                     </>
                 )}
-
-
 
                 {step === 'complete' && (
                     <>

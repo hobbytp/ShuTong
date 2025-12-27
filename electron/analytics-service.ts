@@ -6,7 +6,7 @@
  * and timeline data.
  */
 
-import { getGuardStats, getSkipLog } from './capture-guard';
+import { getGuardStats, getSkipLog, resetGuardStats } from './capture-guard';
 import { getWindowDwellStats, getWindowSwitches } from './storage';
 
 // --- Types ---
@@ -182,8 +182,6 @@ export function getTopApps(startTs: number, endTs: number, limit = 10): AppUsage
 
 // --- IPC Handlers ---
 
-import { ipcMain } from 'electron';
-import { resetGuardStats } from './capture-guard';
 
 let analyticsIpcConfigured = false;
 
@@ -195,40 +193,42 @@ export function setupAnalyticsIPC(): void {
     if (analyticsIpcConfigured) return;
     analyticsIpcConfigured = true;
 
+    // Using typed IPC wrapper for type-safe handlers (runtime require to avoid circular deps)
+    const { typedHandle } = require('./infrastructure/ipc/typed-ipc');
+
     // Get daily activity summary
-    ipcMain.handle('analytics:getDailySummary', (_event, date: string) => {
+    typedHandle('analytics:getDailySummary', (_event: unknown, date: string) => {
         return getDailyActivitySummary(date);
     });
 
     // Get activity timeline
-    ipcMain.handle('analytics:getTimeline', (_event, startTs: number, endTs: number, limit?: number) => {
+    typedHandle('analytics:getTimeline', (_event: unknown, startTs: number, endTs: number, limit?: number) => {
         return getActivityTimeline(startTs, endTs, limit);
     });
 
     // Get capture efficiency
-    ipcMain.handle('analytics:getEfficiency', () => {
+    typedHandle('analytics:getEfficiency', () => {
         return getCaptureEfficiency();
     });
 
     // Get top apps
-    ipcMain.handle('analytics:getTopApps', (_event, startTs: number, endTs: number, limit?: number) => {
+    typedHandle('analytics:getTopApps', (_event: unknown, startTs: number, endTs: number, limit?: number) => {
         return getTopApps(startTs, endTs, limit);
     });
 
     // Get guard statistics
-    ipcMain.handle('guard:getStats', () => {
+    typedHandle('guard:getStats', () => {
         return getGuardStats();
     });
 
     // Get skip log
-    ipcMain.handle('guard:getSkipLog', (_event, limit?: number) => {
+    typedHandle('guard:getSkipLog', (_event: unknown, limit?: number) => {
         return getSkipLog(limit);
     });
 
     // Reset guard statistics
-    ipcMain.handle('guard:resetStats', () => {
+    typedHandle('guard:resetStats', () => {
         resetGuardStats();
-        return { success: true };
     });
 
     console.log('[Analytics] IPC handlers registered');

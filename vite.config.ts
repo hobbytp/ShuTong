@@ -7,6 +7,8 @@ import electron from 'vite-plugin-electron/simple'
 export default defineConfig({
   resolve: {
     alias: {
+      '@shared': path.join(__dirname, 'shared'),
+      '@': path.join(__dirname, 'src'),
       'mock-aws-s3': path.join(__dirname, 'electron/stub.ts'),
       'aws-sdk': path.join(__dirname, 'electron/stub.ts'),
       'nock': path.join(__dirname, 'electron/stub.ts'),
@@ -34,6 +36,7 @@ export default defineConfig({
           },
           resolve: {
             alias: {
+              '@shared': path.join(__dirname, 'shared'),
               'mock-aws-s3': path.join(__dirname, 'electron/stub.ts'),
               'aws-sdk': path.join(__dirname, 'electron/stub.ts'),
               'nock': path.join(__dirname, 'electron/stub.ts'),

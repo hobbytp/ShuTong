@@ -1,43 +1,29 @@
 import { Copy, Minus, Square, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { invoke, on } from '../../lib/ipc';
 import { cn } from '../../lib/utils';
 
 export function TitleBar() {
-    // @ts-ignore
-    const platform = window.ipcRenderer?.platform || 'win32';
+    // Platform detection via window object (set by preload)
+    const platform = (window as any).ipcRenderer?.platform || 'win32';
     const isMac = platform === 'darwin';
     const [isMaximized, setIsMaximized] = useState(false);
 
     useEffect(() => {
-        // @ts-ignore
-        if (window.ipcRenderer) {
-            // @ts-ignore
-            window.ipcRenderer.on('window-maximized', (_: any, val: boolean) => {
-                setIsMaximized(val);
-            });
-        }
+        // Listen for maximize state changes using typed IPC
+        const unsubscribe = on<boolean>('window-maximized', (_: unknown, val: boolean) => {
+            setIsMaximized(val);
+        });
 
         return () => {
-            // @ts-ignore
-            if (window.ipcRenderer) {
-                // @ts-ignore
-                window.ipcRenderer.off('window-maximized', (_: any, val: boolean) => setIsMaximized(val));
-            }
-        }
+            if (unsubscribe) unsubscribe();
+        };
     }, []);
 
-    const handleMin = () => {
-        // @ts-ignore
-        if (window.ipcRenderer) window.ipcRenderer.invoke('window-min');
-    };
-    const handleMax = () => {
-        // @ts-ignore
-        if (window.ipcRenderer) window.ipcRenderer.invoke('window-max');
-    };
-    const handleClose = () => {
-        // @ts-ignore
-        if (window.ipcRenderer) window.ipcRenderer.invoke('window-close');
-    };
+    // Typed IPC handlers - no more @ts-ignore!
+    const handleMin = () => invoke('window-min');
+    const handleMax = () => invoke('window-max');
+    const handleClose = () => invoke('window-close');
 
     return (
         <div className={cn(
