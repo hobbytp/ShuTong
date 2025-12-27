@@ -22,7 +22,7 @@ const mockGuardStats = {
 };
 const mockSkipLog: any[] = [];
 
-vi.mock('../../electron/capture-guard', () => ({
+vi.mock('../../electron/features/capture/capture-guard', () => ({
     getGuardStats: vi.fn(() => ({ ...mockGuardStats })),
     getSkipLog: vi.fn((limit?: number) => limit ? mockSkipLog.slice(-limit) : [...mockSkipLog])
 }));
@@ -32,7 +32,7 @@ import {
     getCaptureEfficiency,
     getDailyActivitySummary,
     getTopApps
-} from '../../electron/analytics-service';
+} from '../../electron/features/timeline';
 
 describe('Analytics Service', () => {
     beforeEach(() => {

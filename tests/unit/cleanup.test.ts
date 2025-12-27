@@ -21,7 +21,7 @@ vi.mock('fs', () => ({
 }))
 
 // Import System Under Test (SUT)
-import { cleanupOldSnapshots } from '../../electron/cleanup'
+import { cleanupOldSnapshots } from '../../electron/features/timeline'
 
 describe('Storage Cleanup Logic', () => {
     beforeEach(() => {

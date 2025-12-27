@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { generateCardVideo } from '../../electron/features/video';
 import * as storage from '../../electron/storage';
-import { generateCardVideo } from '../../electron/video';
 
 // Mock dependencies
 vi.mock('electron', () => ({
@@ -16,7 +16,7 @@ vi.mock('../../electron/storage', () => ({
 }));
 
 // Mock video_service
-vi.mock('../../electron/video_service', () => ({
+vi.mock('../../electron/features/video/video.service', () => ({
     generateVideo: vi.fn().mockResolvedValue('/mock/user/data/videos/activity_123.mp4')
 }));
 

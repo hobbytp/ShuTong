@@ -18,7 +18,7 @@ vi.mock('electron', () => ({
     }
 }));
 
-type CaptureGuardModule = typeof import('../../electron/capture-guard');
+type CaptureGuardModule = typeof import('../../electron/features/capture/capture-guard');
 let captureGuard: CaptureGuardModule;
 
 function firePowerEvent(event: string) {
@@ -37,7 +37,7 @@ describe('Capture Guard Module', () => {
         getSystemIdleTime.mockClear();
         getSystemIdleTime.mockImplementation(() => 0);
 
-        captureGuard = await import('../../electron/capture-guard');
+        captureGuard = await import('../../electron/features/capture/capture-guard');
         captureGuard.initCaptureGuard();
 
         // Reset settings to defaults before each test

@@ -12,7 +12,7 @@ import {
     resetLastFrame,
     sampleFrameGrid,
     updateDedupSettings
-} from '../../electron/frame-dedup';
+} from '../../electron/features/capture/frame-dedup';
 
 describe('Frame Deduplication Module', () => {
     beforeEach(() => {

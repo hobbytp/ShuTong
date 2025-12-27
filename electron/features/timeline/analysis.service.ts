@@ -9,7 +9,7 @@ import {
     screenshotsForBatch,
     updateBatchStatus
 } from '../../storage';
-import { generateCardVideo } from '../../video';
+import { generateCardVideo } from '../video';
 
 // ... existing interfaces ...
 

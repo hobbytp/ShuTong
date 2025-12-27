@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createVideoGenerationWindow, generateVideo, resetVideoServiceState } from '../../electron/video_service';
+import { createVideoGenerationWindow, generateVideo, resetVideoServiceState } from '../../electron/features/video';
 
 // Define mocks outside to avoid hoisting issues, but we need to use vi.hoisted for variables used in vi.mock
 const mocks = vi.hoisted(() => {
@@ -32,7 +32,7 @@ const mocks = vi.hoisted(() => {
         mockWebContents,
         mockBrowserWindow,
         mockIpcMain,
-        MockBrowserWindow: vi.fn(function() { return mockBrowserWindow; })
+        MockBrowserWindow: vi.fn(function () { return mockBrowserWindow; })
     };
 });
 
@@ -59,7 +59,7 @@ describe('Video Service', () => {
 
     it('should send generate-video IPC message', async () => {
         const promise = generateVideo(['img1.png'], 'output.mp4');
-        
+
         // Simulate window ready
         expect(mocks.mockWebContents.send).toHaveBeenCalledWith('generate-video', expect.objectContaining({
             images: ['img1.png'],
@@ -69,7 +69,7 @@ describe('Video Service', () => {
 
     it('should resolve promise when video-generated is received', async () => {
         const promise = generateVideo(['img1.png'], 'output.mp4');
-        
+
         // Get the requestId sent
         const sendCall = mocks.mockWebContents.send.mock.calls.find(call => call[0] === 'generate-video');
         expect(sendCall).toBeDefined();
@@ -79,7 +79,7 @@ describe('Video Service', () => {
         const onCompleteCall = mocks.mockIpcMain.on.mock.calls.find(call => call[0] === 'video-generated');
         expect(onCompleteCall).toBeDefined();
         const onComplete = onCompleteCall![1];
-        
+
         onComplete({}, { requestId, outputPath: 'output.mp4' });
 
         const result = await promise;
@@ -88,7 +88,7 @@ describe('Video Service', () => {
 
     it('should reject promise when video-error is received', async () => {
         const promise = generateVideo(['img1.png'], 'output.mp4');
-        
+
         const sendCall = mocks.mockWebContents.send.mock.calls.find(call => call[0] === 'generate-video');
         expect(sendCall).toBeDefined();
         const requestId = sendCall![1].requestId;
@@ -96,7 +96,7 @@ describe('Video Service', () => {
         const onErrorCall = mocks.mockIpcMain.on.mock.calls.find(call => call[0] === 'video-error');
         expect(onErrorCall).toBeDefined();
         const onError = onErrorCall![1];
-        
+
         onError({}, { requestId, error: 'Encoding failed' });
 
         await expect(promise).rejects.toThrow('Encoding failed');

@@ -26,7 +26,7 @@ vi.mock('electron', () => ({
 const mockShouldSkipCapture = vi.fn(() => null)
 const mockNotifyWindowChange = vi.fn()
 
-vi.mock('../../electron/capture-guard', () => ({
+vi.mock('../../electron/features/capture/capture-guard', () => ({
     clearPendingWindowCapture: vi.fn(),
     getIntervalMultiplier: vi.fn(() => 1.0),
     initCaptureGuard: vi.fn(),
@@ -40,7 +40,7 @@ vi.mock('../../electron/capture-guard', () => ({
 const mockIsFrameSimilar = vi.fn()
 const mockResetLastFrame = vi.fn()
 
-vi.mock('../../electron/frame-dedup', () => ({
+vi.mock('../../electron/features/capture/frame-dedup', () => ({
     isFrameSimilar: (...args: any[]) => mockIsFrameSimilar(...args),
     resetLastFrame: (...args: any[]) => mockResetLastFrame(...args),
     updateDedupSettings: vi.fn(),
@@ -140,7 +140,7 @@ describe('Capture + Frame Dedup integration', () => {
         mockDesktopCapturerGetSources.mockResolvedValue([{ thumbnail }])
         mockIsFrameSimilar.mockReturnValue(true)
 
-        const capture = await import('../../electron/capture')
+        const capture = await import('../../electron/features/capture/capture.service')
         capture.__test__resetCaptureState()
         capture.__test__setLastCapturedWindowApp('App')
 
@@ -174,7 +174,7 @@ describe('Capture + Frame Dedup integration', () => {
         mockDesktopCapturerGetSources.mockResolvedValue([{ thumbnail }])
         mockIsFrameSimilar.mockReturnValue(true)
 
-        const capture = await import('../../electron/capture')
+        const capture = await import('../../electron/features/capture/capture.service')
         capture.__test__resetCaptureState()
         capture.__test__setLastCapturedWindowApp('OldApp')
 
@@ -206,7 +206,7 @@ describe('Capture + Frame Dedup integration', () => {
 
         mockShouldSkipCapture.mockReturnValue('idle')
 
-        const capture = await import('../../electron/capture')
+        const capture = await import('../../electron/features/capture/capture.service')
         capture.__test__resetCaptureState()
         capture.__test__setLastCapturedWindowApp('OldApp')
 

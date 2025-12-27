@@ -2,12 +2,12 @@ import { app, BrowserWindow, dialog, screen as electronScreen, ipcMain, net, pro
 import { autoUpdater } from 'electron-updater'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { setupAnalyticsIPC } from './analytics-service'
 import { cancelMigration, commitMigration, getBootstrapConfig, PendingMigration, resolveUserDataPath, setCustomUserDataPath, setPendingMigration } from './bootstrap'
 import { getMergedLLMConfig, setLLMProviderConfig, setRoleConfig } from './config_manager'
+import { setupAnalyticsIPC } from './features/timeline'
+import { createVideoGenerationWindow, setupVideoIPC } from './features/video'
 import { copyUserData } from './migration-utils'
 import { getIsQuitting, setupTray, updateTrayMenu } from './tray'
-import { createVideoGenerationWindow, setupVideoIPC } from './video_service'
 
 // Resolve custom path before anything else
 resolveUserDataPath();
@@ -98,10 +98,9 @@ app.on('window-all-closed', () => {
   }
 })
 
-import { startAnalysisJob } from './analysis'
-import { getIsRecording, setupScreenCapture, startRecording, stopRecording } from './capture'
-import { cleanupOldSnapshots } from './cleanup'
 import { setupDeepLinks } from './deeplink'
+import { getIsRecording, setupScreenCapture, startRecording, stopRecording } from './features/capture'
+import { cleanupOldSnapshots, startAnalysisJob } from './features/timeline'
 import { checkReminders, sendNotification } from './scheduler'
 import { closeStorage, getCardDetails, getReminderSettings, getRetentionSettings, getScreenshotsForCard, getTimelineCards, initStorage } from './storage'
 

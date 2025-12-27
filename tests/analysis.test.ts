@@ -11,7 +11,7 @@ vi.mock('../electron/storage', () => ({
     getSetting: vi.fn(() => null)
 }));
 
-import { createScreenshotBatches } from '../electron/analysis';
+import { createScreenshotBatches } from '../electron/features/timeline';
 
 // Mock Screenshot interface
 interface Screenshot {
