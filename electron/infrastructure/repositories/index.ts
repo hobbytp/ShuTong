@@ -12,5 +12,5 @@ export { SQLiteScreenshotRepository } from './sqlite-screenshot.repository';
 export { SQLiteTimelineCardRepository } from './sqlite-timeline-card.repository';
 
 // Factory
-export { createRepositoryFactory, resetRepositories } from './repository-factory';
+export { createRepositoryFactory } from './repository-factory';
 

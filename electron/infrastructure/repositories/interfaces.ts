@@ -223,6 +223,108 @@ export interface ISettingsRepository {
 }
 
 // =============================================================================
+// Journal Repository Interface
+// =============================================================================
+
+export interface JournalEntry {
+    id?: number;
+    type: 'intention' | 'reflection';
+    content: string;
+    created_at?: number;
+}
+
+export interface IJournalRepository {
+    /**
+     * Add a new journal entry.
+     * Returns the ID of the inserted entry.
+     */
+    add(entry: { content: string; type: 'intention' | 'reflection' }): number | null;
+
+    /**
+     * Get all journal entries.
+     */
+    getAll(): JournalEntry[];
+
+    /**
+     * Get journal entries by type.
+     */
+    getByType(type: 'intention' | 'reflection'): JournalEntry[];
+}
+
+// =============================================================================
+// PulseCard Repository Interface
+// =============================================================================
+
+export interface PulseCard {
+    id: string;
+    type: string;
+    title: string;
+    content: string;
+    suggested_actions: string[];
+    created_at: number;
+}
+
+export interface IPulseCardRepository {
+    /**
+     * Save a new pulse card.
+     */
+    save(card: PulseCard): boolean;
+
+    /**
+     * Get pulse cards with limit.
+     */
+    getMany(limit?: number): PulseCard[];
+
+    /**
+     * Get a single pulse card by ID.
+     */
+    getById(id: string): PulseCard | null;
+
+    /**
+     * Update an existing pulse card.
+     */
+    update(card: Pick<PulseCard, 'id'> & Partial<Omit<PulseCard, 'id'>>): boolean;
+
+    /**
+     * Get the latest pulse card of a specific type.
+     */
+    getLatestByType(type: string): PulseCard | null;
+}
+
+// =============================================================================
+// WindowSwitch Repository Interface
+// =============================================================================
+
+export interface WindowSwitchRecord {
+    id?: number;
+    timestamp: number;
+    from_app: string | null;
+    from_title: string | null;
+    to_app: string;
+    to_title: string;
+    screenshot_id?: number | null;
+    skip_reason?: string | null;
+}
+
+export interface IWindowSwitchRepository {
+    /**
+     * Save a window switch event.
+     * Returns the ID of the inserted record.
+     */
+    save(event: WindowSwitchRecord): number | null;
+
+    /**
+     * Get window switches within a time range.
+     */
+    getInRange(startTs: number, endTs: number, limit?: number): WindowSwitchRecord[];
+
+    /**
+     * Get dwell time statistics (time spent per app).
+     */
+    getDwellStats(startTs: number, endTs: number): { app: string; total_seconds: number }[];
+}
+
+// =============================================================================
 // Repository Factory Interface
 // =============================================================================
 
@@ -235,4 +337,7 @@ export interface IRepositoryFactory {
     timelineCards: ITimelineCardRepository;
     batches: IBatchRepository;
     settings: ISettingsRepository;
+    journals: IJournalRepository;
+    pulseCards: IPulseCardRepository;
+    windowSwitches: IWindowSwitchRepository;
 }

@@ -22,6 +22,11 @@ export interface LLMProvider {
     embedQuery?(text: string): Promise<number[]>;
 }
 
+function normalizeProviderDisplayName(providerKey: string): string {
+    if (providerKey.toLowerCase() === 'openai') return 'OpenAI';
+    return providerKey;
+}
+
 // Factory for role-based provider selection
 import { getMergedLLMConfig } from '../config_manager';
 
@@ -36,10 +41,10 @@ export function getLLMProvider(role: string): LLMProvider {
     }
 
     // 2. Get Provider Config
-    const providerName = roleConfig.provider;
-    const providerCfg = config.providers[providerName];
+    const providerKey = roleConfig.provider;
+    const providerCfg = config.providers[providerKey];
     if (!providerCfg) {
-        console.warn(`[LLM] Provider "${providerName}" not found for role "${role}". Using Mock.`);
+        console.warn(`[LLM] Provider "${providerKey}" not found for role "${role}". Using Mock.`);
         return new MockProvider();
     }
 
@@ -47,24 +52,24 @@ export function getLLMProvider(role: string): LLMProvider {
     const apiKey = providerCfg.apiKey || process.env[providerCfg.apiKeyEnv] || '';
 
     if (!apiKey) {
-        console.warn(`[LLM] No API key found for ${providerName}. Using Mock.`);
+        console.warn(`[LLM] No API key found for ${providerKey}. Using Mock.`);
         return new MockProvider();
     }
 
     // 4. Instantiate Provider
-    if (providerName === 'Google') {
+    if (providerKey === 'Google') {
         return new GeminiProvider(apiKey, roleConfig.model);
     }
 
     // Default to OpenAI Compatible
-    return new OpenAIProvider(apiKey, providerCfg.apiBaseUrl, roleConfig.model, providerName);
+    return new OpenAIProvider(apiKey, providerCfg.apiBaseUrl, roleConfig.model, normalizeProviderDisplayName(providerKey));
 }
 
 export function createLLMProviderFromConfig(providerName: string, apiKey: string, baseUrl: string, model: string = 'gpt-3.5-turbo'): LLMProvider {
     if (providerName === 'Google') {
         return new GeminiProvider(apiKey, model);
     }
-    return new OpenAIProvider(apiKey, baseUrl, model, providerName);
+    return new OpenAIProvider(apiKey, baseUrl, model, normalizeProviderDisplayName(providerName));
 }
 
 class MockProvider implements LLMProvider {

@@ -60,102 +60,23 @@ export interface PulseCard {
 }
 
 export function savePulseCard(card: PulseCard) {
-    if (!db) return;
-    try {
-        const stmt = db.prepare(`
-            INSERT INTO pulse_cards (id, type, title, content, suggested_actions, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        `);
-        stmt.run(
-            card.id,
-            card.type,
-            card.title,
-            card.content,
-            JSON.stringify(card.suggested_actions || []),
-            card.created_at
-        );
-        return true;
-    } catch (err) {
-        console.error('Failed to save pulse card:', err);
-        return false;
-    }
+    return repos?.pulseCards.save(card) ?? false;
 }
 
 export function getPulseCards(limit = 50): PulseCard[] {
-    if (!db) return [];
-    try {
-        const stmt = db.prepare(`
-            SELECT * FROM pulse_cards ORDER BY created_at DESC LIMIT ?
-        `);
-        const rows = stmt.all(limit) as any[];
-        return rows.map(row => ({
-            ...row,
-            suggested_actions: JSON.parse(row.suggested_actions || '[]')
-        }));
-    } catch (err) {
-        console.error('Failed to get pulse cards:', err);
-        return [];
-    }
+    return repos?.pulseCards.getMany(limit) ?? [];
 }
 
 export function getPulseCardById(id: string): PulseCard | null {
-    if (!db) return null;
-    try {
-        const stmt = db.prepare(`
-            SELECT * FROM pulse_cards WHERE id = ? LIMIT 1
-        `);
-        const row = stmt.get(id) as any;
-        if (!row) return null;
-        return {
-            ...row,
-            suggested_actions: JSON.parse(row.suggested_actions || '[]')
-        };
-    } catch (err) {
-        console.error('Failed to get pulse card by id:', err);
-        return null;
-    }
+    return repos?.pulseCards.getById(id) ?? null;
 }
 
 export function updatePulseCard(card: Pick<PulseCard, 'id'> & Partial<Omit<PulseCard, 'id'>>) {
-    if (!db) return false;
-    try {
-        const existing = getPulseCardById(card.id);
-        if (!existing) return false;
-
-        const title = card.title ?? existing.title;
-        const content = card.content ?? existing.content;
-        const suggestedActions = card.suggested_actions ?? existing.suggested_actions;
-        const createdAt = card.created_at ?? existing.created_at;
-
-        const stmt = db.prepare(`
-            UPDATE pulse_cards
-            SET title = ?, content = ?, suggested_actions = ?, created_at = ?
-            WHERE id = ?
-        `);
-        stmt.run(title, content, JSON.stringify(suggestedActions || []), createdAt, card.id);
-        return true;
-    } catch (err) {
-        console.error('Failed to update pulse card:', err);
-        return false;
-    }
+    return repos?.pulseCards.update(card) ?? false;
 }
 
 export function getLatestPulseCard(type: string): PulseCard | null {
-    if (!db) return null;
-    try {
-        const stmt = db.prepare(`
-            SELECT * FROM pulse_cards WHERE type = ? ORDER BY created_at DESC LIMIT 1
-        `);
-        const row = stmt.get(type) as any;
-        if (!row) return null;
-        return {
-            ...row,
-            suggested_actions: JSON.parse(row.suggested_actions || '[]')
-        };
-    } catch (err) {
-        console.error('Failed to get latest pulse card:', err);
-        return null;
-    }
+    return repos?.pulseCards.getLatestByType(type) ?? null;
 }
 
 // --- Window Switch Events (Smart Capture Guard) ---
@@ -175,45 +96,14 @@ export interface WindowSwitchRecord {
  * Save a window switch event to the database.
  */
 export function saveWindowSwitch(event: WindowSwitchRecord): number | null {
-    if (!db) return null;
-    try {
-        const stmt = db.prepare(`
-            INSERT INTO window_switches (timestamp, from_app, from_title, to_app, to_title, screenshot_id, skip_reason)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        `);
-        const result = stmt.run(
-            event.timestamp,
-            event.from_app,
-            event.from_title,
-            event.to_app,
-            event.to_title,
-            event.screenshot_id || null,
-            event.skip_reason || null
-        );
-        return result.lastInsertRowid as number;
-    } catch (err) {
-        console.error('[Storage] Failed to save window switch:', err);
-        return null;
-    }
+    return repos?.windowSwitches.save(event) ?? null;
 }
 
 /**
  * Get window switch events within a time range.
  */
 export function getWindowSwitches(startTs: number, endTs: number, limit = 100): WindowSwitchRecord[] {
-    if (!db) return [];
-    try {
-        const stmt = db.prepare(`
-            SELECT * FROM window_switches
-            WHERE timestamp >= ? AND timestamp <= ?
-            ORDER BY timestamp DESC
-            LIMIT ?
-        `);
-        return stmt.all(startTs, endTs, limit) as WindowSwitchRecord[];
-    } catch (err) {
-        console.error('[Storage] Failed to get window switches:', err);
-        return [];
-    }
+    return repos?.windowSwitches.getInRange(startTs, endTs, limit) ?? [];
 }
 
 /**
@@ -221,31 +111,7 @@ export function getWindowSwitches(startTs: number, endTs: number, limit = 100): 
  * Returns array of { app, title, dwell_seconds } sorted by dwell time.
  */
 export function getWindowDwellStats(startTs: number, endTs: number): { app: string; total_seconds: number }[] {
-    if (!db) return [];
-    try {
-        // Calculate dwell time as difference between consecutive switches
-        const stmt = db.prepare(`
-            WITH ranked AS (
-                SELECT 
-                    to_app,
-                    timestamp,
-                    LEAD(timestamp) OVER (ORDER BY timestamp) as next_ts
-                FROM window_switches
-                WHERE timestamp >= ? AND timestamp <= ?
-            )
-            SELECT 
-                to_app as app,
-                SUM(COALESCE(next_ts, ?) - timestamp) as total_seconds
-            FROM ranked
-            WHERE to_app IS NOT NULL
-            GROUP BY to_app
-            ORDER BY total_seconds DESC
-        `);
-        return stmt.all(startTs, endTs, endTs) as { app: string; total_seconds: number }[];
-    } catch (err) {
-        console.error('[Storage] Failed to get window dwell stats:', err);
-        return [];
-    }
+    return repos?.windowSwitches.getDwellStats(startTs, endTs) ?? [];
 }
 
 export function closeStorage() {
@@ -269,7 +135,9 @@ function setupStorageIPC() {
 
     // Journal
     typedHandle('get-journal-entries', () => getJournalEntries());
-    typedHandle('add-journal-entry', (_event: unknown, entry: { content: string; type: 'intention' | 'reflection' }) => addJournalEntry(entry));
+    typedHandle('add-journal-entry', (_event: unknown, entry: { content: string; type: 'intention' | 'reflection' }) => {
+        addJournalEntry(entry);
+    });
 
     // Dashboard Stats
     typedHandle('get-dashboard-stats', () => getDashboardStats());
@@ -497,35 +365,14 @@ export function getSnapshotsByDate(date: string) {
 }
 
 export function getSettings() {
-    if (!db) return {};
-    try {
-        const stmt = db.prepare('SELECT key, value FROM settings');
-        const rows = stmt.all() as { key: string, value: string }[];
-        const settings: Record<string, string> = {};
-        rows.forEach(row => {
-            settings[row.key] = row.value;
-        });
-
-        // Inject current user data path so UI always knows the real location
-        settings['recording_path'] = app.getPath('userData');
-
-        return settings;
-    } catch (err) {
-        console.error('[ShuTong] Failed to get settings:', err);
-        return {};
-    }
+    const settings = repos?.settings.getAll() ?? {};
+    // Inject current user data path so UI always knows the real location
+    settings['recording_path'] = app.getPath('userData');
+    return settings;
 }
 
 export function getSetting(key: string): string | null {
-    if (!db) return null;
-    try {
-        const stmt = db.prepare('SELECT value FROM settings WHERE key = ?');
-        const row = stmt.get(key) as { value: string } | undefined;
-        return row?.value ?? null;
-    } catch (err) {
-        console.error('[ShuTong] Failed to get setting:', err);
-        return null;
-    }
+    return repos?.settings.get(key) ?? null;
 }
 
 export function getReminderSettings() {
@@ -577,48 +424,33 @@ export function deleteSnapshotsBefore(timestamp: number) {
 }
 
 export function setSetting(key: string, value: string) {
-    if (!db) {
-        console.error(`[ShuTong] Cannot set setting ${key}, DB not initialized`);
+    if (!repos) {
+        console.error(`[ShuTong] Cannot set setting ${key}, repositories not initialized`);
         return;
     }
-    try {
-        const stmt = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
-        const result = stmt.run(key, value);
-        const lowerKey = String(key).toLowerCase();
-        const isSensitive =
-            lowerKey.includes('apikey') ||
-            lowerKey.includes('api_key') ||
-            lowerKey.includes('token') ||
-            lowerKey.startsWith('llm.provider.') && lowerKey.endsWith('.apikey');
 
-        const safeValue = isSensitive ? '<redacted>' : value;
-        console.log(`[ShuTong] Set setting ${key} = ${safeValue}, Changes: ${result.changes}`);
-    } catch (err) {
-        console.error('[ShuTong] Failed to set setting:', err);
+    repos.settings.set(key, value);
+
+    // Log non-sensitive settings
+    const lowerKey = String(key).toLowerCase();
+    const isSensitive =
+        lowerKey.includes('api') ||
+        lowerKey.includes('key') ||
+        lowerKey.includes('token') ||
+        lowerKey.includes('secret');
+    if (!isSensitive) {
+        console.log(`[ShuTong] Setting updated: ${key} = ${value}`);
+    } else {
+        console.log(`[ShuTong] Setting updated: ${key} = [REDACTED]`);
     }
 }
 
 export function addJournalEntry(entry: { content: string, type: 'intention' | 'reflection' }) {
-    if (!db) return;
-    try {
-        const timestamp = new Date().toISOString();
-        const stmt = db.prepare('INSERT INTO journal (content, type, timestamp) VALUES (?, ?, ?)');
-        stmt.run(entry.content, entry.type, timestamp);
-    } catch (err) {
-        console.error('[ShuTong] Failed to add journal entry:', err);
-    }
+    return repos?.journals.add(entry) ?? null;
 }
 
-
 export function getJournalEntries(): JournalEntry[] {
-    if (!db) return [];
-    try {
-        const stmt = db.prepare('SELECT * FROM journal ORDER BY id DESC');
-        return stmt.all() as JournalEntry[];
-    } catch (err) {
-        console.error('[ShuTong] Failed to get journal entries:', err);
-        return [];
-    }
+    return repos?.journals.getAll() ?? [];
 }
 
 

@@ -6,60 +6,46 @@
  */
 
 import type Database from 'better-sqlite3';
-import type { IBatchRepository, IRepositoryFactory, IScreenshotRepository, ISettingsRepository, ITimelineCardRepository } from './interfaces';
+import type { IBatchRepository, IRepositoryFactory } from './interfaces';
+import { SQLiteJournalRepository } from './sqlite-journal.repository';
+import { SQLitePulseCardRepository } from './sqlite-pulse-card.repository';
 import { SQLiteScreenshotRepository } from './sqlite-screenshot.repository';
+import { SQLiteSettingsRepository } from './sqlite-settings.repository';
 import { SQLiteTimelineCardRepository } from './sqlite-timeline-card.repository';
+import { SQLiteWindowSwitchRepository } from './sqlite-window-switch.repository';
 
-// Singleton instances
-let screenshotRepo: IScreenshotRepository | null = null;
-let timelineCardRepo: ITimelineCardRepository | null = null;
+// Temporary stub for Batch Repository (implementation still in storage.ts)
+class BatchRepositoryStub implements IBatchRepository {
+    constructor(_db: Database.Database) {
+        void _db;
+    }
+
+    createWithScreenshots(_startTs: number, _endTs: number, _screenshotIds: number[]): number | null {
+        // Still using storage.ts implementation for batches
+        void _startTs;
+        void _endTs;
+        void _screenshotIds;
+        return null; // Will be implemented later
+    }
+
+    getById() { return null; }
+    getByStatus() { return []; }
+    updateStatus() { }
+    getScreenshotIds() { return []; }
+}
 
 /**
- * Create or get the repository factory for the given database.
- * Repositories are lazily instantiated and cached.
+ * Create the repository factory for the given database.
+ * All repositories are instantiated immediately.
  */
 export function createRepositoryFactory(db: Database.Database): IRepositoryFactory {
-    // Lazily create repositories
-    if (!screenshotRepo) {
-        screenshotRepo = new SQLiteScreenshotRepository(db);
-    }
-    if (!timelineCardRepo) {
-        timelineCardRepo = new SQLiteTimelineCardRepository(db);
-    }
-
     return {
-        screenshots: screenshotRepo,
-        timelineCards: timelineCardRepo,
-        // Placeholder stubs until implemented
-        batches: createBatchRepositoryStub(db),
-        settings: createSettingsRepositoryStub(db),
-    };
-}
-
-/**
- * Reset all repository instances (useful for testing).
- */
-export function resetRepositories(): void {
-    screenshotRepo = null;
-    timelineCardRepo = null;
-}
-
-// Temporary stubs until full implementations are created
-function createBatchRepositoryStub(_db: Database.Database): IBatchRepository {
-    return {
-        createWithScreenshots: () => null,
-        getById: () => null,
-        getByStatus: () => [],
-        updateStatus: () => { },
-        getScreenshotIds: () => [],
-    };
-}
-
-function createSettingsRepositoryStub(_db: Database.Database): ISettingsRepository {
-    return {
-        getAll: () => ({}),
-        get: () => null,
-        set: () => { },
-        delete: () => { },
+        screenshots: new SQLiteScreenshotRepository(db),
+        timelineCards: new SQLiteTimelineCardRepository(db),
+        batches: new BatchRepositoryStub(db),
+        settings: new SQLiteSettingsRepository(db),
+        journals: new SQLiteJournalRepository(db),
+        pulseCards: new SQLitePulseCardRepository(db),
+        windowSwitches: new SQLiteWindowSwitchRepository(db),
     };
 }

@@ -96,8 +96,21 @@ function TimelineContainer({ selectedCardId, onSelectCard }: { selectedCardId: n
     }
 
     fetchCards()
-    const interval = setInterval(fetchCards, 5000) // Poll every 5s for new cards
-    return () => clearInterval(interval)
+    fetchCards()
+
+    // Subscribe to real-time events instead of polling
+    // This reduces IPC overhead and improves responsiveness
+    // @ts-ignore
+    const cleanup = window.electron?.on('app-event', (event: any) => {
+      // Refresh timeline when a new card is created
+      if (event.type === 'card:created') {
+        fetchCards();
+      }
+    });
+
+    return () => {
+      if (cleanup) cleanup();
+    }
   }, [search, category]) // Re-fetch on filter change
 
   return (
