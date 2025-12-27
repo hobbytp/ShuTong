@@ -1,126 +1,43 @@
+/**
+ * Storage Module (Facade)
+ * 
+ * This module is being refactored to delegate to repositories.
+ * It maintains backward compatibility while new code can use repositories directly.
+ */
+
 import Database from 'better-sqlite3';
 import { app } from 'electron';
 import fs from 'fs';
-import path from 'path';
+import type { JournalEntry, Snapshot } from '../shared/ipc-contract';
+import { closeDatabase, getDbPath, initDatabase } from './infrastructure/database';
+import { typedHandle } from './infrastructure/ipc/typed-ipc';
+import { createRepositoryFactory, IRepositoryFactory } from './infrastructure/repositories';
 
+// Backward compatibility: expose db for legacy code
 let db: Database.Database | null = null;
 let ipcConfigured = false;
 
-function getDbPath() {
-    return path.join(app.getPath('userData'), 'shutong.sqlite');
+// Repository factory instance
+let repos: IRepositoryFactory | null = null;
+
+/**
+ * Get the repository factory.
+ * Use this for new code instead of direct db access.
+ */
+export function getRepositories(): IRepositoryFactory | null {
+    return repos;
 }
 
+/**
+ * Initialize storage with database and repositories.
+ */
 export function initStorage() {
     try {
-        db = new Database(getDbPath());
-        db.pragma('journal_mode = WAL');
+        // Use centralized database initialization
+        db = initDatabase();
 
-        // Existing Schema (Legacy)
-        db.exec(`
-            CREATE TABLE IF NOT EXISTS snapshots (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_path TEXT NOT NULL,
-                timestamp TEXT NOT NULL,
-                summary TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS journal (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                content TEXT NOT NULL,
-                type TEXT NOT NULL,
-                timestamp TEXT NOT NULL
-            );
-        `);
-
-        // Phase 6 Schema: Analysis Pipeline
-        db.exec(`
-            -- 1. Screenshots (replaces snapshots with Unix TS and extensible cols)
-            CREATE TABLE IF NOT EXISTS screenshots (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                captured_at INTEGER NOT NULL,  -- Unix timestamp (seconds)
-                file_path TEXT NOT NULL,
-                file_size INTEGER,
-                is_deleted INTEGER DEFAULT 0,
-                capture_type TEXT,             -- Future: 'fullscreen', 'window', 'region'
-                app_bundle_id TEXT,            -- Future: focused app
-                window_title TEXT              -- Future: window title
-            );
-            CREATE INDEX IF NOT EXISTS idx_screenshots_captured_at ON screenshots(captured_at);
-
-            -- 2. Analysis Batches (groups of screenshots)
-            CREATE TABLE IF NOT EXISTS analysis_batches (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                batch_start_ts INTEGER NOT NULL,
-                batch_end_ts INTEGER NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending', -- pending, processing, analyzed, failed
-                reason TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE INDEX IF NOT EXISTS idx_batches_status ON analysis_batches(status);
-
-            -- 3. Batch Screenshots (Junction table)
-            CREATE TABLE IF NOT EXISTS batch_screenshots (
-                batch_id INTEGER NOT NULL REFERENCES analysis_batches(id) ON DELETE CASCADE,
-                screenshot_id INTEGER NOT NULL REFERENCES screenshots(id),
-                PRIMARY KEY (batch_id, screenshot_id)
-            );
-
-            -- 4. Observations (Raw AI transcription)
-            CREATE TABLE IF NOT EXISTS observations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                batch_id INTEGER NOT NULL REFERENCES analysis_batches(id),
-                start_ts INTEGER NOT NULL,
-                end_ts INTEGER NOT NULL,
-                observation TEXT NOT NULL,
-                llm_model TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
-
-            -- 5. Timeline Cards (Final Output)
-            CREATE TABLE IF NOT EXISTS timeline_cards (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                batch_id INTEGER REFERENCES analysis_batches(id),
-                start_ts INTEGER NOT NULL,
-                end_ts INTEGER NOT NULL,
-                category TEXT NOT NULL,
-                subcategory TEXT,
-                title TEXT NOT NULL,
-                summary TEXT NOT NULL,
-                detailed_summary TEXT,
-                video_url TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE INDEX IF NOT EXISTS idx_timeline_cards_start_ts ON timeline_cards(start_ts);
-
-            -- 6. Pulse Cards (Agents Output)
-            CREATE TABLE IF NOT EXISTS pulse_cards (
-                id TEXT PRIMARY KEY,
-                type TEXT NOT NULL,
-                title TEXT NOT NULL,
-                content TEXT NOT NULL,
-                suggested_actions TEXT, -- JSON array
-                created_at INTEGER NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_pulse_cards_created_at ON pulse_cards(created_at);
-
-            -- 7. Window Switches (Smart Capture Guard)
-            CREATE TABLE IF NOT EXISTS window_switches (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp INTEGER NOT NULL,        -- Unix timestamp (seconds)
-                from_app TEXT,
-                from_title TEXT,
-                to_app TEXT NOT NULL,
-                to_title TEXT NOT NULL,
-                screenshot_id INTEGER,             -- FK to screenshots if captured
-                skip_reason TEXT                   -- Why capture was skipped (if any)
-            );
-            CREATE INDEX IF NOT EXISTS idx_window_switches_timestamp ON window_switches(timestamp);
-        `);
+        // Initialize repositories
+        repos = createRepositoryFactory(db);
 
         setupStorageIPC();
         ipcConfigured = true;
@@ -332,19 +249,15 @@ export function getWindowDwellStats(startTs: number, endTs: number): { app: stri
 }
 
 export function closeStorage() {
-    if (db) {
-        db.close();
-        db = null;
-        console.log('[ShuTong] Storage closed.');
-    }
+    closeDatabase();
+    db = null;
+    repos = null;
+    console.log('[ShuTong] Storage closed.');
 }
 
 // IPC Handlers for Storage
 function setupStorageIPC() {
     if (ipcConfigured) return;
-
-    // Using typed IPC wrapper for type-safe handlers (runtime require to avoid circular deps)
-    const { typedHandle } = require('./infrastructure/ipc/typed-ipc');
 
     // Snapshots
     typedHandle('get-snapshots', (_event: unknown, limit: number) => getSnapshots(limit));
@@ -548,11 +461,11 @@ export function addSnapshot(filePath: string) {
     }
 }
 
-export function getSnapshots(limit: number) {
+export function getSnapshots(limit: number): Snapshot[] {
     if (!db) return [];
     try {
         const stmt = db.prepare('SELECT * FROM snapshots ORDER BY id DESC LIMIT ?');
-        return stmt.all(limit);
+        return stmt.all(limit) as Snapshot[];
     } catch (err) {
         console.error('[ShuTong] Failed to get snapshots:', err);
         return [];
@@ -697,11 +610,11 @@ export function addJournalEntry(entry: { content: string, type: 'intention' | 'r
 }
 
 
-export function getJournalEntries() {
+export function getJournalEntries(): JournalEntry[] {
     if (!db) return [];
     try {
         const stmt = db.prepare('SELECT * FROM journal ORDER BY id DESC');
-        return stmt.all();
+        return stmt.all() as JournalEntry[];
     } catch (err) {
         console.error('[ShuTong] Failed to get journal entries:', err);
         return [];

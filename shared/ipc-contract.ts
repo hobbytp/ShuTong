@@ -17,10 +17,12 @@ export interface Settings {
     [key: string]: string;
 }
 
+// Support both legacy snapshots table and new screenshots table
 export interface Snapshot {
     id: number;
     file_path: string;
-    captured_at: number;
+    timestamp?: string;      // Legacy format (ISO string)
+    captured_at?: number;    // New format (Unix timestamp)
 }
 
 export interface TimelineCard {
@@ -57,11 +59,11 @@ export interface JournalEntry {
     created_at?: number;
 }
 
+// Matches actual getDashboardStats() return
 export interface DashboardStats {
-    totalSnapshots: number;
-    todaySnapshots: number;
-    storageUsed: string;
-    lastCapture: string | null;
+    focusTime: string;           // e.g. "2h 30m"
+    productivePercentage: number;
+    lastActivity: string;
 }
 
 export interface ScreenInfo {
@@ -78,18 +80,22 @@ export interface LLMConfig {
     roleConfigs: Record<string, unknown>;
 }
 
+// Matches actual getDailyActivitySummary() return from analytics-service.ts
 export interface DailySummary {
-    date: string;
-    totalActiveTime: number;
-    topApps: { app: string; seconds: number }[];
-    hourlyActivity: { hour: number; count: number }[];
+    date: string;                    // YYYY-MM-DD
+    totalActiveSeconds: number;      // Total tracked time
+    appUsage: { app: string; seconds: number; percentage: number }[];
+    hourlyActivity: number[];        // 24 entries, seconds per hour
 }
 
+// Matches actual getActivityTimeline() return from analytics-service.ts
 export interface TimelineEvent {
     timestamp: number;
-    type: 'switch' | 'skip' | 'capture';
+    type: 'app_switch' | 'skip' | 'capture';
     app?: string;
     title?: string;
+    from_app?: string;
+    from_title?: string;
     reason?: string;
 }
 
@@ -99,17 +105,20 @@ export interface GuardStatistics {
     skipsByReason: Record<string, number>;
 }
 
+// Matches actual getSkipLog() return from capture-guard.ts
 export interface SkipLogEntry {
     timestamp: number;
-    reason: string;
+    reason: string | null;  // Can be null from capture-guard
     app?: string;
     title?: string;
 }
 
+// Matches actual getCaptureEfficiency() return from analytics-service.ts
 export interface CaptureEfficiency {
-    captureRate: number;
-    skipRate: number;
-    dedupSaved: number;
+    totalCaptures: number;
+    totalSkips: number;
+    efficiency: number;
+    skipBreakdown: Record<string, number>;
 }
 
 // =============================================================================

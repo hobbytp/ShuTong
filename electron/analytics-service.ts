@@ -7,6 +7,7 @@
  */
 
 import { getGuardStats, getSkipLog, resetGuardStats } from './capture-guard';
+import { typedHandle } from './infrastructure/ipc/typed-ipc';
 import { getWindowDwellStats, getWindowSwitches } from './storage';
 
 // --- Types ---
@@ -193,16 +194,13 @@ export function setupAnalyticsIPC(): void {
     if (analyticsIpcConfigured) return;
     analyticsIpcConfigured = true;
 
-    // Using typed IPC wrapper for type-safe handlers (runtime require to avoid circular deps)
-    const { typedHandle } = require('./infrastructure/ipc/typed-ipc');
-
     // Get daily activity summary
-    typedHandle('analytics:getDailySummary', (_event: unknown, date: string) => {
+    typedHandle('analytics:getDailySummary', (_event, date: string) => {
         return getDailyActivitySummary(date);
     });
 
     // Get activity timeline
-    typedHandle('analytics:getTimeline', (_event: unknown, startTs: number, endTs: number, limit?: number) => {
+    typedHandle('analytics:getTimeline', (_event, startTs: number, endTs: number, limit?: number) => {
         return getActivityTimeline(startTs, endTs, limit);
     });
 
@@ -212,7 +210,7 @@ export function setupAnalyticsIPC(): void {
     });
 
     // Get top apps
-    typedHandle('analytics:getTopApps', (_event: unknown, startTs: number, endTs: number, limit?: number) => {
+    typedHandle('analytics:getTopApps', (_event, startTs: number, endTs: number, limit?: number) => {
         return getTopApps(startTs, endTs, limit);
     });
 
@@ -222,7 +220,7 @@ export function setupAnalyticsIPC(): void {
     });
 
     // Get skip log
-    typedHandle('guard:getSkipLog', (_event: unknown, limit?: number) => {
+    typedHandle('guard:getSkipLog', (_event, limit?: number) => {
         return getSkipLog(limit);
     });
 
