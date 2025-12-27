@@ -25,7 +25,9 @@ export function setupVideoSubscribers() {
                 eventBus.emitEvent('video:generated', { cardId, videoPath });
             }
         } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : String(err);
             console.error(`[Video] Failed to generate video for card ${cardId}:`, err);
+            eventBus.emitEvent('video:generation-failed', { cardId, error: errorMessage });
         }
     });
     console.log('[Video] Subscribers initialized');

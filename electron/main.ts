@@ -4,6 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { cancelMigration, commitMigration, getBootstrapConfig, PendingMigration, resolveUserDataPath, setCustomUserDataPath, setPendingMigration } from './bootstrap'
 import { getMergedLLMConfig, setLLMProviderConfig, setRoleConfig } from './config_manager'
+import { getIsRecording, startRecording, stopRecording } from './features/capture'
 import { setupAnalyticsIPC } from './features/timeline'
 import { createVideoGenerationWindow, setupVideoIPC, setupVideoSubscribers } from './features/video'
 import { eventBus } from './infrastructure/events'
@@ -100,7 +101,7 @@ app.on('window-all-closed', () => {
 })
 
 import { setupDeepLinks } from './deeplink'
-import { setupScreenCapture, startRecording, stopRecording } from './features/capture'
+import { setupScreenCapture } from './features/capture'
 import { cleanupOldSnapshots, startAnalysisJob } from './features/timeline'
 import { checkReminders, sendNotification } from './scheduler'
 import { closeStorage, getCardDetails, getReminderSettings, getRetentionSettings, getScreenshotsForCard, getTimelineCards, initStorage } from './storage'
@@ -458,8 +459,9 @@ async function startApp() {
       }
     } catch (err) { console.error(err); }
 
-    startAnalysisJob()
+    // Initialize event subscribers BEFORE starting async jobs to prevent race conditions
     setupVideoSubscribers()
+    startAnalysisJob()
 
     setupTray(() => win);
 
@@ -472,8 +474,7 @@ async function startApp() {
     });
 
     // @ts-ignore
-    eventBus.subscribe('command:toggle-recording', async () => {
-      const { getIsRecording, startRecording, stopRecording } = await import('./features/capture');
+    eventBus.subscribe('command:toggle-recording', () => {
       if (getIsRecording()) {
         stopRecording();
       } else {

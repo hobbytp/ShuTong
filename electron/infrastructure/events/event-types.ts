@@ -13,10 +13,11 @@ export interface EventMap {
 
     // Video Domain Events
     'video:generated': { cardId: number; videoPath: string };
+    'video:generation-failed': { cardId: number; error: string };
     'video:deleted': { cardId: number };
 
-    // Commands
-    'command:toggle-recording': void;
+    // Commands (empty object payload is more type-safe than void)
+    'command:toggle-recording': {};
 
     // Analysis Domain Events
     'analysis:started': { batchId: number };

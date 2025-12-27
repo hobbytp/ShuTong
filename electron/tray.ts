@@ -73,7 +73,7 @@ export function updateTrayMenu(getMainWindow: () => BrowserWindow | null, isReco
                     // OR simpler: main.ts passes the toggle callback.
                     // Let's refactor setupTray to accept callbacks.
                     // For now, let's just make it emit an event on app or something.
-                    eventBus.emitEvent('command:toggle-recording', undefined);
+                    eventBus.emitEvent('command:toggle-recording', {});
                 }
             }
         },

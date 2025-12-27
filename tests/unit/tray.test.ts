@@ -99,6 +99,6 @@ describe('Tray Logic', () => {
         const recordItem = template.find((item: any) => item.label && item.label.includes('Recording'))
 
         recordItem.click()
-        expect(mocks.mockEmitEvent).toHaveBeenCalledWith('command:toggle-recording', undefined)
+        expect(mocks.mockEmitEvent).toHaveBeenCalledWith('command:toggle-recording', {})
     })
 })

@@ -19,7 +19,7 @@ class TypedEventBus extends EventEmitter {
 
     /**
      * Emit a typed event.
-     * Optionally forwards to Renderer process if windows are available.
+     * Selectively forwards specific events to Renderer process.
      */
     public emitEvent<K extends EventKey>(type: K, payload: EventMap[K]): boolean {
         // console.log(`[EventBus] Emitting event: ${type}`, payload);
@@ -27,19 +27,34 @@ class TypedEventBus extends EventEmitter {
         // 1. Emit locally for Main Process listeners
         const emitted = this.emit(type, payload);
 
-        // 2. Forward to Renderer (Optional: only for specific events or all)
-        // For now, consistent with legacy behavior, we might want to be selective.
-        // Let's forward everything under 'app-event' channel for simplicity
-        this.broadcastToRenderer('app-event', { type, payload, timestamp: Date.now() });
+        // 2. Forward only user-facing events to Renderer
+        const rendererEvents: EventKey[] = [
+            'recording:state-changed',
+            'capture:error',
+            'video:generated',
+            'video:generation-failed'
+        ];
+
+        if (rendererEvents.includes(type)) {
+            this.broadcastToRenderer('app-event', { type, payload, timestamp: Date.now() });
+        }
 
         return emitted;
     }
 
     /**
-     * Subscribe to a typed event
+     * Subscribe to a typed event with automatic error handling
      */
-    public subscribe<K extends EventKey>(type: K, listener: (payload: EventMap[K]) => void): void {
-        this.on(type, listener);
+    public subscribe<K extends EventKey>(type: K, listener: (payload: EventMap[K]) => void | Promise<void>): void {
+        const wrappedListener = async (payload: EventMap[K]) => {
+            try {
+                await listener(payload);
+            } catch (err) {
+                console.error(`[EventBus] Error in ${type} listener:`, err);
+                // Prevent one failing listener from affecting others
+            }
+        };
+        this.on(type, wrappedListener);
     }
 
     /**

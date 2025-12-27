@@ -12,8 +12,8 @@ export { typedHandle } from './ipc/typed-ipc';
 
 // Repositories
 export {
-    SQLiteScreenshotRepository,
-    SQLiteTimelineCardRepository, createRepositoryFactory
+    createRepositoryFactory, SQLiteScreenshotRepository,
+    SQLiteTimelineCardRepository
 } from './repositories';
 
 export type {
@@ -23,3 +23,8 @@ export type {
 
 // Config (if needed - currently in parent)
 // export { getMergedLLMConfig, getLLMConfigForMain } from './config/config_manager';
+
+// Events
+export { eventBus } from './events';
+export type { EventKey, EventMap } from './events';
+
