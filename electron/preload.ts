@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import fs from 'node:fs'
 
 // --------- Expose some API to the Renderer process ---------
 contextBridge.exposeInMainWorld('ipcRenderer', {
@@ -31,6 +30,6 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
 
 contextBridge.exposeInMainWorld('videoAPI', {
   saveVideo: async (buffer: ArrayBuffer, filePath: string) => {
-    await fs.promises.writeFile(filePath, Buffer.from(buffer));
+    return ipcRenderer.invoke('video:save', buffer, filePath);
   }
 })

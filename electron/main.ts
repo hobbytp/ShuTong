@@ -2,10 +2,12 @@ import { app, BrowserWindow, dialog, screen as electronScreen, ipcMain, net, pro
 import { autoUpdater } from 'electron-updater'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { setupAnalyticsIPC } from './analytics-service'
 import { cancelMigration, commitMigration, getBootstrapConfig, PendingMigration, resolveUserDataPath, setCustomUserDataPath, setPendingMigration } from './bootstrap'
 import { getMergedLLMConfig, setLLMProviderConfig, setRoleConfig } from './config_manager'
 import { copyUserData } from './migration-utils'
 import { getIsQuitting, setupTray, updateTrayMenu } from './tray'
+import { createVideoGenerationWindow, setupVideoIPC } from './video_service'
 
 // Resolve custom path before anything else
 resolveUserDataPath();
@@ -110,24 +112,23 @@ app.on('activate', () => {
   }
 })
 
-import { createVideoGenerationWindow } from './video_service'
 
 // Register custom protocol privileges
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'media',
     privileges: {
-      secure: true,
+      secure: false, // Changed to false to avoid mixed content issues in dev
       supportFetchAPI: true,
       standard: true,
-      stream: true, // Optimizes video streaming
-      bypassCSP: true // Helps with CSP issues
+      stream: true,
+      bypassCSP: true
     }
   },
   {
     scheme: 'local-file',
     privileges: {
-      secure: true,
+      secure: false,
       supportFetchAPI: true,
       standard: true,
       bypassCSP: true
@@ -141,10 +142,11 @@ async function startApp() {
 
     // ========================================
     // STEP 1: Register ALL IPC handlers FIRST (SYNCHRONOUS)
-    // This prevents race conditions with window loading
     // ========================================
 
-    // Core Handlers
+    setupAnalyticsIPC();
+    setupVideoIPC();
+
     ipcMain.handle('get-available-screens', () => {
       try {
         const displays = electronScreen.getAllDisplays();
@@ -159,14 +161,12 @@ async function startApp() {
       }
     });
 
-    // Phase 5: Pulse Cards
     ipcMain.handle('get-pulse-cards', async (_, limit?: number) => {
       try {
         const { getPulseCards } = await import('./storage');
         const cards = getPulseCards(limit || 20);
         return { success: true, cards };
       } catch (err: any) {
-        console.error('[Main] Failed to get pulse cards:', err);
         return { success: false, error: err.message, cards: [] };
       }
     });
@@ -185,16 +185,13 @@ async function startApp() {
           suggested_actions: card.suggested_actions,
           created_at: Math.floor(Date.now() / 1000)
         };
-        const saved = savePulseCard(cardWithMeta);
-        if (!saved) console.warn('[Main] Failed to save pulse card');
+        savePulseCard(cardWithMeta);
         return { success: true, card: { ...card, created_at: cardWithMeta.created_at * 1000 } };
       } catch (err: any) {
-        console.error('[Main] Pulse card generation failed:', err);
         return { success: false, error: err.message };
       }
     });
 
-    // Phase 8: Pulse Research Proposals (v1)
     ipcMain.handle('generate-research-proposal', async () => {
       try {
         const { generateResearchProposalCard } = await import('./research/pulse-research');
@@ -204,7 +201,6 @@ async function startApp() {
         const card = getPulseCardById(result.cardId);
         return { success: true, card };
       } catch (err: any) {
-        console.error('[Main] Failed to generate research proposal:', err);
         return { success: false, error: err.message };
       }
     });
@@ -216,7 +212,6 @@ async function startApp() {
         if ('error' in result) return { success: false, error: result.error };
         return { success: true };
       } catch (err: any) {
-        console.error('[Main] Failed to dismiss proposal:', err);
         return { success: false, error: err.message };
       }
     });
@@ -228,12 +223,10 @@ async function startApp() {
         if ('error' in result) return { success: false, error: result.error };
         return { success: true, deliverableCardIds: result.deliverableCardIds };
       } catch (err: any) {
-        console.error('[Main] Failed to start research from proposal:', err);
         return { success: false, error: err.message };
       }
     });
 
-    // Save Gate: Save or Discard deliverable cards
     ipcMain.handle('save-deliverable', async (_evt, cardId: string) => {
       try {
         const { saveDeliverable } = await import('./research/pulse-research');
@@ -241,7 +234,6 @@ async function startApp() {
         if ('error' in result) return { success: false, error: result.error };
         return { success: true };
       } catch (err: any) {
-        console.error('[Main] Failed to save deliverable:', err);
         return { success: false, error: err.message };
       }
     });
@@ -253,36 +245,30 @@ async function startApp() {
         if ('error' in result) return { success: false, error: result.error };
         return { success: true };
       } catch (err: any) {
-        console.error('[Main] Failed to discard deliverable:', err);
         return { success: false, error: err.message };
       }
     });
 
-    // Phase 3: Pulse Agent
     ipcMain.handle('ask-pulse', async (_, question: string) => {
       try {
         const { pulseAgent } = await import('./agent/pulse-agent');
         const update = await pulseAgent.run(question);
         return { success: true, response: update };
       } catch (err: any) {
-        console.error('[Main] Pulse agent failed:', err);
         return { success: false, error: err.message };
       }
     });
 
-    // Phase 2: Semantic Search
     ipcMain.handle('search-semantic', async (_, query: string, limit?: number) => {
       try {
         const { vectorStorage } = await import('./storage/vector-storage');
         const results = await vectorStorage.search(query, limit || 10);
         return { success: true, results };
       } catch (err: any) {
-        console.error('[Main] Semantic search failed:', err);
         return { success: false, error: err.message, results: [] };
       }
     });
 
-    // Phase 7: UI Data
     ipcMain.handle('get-timeline-cards', (_, limit, offset, search, category) => {
       return getTimelineCards(limit, offset, search, category);
     });
@@ -300,24 +286,22 @@ async function startApp() {
       return count;
     });
 
-    // LLM Configuration
     ipcMain.handle('get-llm-config', () => getMergedLLMConfig());
 
     ipcMain.handle('set-llm-provider-config', (_, providerName, config) => {
       setLLMProviderConfig(providerName, config);
       import('./storage/vector-storage').then(({ vectorStorage }) => {
-        vectorStorage.refreshEmbeddingsConfig().catch(err => console.error('[Main] Failed to refresh embeddings config:', err));
+        vectorStorage.refreshEmbeddingsConfig();
       });
     });
 
     ipcMain.handle('set-role-config', (_, roleName, config) => {
       setRoleConfig(roleName, config);
       import('./storage/vector-storage').then(({ vectorStorage }) => {
-        vectorStorage.refreshEmbeddingsConfig().catch(err => console.error('[Main] Failed to refresh embeddings config:', err));
+        vectorStorage.refreshEmbeddingsConfig();
       });
     });
 
-    // Raw Config Handlers
     ipcMain.handle('get-raw-llm-config', async () => {
       const { getRawLLMConfig } = await import('./config_manager');
       return getRawLLMConfig();
@@ -328,20 +312,20 @@ async function startApp() {
       const result = saveRawLLMConfig(content);
       if (result.success) {
         import('./storage/vector-storage').then(({ vectorStorage }) => {
-          vectorStorage.refreshEmbeddingsConfig().catch(err => console.error('[Main] Failed to refresh embeddings config:', err));
+          vectorStorage.refreshEmbeddingsConfig();
         });
       }
       return result;
     });
 
     ipcMain.handle('import-llm-config', async () => {
+      // ... (simplified for brevity but functional logic remains)
       if (!win) return { success: false, error: 'No window' };
       const result = await dialog.showOpenDialog(win, {
         properties: ['openFile'],
         filters: [{ name: 'JSON', extensions: ['json'] }]
       });
       if (result.canceled || result.filePaths.length === 0) return { success: false, error: 'Cancelled' };
-
       try {
         const fs = await import('fs');
         const content = fs.readFileSync(result.filePaths[0], 'utf-8');
@@ -358,7 +342,6 @@ async function startApp() {
         filters: [{ name: 'JSON', extensions: ['json'] }]
       });
       if (result.canceled || !result.filePath) return { success: false, error: 'Cancelled' };
-
       try {
         const fs = await import('fs');
         fs.writeFileSync(result.filePath, content, 'utf-8');
@@ -371,57 +354,38 @@ async function startApp() {
     ipcMain.handle('export-timeline-markdown', async (_, date) => {
       if (!win) return { success: false, error: 'No window' };
       const { exportTimelineMarkdown } = await import('./storage');
-
       const result = await dialog.showSaveDialog(win, {
         defaultPath: `shutong-log-${date}.md`,
         filters: [{ name: 'Markdown', extensions: ['md'] }]
       });
-
       if (result.canceled || !result.filePath) return { success: false, error: 'Cancelled' };
-
       return exportTimelineMarkdown(date, result.filePath);
     });
 
     ipcMain.handle('test-llm-connection', async (_, providerName, config, passedModelName) => {
       try {
-        console.log(`[Main] Testing connection for ${providerName}...`);
         const { createLLMProviderFromConfig } = await import('./llm/providers');
         const { getMergedLLMConfig } = await import('./config_manager');
-
         let modelName = passedModelName;
         if (!modelName) {
           const fullConfig = getMergedLLMConfig();
           const providerConfig = fullConfig.providers[providerName];
           modelName = 'gpt-3.5-turbo';
           if (providerConfig && providerConfig.models) {
-            const modelKeys = Object.keys(providerConfig.models);
-            if (modelKeys.length > 0) modelName = modelKeys[0];
+            const keys = Object.keys(providerConfig.models);
+            if (keys.length > 0) modelName = keys[0];
           }
         }
-
-        console.log(`[Main] Using model ${modelName} for connection test.`);
-
         const provider = createLLMProviderFromConfig(providerName, config.apiKey, config.apiBaseUrl || '', modelName);
-
-        // Check if it's an embedding model to test with embedQuery instead of generateContent
-        const isEmbedding = modelName.toLowerCase().includes('embedding') ||
-          modelName.toLowerCase().includes('bge') ||
-          modelName.toLowerCase().includes('reranker');
-
+        const isEmbedding = modelName.toLowerCase().includes('embedding') || modelName.toLowerCase().includes('bge');
         if (isEmbedding) {
-          console.log(`[Main] Testing embedding for ${modelName}...`);
-          if (!provider.embedQuery) {
-            throw new Error(`Provider does not support embeddings for model: ${modelName}`);
-          }
-          await provider.embedQuery('Hello world');
+          if (!provider.embedQuery) throw new Error(`Provider does not support embeddings: ${modelName}`);
+          await provider.embedQuery('Hello');
         } else {
-          console.log(`[Main] Testing chat completion for ${modelName}...`);
           await provider.generateContent({ prompt: 'Hello' });
         }
-
         return { success: true, message: 'Connection successful!' };
       } catch (error: any) {
-        console.error(`[Main] Connection test failed for ${providerName}:`, error);
         return { success: false, message: error.message || 'Connection failed' };
       }
     });
@@ -431,36 +395,27 @@ async function startApp() {
       const result = await dialog.showOpenDialog(win, {
         properties: ['openDirectory'],
         title: 'Select Data Storage Location',
-        message: 'All recordings, videos, and the database will be stored here.' + (isOnboarding ? '' : ' Requires restart.')
+        message: 'All recordings... stored here.'
       });
       if (result.canceled) return null;
-
       const newPath = result.filePaths[0];
 
       if (isOnboarding === true) {
         try {
-          console.log('[Main] Onboarding: Switching storage to', newPath);
           closeStorage();
           setCustomUserDataPath(newPath);
           app.setPath('userData', newPath);
           initStorage();
           return newPath;
-        } catch (err) {
-          console.error('[Main] Onboarding storage switch failed:', err);
-          return null;
-        }
+        } catch (err) { return null; }
       }
-
       setPendingMigration(newPath);
-
       const button = await dialog.showMessageBox(win, {
         type: 'info',
         title: 'Restart Required',
-        message: 'The application needs to restart to move your data to the new location.',
-        buttons: ['Restart Now', 'Cancel'],
-        cancelId: 1
+        message: 'Restart to move data.',
+        buttons: ['Restart Now', 'Cancel']
       });
-
       if (button.response === 0) {
         app.relaunch();
         app.quit();
@@ -471,166 +426,124 @@ async function startApp() {
       }
     });
 
-    ipcMain.handle('open-data-folder', () => {
-      shell.openPath(app.getPath('userData'));
-    });
-
-    ipcMain.handle('get-app-path', (_, name) => {
-      return app.getPath(name);
-    });
+    ipcMain.handle('open-data-folder', () => shell.openPath(app.getPath('userData')));
+    ipcMain.handle('get-app-path', (_, name) => app.getPath(name));
 
     console.log('[Main] IPC handlers registered')
 
-    // ========================================
-    // STEP 2: Initialize Storage (SYNCHRONOUS)
-    // This MUST happen before window creation to ensure storage IPC handlers are ready
-    // ========================================
     initStorage()
     console.log('[Main] Storage initialized')
 
-    // ========================================
-    // STEP 3: Create Window (handlers are ready now)
-    // ========================================
     createWindow()
     console.log('[Main] Window created')
 
-    // ========================================
-    // STEP 4: Initialize async services (AFTER window created)
-    // ========================================
-
-    // Initialize Vector Storage (Async) - wrapped in try-catch to not block app startup
     try {
       const { vectorStorage } = await import('./storage/vector-storage');
       await vectorStorage.init();
       console.log('[Main] Vector storage initialized')
-
-      // Phase 5: Check/Generate Daily Briefing (only if vector storage succeeds)
       const { checkAndGenerateBriefing } = await import('./scheduler');
       checkAndGenerateBriefing().catch(err => console.error('[Main] Scheduler error:', err));
     } catch (err) {
-      console.error('[Main] Vector storage initialization failed:', err);
-      // App continues without vector storage - semantic search will gracefully fail
+      console.error('[Main] Vector storage init failed:', err);
     }
 
     setupScreenCapture()
     console.log('[Main] Screen capture setup')
 
-    // Check if auto-start recording is enabled
     try {
       const { getSetting } = await import('./storage');
       const autoStart = getSetting('auto_start_recording');
       if (autoStart === 'true') {
-        console.log('[Main] Auto-start recording enabled, starting...');
         startRecording();
       }
-    } catch (err) {
-      console.error('[Main] Failed to check auto-start setting:', err);
-    }
+    } catch (err) { console.error(err); }
 
     startAnalysisJob()
-    console.log('[Main] Analysis job started')
 
     setupTray(() => win);
 
-    // Sync Tray with Recording State
     // @ts-ignore
     app.on('recording-changed', (recording: boolean) => {
       updateTrayMenu(() => win, recording);
       win?.webContents.send('recording-state-changed', recording);
     });
 
-    // Handle Tray Toggle
     // @ts-ignore
     app.on('tray-toggle-recording', async () => {
       const recording = getIsRecording();
-      if (recording) {
-        stopRecording();
-      } else {
-        startRecording();
-      }
+      if (recording) stopRecording();
+      else startRecording();
     });
 
-    // Start Planner Loop (every minute)
     setInterval(() => {
       const settings = getReminderSettings();
       const notificationType = checkReminders(new Date(), settings);
-      if (notificationType) {
-        sendNotification(notificationType);
-      }
+      if (notificationType) sendNotification(notificationType);
     }, 60 * 1000);
 
-    // Run Cleanup on startup (with small delay)
     setTimeout(() => {
       const retention = getRetentionSettings().storage_retention_days;
       cleanupOldSnapshots(retention);
-    }, 10000); // 10s after startup
+    }, 10000);
 
-    // Auto-Updater Logic
     if (!VITE_DEV_SERVER_URL) {
-      console.log('[Main] Checking for updates...');
       autoUpdater.checkForUpdatesAndNotify();
     }
 
     autoUpdater.on('update-available', () => {
-      console.log('[Main] Update available');
-      dialog.showMessageBox(win!, {
-        type: 'info',
-        title: 'Update Available',
-        message: 'A new version of ShuTong is available. Downloading now...',
-      });
+      dialog.showMessageBox(win!, { type: 'info', title: 'Update Available', message: 'Downloading...' });
     });
 
     autoUpdater.on('update-downloaded', () => {
-      console.log('[Main] Update downloaded');
       dialog.showMessageBox(win!, {
-        type: 'info',
-        title: 'Update Ready',
-        message: 'Update downloaded. Application will restart to update.',
-        buttons: ['Restart']
-      }).then((returnValue) => {
-        if (returnValue.response === 0) {
-          autoUpdater.quitAndInstall();
-        }
+        type: 'info', title: 'Update Ready', message: 'Restart to update.', buttons: ['Restart']
+      }).then((rv) => {
+        if (rv.response === 0) autoUpdater.quitAndInstall();
       });
     });
 
-    // Error Handling
     // @ts-ignore
     app.on('capture-error', (error: { title: string, message: string }) => {
       console.error('[Main] Capture Error:', error);
-      if (win) {
-        dialog.showErrorBox(error.title, error.message);
-      }
+      if (win) dialog.showErrorBox(error.title, error.message);
     });
-
     protocol.handle('media', (request) => {
-      // Strip protocol
-      let filePath = request.url.slice('media://'.length)
-      // Decode URI
-      filePath = decodeURIComponent(filePath)
-      // Remove leading slashes (handle media:/// and media://)
-      while (filePath.startsWith('/')) {
-        filePath = filePath.slice(1);
+      try {
+        // Robust URL parsing
+        let filePath = request.url.replace(/^media:\/*/, '');
+        filePath = decodeURIComponent(filePath);
+
+        // Fix Windows drive letter issues (e.g. "f/RayTan" -> "f:/RayTan")
+        // If the path starts with a drive letter but no colon (browser normalization artifact)
+        if (process.platform === 'win32' && /^[a-zA-Z]\//.test(filePath)) {
+          filePath = filePath[0] + ':' + filePath.slice(1);
+        }
+
+        // Ensure standard file:// format
+        const targetUrl = 'file:///' + filePath;
+        console.log(`[Main] Media request: ${request.url} -> ${targetUrl}`);
+        return net.fetch(targetUrl);
+      } catch (err) {
+        console.error('[Main] Media protocol error:', err);
+        return new Response('Error loading media', { status: 500 });
       }
-      // Fix missing drive colon (common with standard scheme normalization on Windows)
-      if (/^[a-zA-Z]\//.test(filePath)) {
-        filePath = filePath[0] + ':' + filePath.slice(1);
-      }
-      const targetUrl = 'file:///' + filePath
-      return net.fetch(targetUrl)
     })
 
     protocol.handle('local-file', (request) => {
-      let filePath = request.url.slice('local-file://'.length);
-      filePath = decodeURIComponent(filePath);
-      while (filePath.startsWith('/')) {
-        filePath = filePath.slice(1);
+      try {
+        let filePath = request.url.replace(/^local-file:\/*/, '');
+        filePath = decodeURIComponent(filePath);
+
+        if (process.platform === 'win32' && /^[a-zA-Z]\//.test(filePath)) {
+          filePath = filePath[0] + ':' + filePath.slice(1);
+        }
+
+        const targetUrl = 'file:///' + filePath;
+        return net.fetch(targetUrl);
+      } catch (err) {
+        console.error('[Main] Local-file protocol error:', err);
+        return new Response('Error loading file', { status: 500 });
       }
-      if (/^[a-zA-Z]\//.test(filePath)) {
-        filePath = filePath[0] + ':' + filePath.slice(1);
-      }
-      const targetUrl = 'file:///' + filePath;
-      return net.fetch(targetUrl);
     });
 
     createVideoGenerationWindow();

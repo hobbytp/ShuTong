@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AppShell } from './components/Shell/AppShell'
 import { ActivityDetail } from './components/Timeline/ActivityDetail'
 import { TimelineSidebar } from './components/Timeline/TimelineSidebar'
+import { Analytics } from './pages/Analytics'
 import { Dashboard } from './pages/Dashboard'
 import { Journal } from './pages/Journal'
 import { Onboarding } from './pages/Onboarding'
@@ -11,7 +12,7 @@ import { Timelapse } from './pages/Timelapse'
 import { ActivityCard } from './types'
 
 function App() {
-  const [page, setPage] = useState<'home' | 'settings' | 'onboarding' | 'journal' | 'timelapse' | 'timeline' | 'pulse'>('home')
+  const [page, setPage] = useState<'home' | 'settings' | 'onboarding' | 'journal' | 'timelapse' | 'timeline' | 'pulse' | 'analytics'>('home')
   const [loading, setLoading] = useState(true)
   const [selectedCardId, setSelectedCardId] = useState<number | null>(null)
 
@@ -72,6 +73,8 @@ function App() {
       {page === 'timelapse' && <Timelapse />}
 
       {page === 'pulse' && <PulseFeed />}
+
+      {page === 'analytics' && <Analytics />}
 
       {/* Settings handles its own internal layout, but we might want to unify styles later. 
               For now, render it within the shell's content area. 

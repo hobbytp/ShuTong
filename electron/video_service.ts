@@ -1,7 +1,28 @@
 import { BrowserWindow, ipcMain } from 'electron';
+import fs from 'fs/promises';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 let videoWindow: BrowserWindow | null = null;
+let videoIpcConfigured = false;
+
+export function setupVideoIPC() {
+    if (videoIpcConfigured) return;
+    videoIpcConfigured = true;
+
+    ipcMain.handle('video:save', async (_event, buffer: ArrayBuffer, filePath: string) => {
+        try {
+            await fs.writeFile(filePath, Buffer.from(buffer));
+            return { success: true };
+        } catch (error: any) {
+            console.error('[VideoService] Failed to save video:', error);
+            throw error;
+        }
+    });
+}
 
 export function createVideoGenerationWindow() {
     if (videoWindow && !videoWindow.isDestroyed()) return;
@@ -31,7 +52,7 @@ export function createVideoGenerationWindow() {
     videoWindow.webContents.on('did-finish-load', () => {
         console.log('[VideoService] Video generator window loaded');
     });
-    
+
     videoWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
         console.error('[VideoService] Failed to load video generator:', errorCode, errorDescription);
     });
@@ -66,7 +87,7 @@ export function generateVideo(
                 reject(error);
             }
         };
-        
+
         requestQueue.push(task);
         processNextTask();
     });
@@ -75,7 +96,7 @@ export function generateVideo(
 async function processNextTask() {
     if (isProcessing || requestQueue.length === 0) return;
     isProcessing = true;
-    
+
     const task = requestQueue.shift();
     if (task) {
         try {
@@ -102,7 +123,7 @@ function executeVideoGeneration(
         if (!videoWindow || videoWindow.isDestroyed()) {
             createVideoGenerationWindow();
         }
-        
+
         const requestId = Date.now().toString() + Math.random().toString().slice(2, 5);
         const timeoutMs = 5 * 60 * 1000; // 5 minutes timeout
 
@@ -110,14 +131,14 @@ function executeVideoGeneration(
             cleanup();
             reject(new Error('Video generation timed out'));
         }, timeoutMs);
-        
+
         const onComplete = (_event: any, data: any) => {
             if (data.requestId === requestId) {
                 cleanup();
                 resolve(data.outputPath);
             }
         };
-        
+
         const onError = (_event: any, data: any) => {
             if (data.requestId !== requestId) return;
 
@@ -142,18 +163,18 @@ function executeVideoGeneration(
                 // Optional: emit progress event to main app
             }
         }
-        
+
         const cleanup = () => {
             clearTimeout(timeoutTimer);
             ipcMain.removeListener('video-generated', onComplete);
             ipcMain.removeListener('video-error', onError);
             ipcMain.removeListener('video-progress', onProgress);
         };
-        
+
         ipcMain.on('video-generated', onComplete);
         ipcMain.on('video-error', onError);
         ipcMain.on('video-progress', onProgress);
-        
+
         const sendParams = {
             requestId,
             images,
@@ -164,9 +185,9 @@ function executeVideoGeneration(
 
         // Ensure window is ready
         if (videoWindow?.webContents.isLoading()) {
-             videoWindow.webContents.once('did-finish-load', () => {
-                 videoWindow?.webContents.send('generate-video', sendParams);
-             });
+            videoWindow.webContents.once('did-finish-load', () => {
+                videoWindow?.webContents.send('generate-video', sendParams);
+            });
         } else {
             videoWindow?.webContents.send('generate-video', sendParams);
         }

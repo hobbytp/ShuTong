@@ -1,4 +1,4 @@
-import { Camera, Clock, Eye, EyeOff, Gauge, HardDrive, Layers, Monitor, Play, Shield } from 'lucide-react';
+import { Activity, Camera, Clock, Eye, EyeOff, FileText, Gauge, HardDrive, Layers, Monitor, Play, Shield } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Input } from './Shared';
 
@@ -19,6 +19,26 @@ interface RecordingConfig {
     guard_debounce_ms: number;
     // Frame Deduplication
     dedup_enable: boolean;
+    // Power-Aware Capture (v2)
+    guard_enable_battery_mode: boolean;
+    guard_battery_multiplier: number;
+    guard_critical_battery: number;
+    // Whitelist Mode (v2)
+    guard_enable_whitelist_mode: boolean;
+    whitelisted_apps: string[];
+}
+
+interface SkipLogEntry {
+    timestamp: number;
+    reason: string;
+    details?: string;
+    appName?: string;
+}
+
+interface GuardStatistics {
+    totalCaptures: number;
+    totalSkips: number;
+    skipsByReason: Record<string, number>;
 }
 
 const RESOLUTION_OPTIONS = [
@@ -50,11 +70,18 @@ export function RecordingSettings() {
         guard_enable_lock_detection: true,
         guard_debounce_ms: 2000,
         dedup_enable: true,
+        guard_enable_battery_mode: true,
+        guard_battery_multiplier: 2,
+        guard_critical_battery: 20,
+        guard_enable_whitelist_mode: false,
+        whitelisted_apps: [],
     });
     const [screens, setScreens] = useState<{ id: number; name: string }[]>([]);
     const [excludedAppsText, setExcludedAppsText] = useState('');
     const [excludedPatternsText, setExcludedPatternsText] = useState('');
     const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+    const [guardStats, setGuardStats] = useState<GuardStatistics | null>(null);
+    const [skipLog, setSkipLog] = useState<SkipLogEntry[]>([]);
 
     useEffect(() => {
         loadConfig();
@@ -66,6 +93,31 @@ export function RecordingSettings() {
             return () => clearTimeout(timer);
         }
     }, [saveState]);
+
+    useEffect(() => {
+        let mounted = true;
+        const fetchStats = async () => {
+            if (!window.ipcRenderer) return;
+            try {
+                const stats = await window.ipcRenderer.invoke('guard:getStats');
+                const log = await window.ipcRenderer.invoke('guard:getSkipLog');
+                if (mounted) {
+                    setGuardStats(stats);
+                    setSkipLog(log.reverse());
+                }
+            } catch (err) {
+                console.error('Failed to fetch guard stats:', err);
+            }
+        };
+
+        fetchStats();
+        const interval = setInterval(fetchStats, 2000);
+
+        return () => {
+            mounted = false;
+            clearInterval(interval);
+        };
+    }, []);
 
     const loadConfig = async () => {
         if (!window.ipcRenderer) return;
@@ -99,6 +151,13 @@ export function RecordingSettings() {
                 guard_enable_lock_detection: settings.guard_enable_lock_detection !== 'false',
                 guard_debounce_ms: parseInt(settings.guard_debounce_ms) || 2000,
                 dedup_enable: settings.dedup_enable !== 'false',
+                // Power-Aware Capture (v2)
+                guard_enable_battery_mode: settings.guard_enable_battery_mode !== 'false',
+                guard_battery_multiplier: parseFloat(settings.guard_battery_multiplier) || 2,
+                guard_critical_battery: parseInt(settings.guard_critical_battery) || 20,
+                // Whitelist Mode (v2)
+                guard_enable_whitelist_mode: settings.guard_enable_whitelist_mode === 'true',
+                whitelisted_apps: safeParse(settings.whitelisted_apps, []),
             });
 
             setExcludedAppsText(safeParse(settings.excluded_apps, []).join('\n'));
@@ -444,6 +503,99 @@ export function RecordingSettings() {
                             <div className="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                         </label>
                     </div>
+
+                    {/* Power-Aware Capture (v2) */}
+                    <div className="flex items-center justify-between p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
+                        <div className="flex items-center gap-4">
+                            <div>
+                                <div className="text-sm font-medium text-zinc-200">Battery Saver Mode</div>
+                                <div className="text-xs text-zinc-500">Reduce capture frequency when on battery power</div>
+                            </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={config.guard_enable_battery_mode}
+                                onChange={(e) => updateSetting('guard_enable_battery_mode', e.target.checked)}
+                                className="sr-only peer"
+                            />
+                            <div className="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                        </label>
+                    </div>
+
+                    {config.guard_enable_battery_mode && (
+                        <div className="ml-4 space-y-3">
+                            <div className="flex items-center justify-between p-3 bg-zinc-950/50 border border-zinc-800/50 rounded-lg">
+                                <div className="text-sm text-zinc-400">Interval Multiplier</div>
+                                <div className="flex items-center gap-2">
+                                    <div className="w-20">
+                                        <Input
+                                            type="number"
+                                            min="1"
+                                            max="10"
+                                            step="0.5"
+                                            value={String(config.guard_battery_multiplier)}
+                                            onChange={(e) => updateSetting('guard_battery_multiplier', parseFloat(e.target.value))}
+                                        />
+                                    </div>
+                                    <span className="text-xs text-zinc-500">×</span>
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-between p-3 bg-zinc-950/50 border border-zinc-800/50 rounded-lg">
+                                <div className="text-sm text-zinc-400">Pause below battery</div>
+                                <div className="flex items-center gap-2">
+                                    <div className="w-20">
+                                        <Input
+                                            type="number"
+                                            min="5"
+                                            max="50"
+                                            step="5"
+                                            value={String(config.guard_critical_battery)}
+                                            onChange={(e) => updateSetting('guard_critical_battery', parseInt(e.target.value))}
+                                        />
+                                    </div>
+                                    <span className="text-xs text-zinc-500">%</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Whitelist Mode (v2) */}
+                    <div className="flex items-center justify-between p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
+                        <div className="flex items-center gap-4">
+                            <div>
+                                <div className="text-sm font-medium text-zinc-200">Whitelist Mode</div>
+                                <div className="text-xs text-zinc-500">Only capture specified apps (focus mode)</div>
+                            </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={config.guard_enable_whitelist_mode}
+                                onChange={(e) => updateSetting('guard_enable_whitelist_mode', e.target.checked)}
+                                className="sr-only peer"
+                            />
+                            <div className="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                        </label>
+                    </div>
+
+                    {config.guard_enable_whitelist_mode && (
+                        <div className="ml-4 p-3 bg-zinc-950/50 border border-zinc-800/50 rounded-lg">
+                            <div className="text-sm text-zinc-400 mb-2">Whitelisted Apps (one per line)</div>
+                            <textarea
+                                className="w-full h-24 bg-zinc-900 border border-zinc-700 rounded-lg p-2 text-sm text-zinc-200 resize-none"
+                                placeholder="VSCode&#10;Chrome&#10;Slack"
+                                value={config.whitelisted_apps.join('\n')}
+                                onChange={(e) => {
+                                    const apps = e.target.value.split('\n').map(s => s.trim()).filter(Boolean);
+                                    updateSetting('whitelisted_apps', apps);
+                                }}
+                            />
+                            <div className="text-xs text-amber-500 mt-1">
+                                ⚠️ When enabled, only these apps will be captured
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -492,6 +644,64 @@ export function RecordingSettings() {
                     </div>
                 </div>
             </div>
+            {/* Guard Statistics & Log */}
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
+                <h3 className="text-lg font-bold text-zinc-100 mb-6 flex items-center gap-2">
+                    <Activity size={20} className="text-rose-400" />
+                    Guard Statistics
+                </h3>
+
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                    <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
+                        <div className="text-sm text-zinc-500 mb-1">Total Captures</div>
+                        <div className="text-2xl font-bold text-zinc-100">{guardStats?.totalCaptures || 0}</div>
+                    </div>
+                    <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
+                        <div className="text-sm text-zinc-500 mb-1">Skipped Frames</div>
+                        <div className="text-2xl font-bold text-amber-500">{guardStats?.totalSkips || 0}</div>
+                    </div>
+                </div>
+
+                {/* Skip Reason Breakdown */}
+                {guardStats?.skipsByReason && Object.keys(guardStats.skipsByReason).length > 0 && (
+                    <div className="mb-6 space-y-2">
+                        <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">Skip Reasons</div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {Object.entries(guardStats.skipsByReason).map(([reason, count]) => (
+                                <div key={reason} className="flex px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-md justify-between items-center text-xs">
+                                    <span className="text-zinc-400 truncate mr-2 capitalize">{reason.replace(/_/g, ' ')}</span>
+                                    <span className="font-mono font-bold text-zinc-200">{count}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* Live Log */}
+                <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                        <FileText size={16} className="text-zinc-400" />
+                        <span className="text-sm font-medium text-zinc-200">Recent Skip Log</span>
+                    </div>
+                    <div className="h-48 overflow-y-auto bg-zinc-950 border border-zinc-800 rounded-lg p-3 space-y-1 font-mono text-[10px] sm:text-xs no-scrollbar">
+                        {skipLog.length === 0 ? (
+                            <div className="text-zinc-600 italic text-center py-4">No skips recorded yet</div>
+                        ) : (
+                            skipLog.map((entry, i) => (
+                                <div key={i} className="flex gap-3 text-zinc-400 border-b border-zinc-900/50 pb-1 last:border-0 last:pb-0">
+                                    <span className="text-zinc-600 shrink-0">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                                    <span className="text-amber-500/80 font-bold shrink-0 w-24 truncate" title={entry.reason}>[{entry.reason}]</span>
+                                    <span className="truncate text-zinc-500">
+                                        {entry.appName ? <span className="text-zinc-300 mr-2">{entry.appName}</span> : null}
+                                        {entry.details || '-'}
+                                    </span>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            </div>
+
             {/* Save Toast */}
             <div className={`fixed bottom-8 right-8 flex items-center gap-2 px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-full shadow-lg transition-all duration-300 ${saveState === 'idle' ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'}`}>
                 {saveState === 'saving' ? (

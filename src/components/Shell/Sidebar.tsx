@@ -1,4 +1,4 @@
-import { BarChart2, Clock, FileText, Home, Settings, Sparkles } from 'lucide-react';
+import { Activity, Clock, FileText, Home, PlayCircle, Settings, Sparkles } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { Tooltip } from '../ui/tooltip-simple';
@@ -13,8 +13,9 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
         { id: 'home', icon: Home, label: 'Home' },
         { id: 'timeline', icon: Clock, label: 'Timeline' },
         { id: 'pulse', icon: Sparkles, label: 'Pulse' },
+        { id: 'analytics', icon: Activity, label: 'Analytics' },
         { id: 'journal', icon: FileText, label: 'Journal' },
-        { id: 'timelapse', icon: BarChart2, label: 'Timelapse' },
+        { id: 'timelapse', icon: PlayCircle, label: 'Timelapse' },
     ];
 
     return (
