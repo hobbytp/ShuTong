@@ -49,6 +49,7 @@ describe('Video Renderer', () => {
             configure = vi.fn();
             encode = vi.fn();
             flush = vi.fn().mockResolvedValue(undefined);
+            close = vi.fn();
             constructor(init: any) {}
         });
 

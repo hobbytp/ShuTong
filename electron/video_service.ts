@@ -179,6 +179,23 @@ function executeVideoGeneration(
             ipcMain.removeListener('video-generated', onComplete);
             ipcMain.removeListener('video-error', onError);
             ipcMain.removeListener('video-progress', onProgress);
+
+            // Delay window destruction slightly to allow any pending IPC to complete,
+            // then reclaim renderer/GPU resources. Next request will recreate the window.
+            const windowToDestroy = videoWindow;
+            videoWindow = null;
+            
+            if (windowToDestroy && !windowToDestroy.isDestroyed()) {
+                setTimeout(() => {
+                    try {
+                        if (!windowToDestroy.isDestroyed()) {
+                            windowToDestroy.destroy();
+                        }
+                    } catch {
+                        // ignore - window may already be destroyed
+                    }
+                }, 100);
+            }
         };
 
         ipcMain.on('video-generated', onComplete);

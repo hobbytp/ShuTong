@@ -8,6 +8,7 @@ export async function generateVideoFromImages({ requestId, images, durationPerFr
     outputFormat: 'mp4' | 'webm';
     outputPath: string;
 }) {
+    let videoEncoder: VideoEncoder | null = null;
     try {
         const ipc = window.ipcRenderer;
         const videoAPI = window.videoAPI;
@@ -33,7 +34,6 @@ export async function generateVideoFromImages({ requestId, images, durationPerFr
         const framesPerImage = Math.max(1, Math.round(durationPerFrame * fps));
         
         let muxer: any;
-        let videoEncoder: VideoEncoder;
         
         const isMp4 = outputFormat === 'mp4';
         
@@ -59,7 +59,7 @@ export async function generateVideoFromImages({ requestId, images, durationPerFr
                 width,
                 height,
                 bitrate: 5_000_000,
-                hardwareAcceleration: 'prefer-hardware',
+                hardwareAcceleration: 'prefer-software',
             };
             
             // Check support
@@ -80,7 +80,7 @@ export async function generateVideoFromImages({ requestId, images, durationPerFr
                     frameRate: fps
                 }
             });
-             videoEncoder = new VideoEncoder({
+            videoEncoder = new VideoEncoder({
                 output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
                 error: (e) => console.error(e),
             });
@@ -90,6 +90,7 @@ export async function generateVideoFromImages({ requestId, images, durationPerFr
                 width,
                 height,
                 bitrate: 5_000_000,
+                hardwareAcceleration: 'prefer-software',
             });
         }
 
@@ -146,6 +147,8 @@ export async function generateVideoFromImages({ requestId, images, durationPerFr
         }
 
         await videoEncoder.flush();
+        videoEncoder.close();
+        videoEncoder = null;
         muxer.finalize();
         
         const buffer = muxer.target.buffer;
@@ -156,6 +159,15 @@ export async function generateVideoFromImages({ requestId, images, durationPerFr
     } catch (error: any) {
         console.error('Video generation failed', error);
         window.ipcRenderer?.send('video-error', { requestId, error: error.message });
+    } finally {
+        // Ensure WebCodecs resources are released
+        try {
+            videoEncoder?.close();
+        } catch {
+            // ignore - encoder may already be closed or in error state
+        }
+        // Help GC by clearing large object references
+        videoEncoder = null;
     }
 }
 
