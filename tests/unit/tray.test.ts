@@ -1,5 +1,5 @@
 import { app } from 'electron'; // Import mocked app directly
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock Electron
 const mockSetContextMenu = vi.fn()
@@ -35,8 +35,19 @@ vi.mock('electron', () => {
 // Set env var for testing
 process.env.VITE_PUBLIC = './public'
 
+// Mock event bus with hoisted variable
+const mocks = vi.hoisted(() => {
+    return { mockEmitEvent: vi.fn() }
+})
+
+vi.mock('../../electron/infrastructure/events', () => ({
+    eventBus: {
+        emitEvent: mocks.mockEmitEvent
+    }
+}))
+
 // Import after mock and env setup
-import { setupTray, updateTrayMenu } from '../../electron/tray'
+import { setupTray, updateTrayMenu } from '../../electron/tray';
 
 describe('Tray Logic', () => {
     beforeEach(() => {
@@ -74,5 +85,20 @@ describe('Tray Logic', () => {
 
         quitItem.click()
         expect(app.quit).toHaveBeenCalled()
+    })
+
+    it('should emit toggle command when Record clicked', () => {
+        mockMenuBuild.mockClear()
+        mocks.mockEmitEvent.mockClear()
+
+        // Provide a mock window so the click handler proceeds
+        const mockWin = { show: vi.fn(), focus: vi.fn() }
+        updateTrayMenu(() => mockWin as any, false)
+
+        const template = mockMenuBuild.mock.calls[0][0]
+        const recordItem = template.find((item: any) => item.label && item.label.includes('Recording'))
+
+        recordItem.click()
+        expect(mocks.mockEmitEvent).toHaveBeenCalledWith('command:toggle-recording', undefined)
     })
 })

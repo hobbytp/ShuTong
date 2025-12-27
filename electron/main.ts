@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url'
 import { cancelMigration, commitMigration, getBootstrapConfig, PendingMigration, resolveUserDataPath, setCustomUserDataPath, setPendingMigration } from './bootstrap'
 import { getMergedLLMConfig, setLLMProviderConfig, setRoleConfig } from './config_manager'
 import { setupAnalyticsIPC } from './features/timeline'
-import { createVideoGenerationWindow, setupVideoIPC } from './features/video'
+import { createVideoGenerationWindow, setupVideoIPC, setupVideoSubscribers } from './features/video'
+import { eventBus } from './infrastructure/events'
 import { copyUserData } from './migration-utils'
 import { getIsQuitting, setupTray, updateTrayMenu } from './tray'
 
@@ -99,7 +100,7 @@ app.on('window-all-closed', () => {
 })
 
 import { setupDeepLinks } from './deeplink'
-import { getIsRecording, setupScreenCapture, startRecording, stopRecording } from './features/capture'
+import { setupScreenCapture, startRecording, stopRecording } from './features/capture'
 import { cleanupOldSnapshots, startAnalysisJob } from './features/timeline'
 import { checkReminders, sendNotification } from './scheduler'
 import { closeStorage, getCardDetails, getReminderSettings, getRetentionSettings, getScreenshotsForCard, getTimelineCards, initStorage } from './storage'
@@ -458,23 +459,27 @@ async function startApp() {
     } catch (err) { console.error(err); }
 
     startAnalysisJob()
+    setupVideoSubscribers()
 
     setupTray(() => win);
 
     // @ts-ignore
-    app.on('recording-changed', (recording: boolean) => {
-      updateTrayMenu(() => win, recording);
-      win?.webContents.send('recording-state-changed', recording);
+
+    // Type-safe event subscription
+    eventBus.subscribe('recording:state-changed', ({ isRecording }) => {
+      updateTrayMenu(() => win, isRecording);
+      win?.webContents.send('recording-state-changed', isRecording);
     });
 
     // @ts-ignore
-    app.on('tray-toggle-recording', async () => {
-      const recording = getIsRecording();
-      if (recording) stopRecording();
-      else startRecording();
-    });
-
-    setInterval(() => {
+    eventBus.subscribe('command:toggle-recording', async () => {
+      const { getIsRecording, startRecording, stopRecording } = await import('./features/capture');
+      if (getIsRecording()) {
+        stopRecording();
+      } else {
+        startRecording();
+      }
+    }); setInterval(() => {
       const settings = getReminderSettings();
       const notificationType = checkReminders(new Date(), settings);
       if (notificationType) sendNotification(notificationType);
@@ -502,9 +507,11 @@ async function startApp() {
     });
 
     // @ts-ignore
-    app.on('capture-error', (error: { title: string, message: string }) => {
-      console.error('[Main] Capture Error:', error);
-      if (win) dialog.showErrorBox(error.title, error.message);
+    // Type-safe error handling
+    eventBus.subscribe('capture:error', ({ title, message }) => {
+      win?.webContents.send('capture-error', { title, message });
+
+      dialog.showErrorBox(title, message);
     });
     protocol.handle('media', (request) => {
       try {

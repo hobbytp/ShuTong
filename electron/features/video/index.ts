@@ -3,6 +3,8 @@
  * 
  * Handles video generation from timeline card screenshots.
  */
+import { eventBus } from '../../infrastructure/events';
+import { generateCardVideo } from './video';
 
 export {
     generateCardVideo
@@ -14,3 +16,17 @@ export {
     resetVideoServiceState, setupVideoIPC
 } from './video.service';
 
+export function setupVideoSubscribers() {
+    eventBus.subscribe('card:created', async ({ cardId }) => {
+        try {
+            // console.log(`[Video] Received card:created for ${cardId}, generating video...`);
+            const videoPath = await generateCardVideo(cardId);
+            if (videoPath) {
+                eventBus.emitEvent('video:generated', { cardId, videoPath });
+            }
+        } catch (err) {
+            console.error(`[Video] Failed to generate video for card ${cardId}:`, err);
+        }
+    });
+    console.log('[Video] Subscribers initialized');
+}

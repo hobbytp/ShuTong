@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, nativeImage, Tray } from 'electron';
 import path from 'path';
+import { eventBus } from './infrastructure/events';
 
 let tray: Tray | null = null;
 let isQuitting = false;
@@ -72,7 +73,7 @@ export function updateTrayMenu(getMainWindow: () => BrowserWindow | null, isReco
                     // OR simpler: main.ts passes the toggle callback.
                     // Let's refactor setupTray to accept callbacks.
                     // For now, let's just make it emit an event on app or something.
-                    app.emit('tray-toggle-recording');
+                    eventBus.emitEvent('command:toggle-recording', undefined);
                 }
             }
         },

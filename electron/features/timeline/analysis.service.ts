@@ -1,4 +1,5 @@
 import { getMergedLLMConfig } from '../../config_manager';
+import { eventBus } from '../../infrastructure/events';
 import { LLMService } from '../../llm/service';
 import {
     fetchUnprocessedScreenshots,
@@ -9,7 +10,6 @@ import {
     screenshotsForBatch,
     updateBatchStatus
 } from '../../storage';
-import { generateCardVideo } from '../video';
 
 // ... existing interfaces ...
 
@@ -118,9 +118,7 @@ async function processBatch(batchId: number) {
             // Trigger Video Generation (Async)
             if (cardId) {
                 // Run in background, don't await
-                generateCardVideo(Number(cardId)).catch((err: any) => {
-                    console.error(`[Analysis] Video generation failed for card ${cardId}:`, err);
-                });
+                eventBus.emitEvent('card:created', { cardId: Number(cardId), batchId });
 
                 // Trigger Vector Storage (Async)
                 import('../../storage/vector-storage').then(({ vectorStorage }) => {

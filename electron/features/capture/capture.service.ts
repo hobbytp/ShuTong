@@ -1,6 +1,7 @@
 import { app, desktopCapturer, ipcMain } from 'electron';
 import fs from 'fs';
 import path from 'path';
+import { eventBus } from '../../infrastructure/events';
 import { getSetting, saveScreenshot, saveWindowSwitch } from '../../storage';
 import {
     clearPendingWindowCapture,
@@ -267,7 +268,7 @@ export function setupScreenCapture() {
 export function startRecording() {
     if (isRecording) return;
     isRecording = true;
-    app.emit('recording-changed', true);
+    eventBus.emitEvent('recording:state-changed', { isRecording: true });
     console.log('[ShuTong] Started recording');
 
     let lastConfig = getCaptureConfig();
@@ -368,7 +369,7 @@ export function startRecording() {
 export function stopRecording() {
     if (!isRecording) return;
     isRecording = false;
-    app.emit('recording-changed', false);
+    eventBus.emitEvent('recording:state-changed', { isRecording: false });
     if (captureInterval) {
         clearInterval(captureInterval);
         captureInterval = null;
@@ -402,7 +403,7 @@ async function captureFrame(config: CaptureConfig) {
         if (!hasSpace) {
             console.warn(`[ShuTong] Low disk space(<${config.minDiskSpaceGB}GB).Stopping recording.`);
             stopRecording();
-            app.emit('capture-error', {
+            eventBus.emitEvent('capture:error', {
                 title: 'Low Disk Space',
                 message: `Recording stopped because disk space fell below ${config.minDiskSpaceGB} GB.`
             });
@@ -540,9 +541,10 @@ async function captureFrame(config: CaptureConfig) {
         if (error.code === 'ENOSPC') {
             console.error('[ShuTong] CRITICAL: Disk full. Stopping recording.');
             stopRecording();
-            app.emit('capture-error', {
+            eventBus.emitEvent('capture:error', {
                 title: 'Disk Full',
-                message: 'Stopped recording because there is no space left on the device.'
+                message: 'Stopped recording because there is no space left on the device.',
+                fatal: true
             });
         }
     }
