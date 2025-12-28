@@ -3,6 +3,31 @@ import { createVideoGenerationWindow, generateVideo, resetVideoServiceState } fr
 
 // Define mocks outside to avoid hoisting issues, but we need to use vi.hoisted for variables used in vi.mock
 const mocks = vi.hoisted(() => {
+    let listeners = new Map<string, Set<(...args: any[]) => void>>();
+
+    const mockPowerMonitor = {
+        on: (eventName: string, listener: (...args: any[]) => void) => {
+            const set = listeners.get(eventName) ?? new Set();
+            set.add(listener);
+            listeners.set(eventName, set);
+        },
+        removeListener: (eventName: string, listener: (...args: any[]) => void) => {
+            const set = listeners.get(eventName);
+            set?.delete(listener);
+        },
+        emit: (eventName: string, ...args: any[]) => {
+            const set = listeners.get(eventName);
+            if (!set) return false;
+            for (const listener of Array.from(set)) {
+                listener(...args);
+            }
+            return true;
+        },
+        _reset: () => {
+            listeners = new Map<string, Set<(...args: any[]) => void>>();
+        }
+    };
+
     const mockWebContents = {
         on: vi.fn(),
         once: vi.fn(),
@@ -32,18 +57,21 @@ const mocks = vi.hoisted(() => {
         mockWebContents,
         mockBrowserWindow,
         mockIpcMain,
+        mockPowerMonitor,
         MockBrowserWindow: vi.fn(function () { return mockBrowserWindow; })
     };
 });
 
 vi.mock('electron', () => ({
     BrowserWindow: mocks.MockBrowserWindow,
-    ipcMain: mocks.mockIpcMain
+    ipcMain: mocks.mockIpcMain,
+    powerMonitor: mocks.mockPowerMonitor
 }));
 
 describe('Video Service', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        (mocks.mockPowerMonitor as any)._reset();
         resetVideoServiceState();
     });
 
@@ -100,5 +128,41 @@ describe('Video Service', () => {
         onError({}, { requestId, error: 'Encoding failed' });
 
         await expect(promise).rejects.toThrow('Encoding failed');
+    });
+
+    it('should pause timeout during system suspend', async () => {
+        vi.useFakeTimers();
+
+        const promise = generateVideo(['img1.png'], 'output.mp4');
+
+        const sendCall = mocks.mockWebContents.send.mock.calls.find(call => call[0] === 'generate-video');
+        expect(sendCall).toBeDefined();
+        const requestId = sendCall![1].requestId;
+
+        // Advance close to timeout
+        vi.advanceTimersByTime(4 * 60 * 1000);
+        mocks.mockPowerMonitor.emit('suspend');
+
+        // While suspended, time should not count toward timeout
+        vi.advanceTimersByTime(10 * 60 * 1000);
+
+        const settled = await Promise.race([
+            promise.then(() => true).catch(() => true),
+            Promise.resolve(false)
+        ]);
+
+        expect(settled).toBe(false);
+
+        // Resume: should still be able to complete successfully
+        mocks.mockPowerMonitor.emit('resume');
+
+        const onCompleteCall = mocks.mockIpcMain.on.mock.calls.find(call => call[0] === 'video-generated');
+        expect(onCompleteCall).toBeDefined();
+        const onComplete = onCompleteCall![1];
+
+        onComplete({}, { requestId, outputPath: 'output.mp4' });
+        await expect(promise).resolves.toBe('output.mp4');
+
+        vi.useRealTimers();
     });
 });

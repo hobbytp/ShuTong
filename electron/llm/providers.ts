@@ -1,4 +1,6 @@
 
+import { getLLMMetrics } from './metrics';
+
 export interface LLMResponse {
     text?: string;
     json?: any;
@@ -57,12 +59,14 @@ export function getLLMProvider(role: string): LLMProvider {
     }
 
     // 4. Instantiate Provider
+    const timeout = providerCfg.timeout || 60000;
+
     if (providerKey === 'Google') {
-        return new GeminiProvider(apiKey, roleConfig.model);
+        return new GeminiProvider(apiKey, roleConfig.model, timeout);
     }
 
     // Default to OpenAI Compatible
-    return new OpenAIProvider(apiKey, providerCfg.apiBaseUrl, roleConfig.model, normalizeProviderDisplayName(providerKey));
+    return new OpenAIProvider(apiKey, providerCfg.apiBaseUrl, roleConfig.model, normalizeProviderDisplayName(providerKey), timeout);
 }
 
 export function createLLMProviderFromConfig(providerName: string, apiKey: string, baseUrl: string, model: string = 'gpt-3.5-turbo'): LLMProvider {
@@ -111,16 +115,44 @@ class OpenAIProvider implements LLMProvider {
     private baseUrl: string;
     private model: string;
     private providerName: string;
+    private timeout: number;
 
-    constructor(apiKey: string, baseUrl: string, model: string, providerName: string = 'OpenAI') {
+    constructor(apiKey: string, baseUrl: string, model: string, providerName: string = 'OpenAI', timeout: number = 60000) {
         this.apiKey = apiKey;
         this.baseUrl = baseUrl.replace(/\/$/, ''); // Remove trailing slash
         this.model = model;
         this.providerName = providerName;
+        this.timeout = timeout;
     }
 
     async generateContent(request: LLMRequest): Promise<string> {
-        // ... (existing generateContent implementation)
+        const startTime = Date.now();
+        const metrics = getLLMMetrics();
+
+        try {
+            const result = await this._doGenerateContent(request);
+            metrics.recordRequest({
+                timestamp: startTime,
+                durationMs: Date.now() - startTime,
+                provider: this.providerName,
+                model: this.model,
+                success: true
+            });
+            return result;
+        } catch (error) {
+            metrics.recordRequest({
+                timestamp: startTime,
+                durationMs: Date.now() - startTime,
+                provider: this.providerName,
+                model: this.model,
+                success: false,
+                errorCategory: metrics.categorizeError(error)
+            });
+            throw error;
+        }
+    }
+
+    private async _doGenerateContent(request: LLMRequest): Promise<string> {
         const url = `${this.baseUrl}/chat/completions`;
 
         const content: any[] = [
@@ -167,7 +199,7 @@ class OpenAIProvider implements LLMProvider {
             for (let i = 0; i < MAX_RETRIES; i++) {
                 try {
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+                    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
                     const response = await fetch(url, {
                         method: 'POST',
@@ -258,13 +290,42 @@ class OpenAIProvider implements LLMProvider {
 class GeminiProvider implements LLMProvider {
     private apiKey: string;
     private model: string;
+    private timeout: number;
 
-    constructor(apiKey: string, model: string) {
+    constructor(apiKey: string, model: string, timeout: number = 60000) {
         this.apiKey = apiKey;
         this.model = model;
+        this.timeout = timeout;
     }
 
     async generateContent(request: LLMRequest): Promise<string> {
+        const startTime = Date.now();
+        const metrics = getLLMMetrics();
+
+        try {
+            const result = await this._doGenerateContent(request);
+            metrics.recordRequest({
+                timestamp: startTime,
+                durationMs: Date.now() - startTime,
+                provider: 'Gemini',
+                model: this.model,
+                success: true
+            });
+            return result;
+        } catch (error) {
+            metrics.recordRequest({
+                timestamp: startTime,
+                durationMs: Date.now() - startTime,
+                provider: 'Gemini',
+                model: this.model,
+                success: false,
+                errorCategory: metrics.categorizeError(error)
+            });
+            throw error;
+        }
+    }
+
+    private async _doGenerateContent(request: LLMRequest): Promise<string> {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
 
         const contents: any[] = [{
@@ -325,7 +386,7 @@ class GeminiProvider implements LLMProvider {
         for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
             try {
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 60000);
+                const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
                 const response = await fetch(url, {
                     method: 'POST',

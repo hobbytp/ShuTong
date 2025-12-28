@@ -29,6 +29,7 @@ export interface ProviderConfig {
     apiBaseUrl: string;
     apiKeyEnv: string;
     openaiCompatible: boolean;
+    timeout?: number; // Request timeout in ms (default: 60000)
     models: Record<string, ModelConfig>;
     [key: string]: any;
 }
@@ -234,6 +235,7 @@ const ProviderConfigSchema = z
         apiBaseUrl: z.string(),
         apiKeyEnv: z.string(),
         openaiCompatible: z.boolean(),
+        timeout: z.number().optional(),
         models: z.record(z.string(), ModelConfigSchema)
     })
     .passthrough();

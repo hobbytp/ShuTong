@@ -8,6 +8,7 @@ import { getIsRecording, startRecording, stopRecording } from './features/captur
 import { setupAnalyticsIPC } from './features/timeline'
 import { createVideoGenerationWindow, setupVideoIPC, setupVideoSubscribers } from './features/video'
 import { eventBus } from './infrastructure/events'
+import { getLLMMetrics } from './llm/metrics'
 import { copyUserData } from './migration-utils'
 import { getIsQuitting, setupTray, updateTrayMenu } from './tray'
 
@@ -288,6 +289,15 @@ async function startApp() {
     });
 
     ipcMain.handle('get-llm-config', () => getMergedLLMConfig());
+
+    // LLM Metrics handlers
+    ipcMain.handle('llm:getMetrics', () => {
+      return getLLMMetrics().getSummary();
+    });
+
+    ipcMain.handle('llm:resetMetrics', () => {
+      getLLMMetrics().reset();
+    });
 
     ipcMain.handle('set-llm-provider-config', (_, providerName, config) => {
       setLLMProviderConfig(providerName, config);

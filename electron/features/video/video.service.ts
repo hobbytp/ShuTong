@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron';
+import { BrowserWindow, ipcMain, powerMonitor } from 'electron';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -137,10 +137,51 @@ function executeVideoGeneration(
         const requestId = Date.now().toString() + Math.random().toString().slice(2, 5);
         const timeoutMs = 5 * 60 * 1000; // 5 minutes timeout
 
-        const timeoutTimer = setTimeout(() => {
+        const onTimeout = () => {
             cleanup();
             reject(new Error('Video generation timed out'));
-        }, timeoutMs);
+        };
+
+        let remainingTimeoutMs = timeoutMs;
+        let timeoutStartMs = Date.now();
+        let pauseCount = 0;
+
+        let timeoutTimer: NodeJS.Timeout | null = setTimeout(onTimeout, remainingTimeoutMs);
+
+        const pauseTimeout = () => {
+            pauseCount++;
+            if (pauseCount > 1) return; // already paused
+            if (timeoutTimer) {
+                clearTimeout(timeoutTimer);
+                timeoutTimer = null;
+            }
+            const elapsed = Date.now() - timeoutStartMs;
+            remainingTimeoutMs = Math.max(0, remainingTimeoutMs - elapsed);
+            console.log('[VideoService] Timeout paused, remaining:', remainingTimeoutMs, 'ms');
+        };
+
+        const resumeTimeout = () => {
+            if (pauseCount <= 0) return;
+            pauseCount--;
+            if (pauseCount > 0) return; // still paused by another event
+            timeoutStartMs = Date.now();
+            if (remainingTimeoutMs <= 0) {
+                onTimeout();
+                return;
+            }
+            timeoutTimer = setTimeout(onTimeout, remainingTimeoutMs);
+            console.log('[VideoService] Timeout resumed, remaining:', remainingTimeoutMs, 'ms');
+        };
+
+        const onSuspend = () => pauseTimeout();
+        const onResume = () => resumeTimeout();
+        const onLockScreen = () => pauseTimeout();
+        const onUnlockScreen = () => resumeTimeout();
+
+        powerMonitor.on('suspend', onSuspend);
+        powerMonitor.on('resume', onResume);
+        powerMonitor.on('lock-screen', onLockScreen);
+        powerMonitor.on('unlock-screen', onUnlockScreen);
 
         const onComplete = (_event: any, data: any) => {
             if (data.requestId === requestId) {
@@ -175,7 +216,16 @@ function executeVideoGeneration(
         }
 
         const cleanup = () => {
-            clearTimeout(timeoutTimer);
+            if (timeoutTimer) {
+                clearTimeout(timeoutTimer);
+                timeoutTimer = null;
+            }
+
+            powerMonitor.removeListener('suspend', onSuspend);
+            powerMonitor.removeListener('resume', onResume);
+            powerMonitor.removeListener('lock-screen', onLockScreen);
+            powerMonitor.removeListener('unlock-screen', onUnlockScreen);
+
             ipcMain.removeListener('video-generated', onComplete);
             ipcMain.removeListener('video-error', onError);
             ipcMain.removeListener('video-progress', onProgress);

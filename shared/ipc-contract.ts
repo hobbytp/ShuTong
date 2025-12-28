@@ -121,6 +121,24 @@ export interface CaptureEfficiency {
     skipBreakdown: Record<string, number>;
 }
 
+// LLM Metrics types for observability
+export type LLMErrorCategory = 'timeout' | 'rate_limit' | 'auth' | 'server_error' | 'network' | 'unknown';
+
+export interface LLMMetricsSummary {
+    totalRequests: number;
+    successfulRequests: number;
+    failedRequests: number;
+    errorsByCategory: Record<LLMErrorCategory, number>;
+    averageDurationMs: number;
+    p50DurationMs: number;
+    p95DurationMs: number;
+    p99DurationMs: number;
+    totalPromptTokens: number;
+    totalCompletionTokens: number;
+    tokensPerSecond: number;
+    lastUpdated: number;
+}
+
 // =============================================================================
 // IPC Contract Definition
 // =============================================================================
@@ -290,6 +308,18 @@ export interface IPCContract {
     'video:save': {
         args: [buffer: ArrayBuffer, filePath: string];
         return: { success: boolean };
+    };
+
+    // -------------------------------------------------------------------------
+    // LLM Metrics
+    // -------------------------------------------------------------------------
+    'llm:getMetrics': {
+        args: [];
+        return: LLMMetricsSummary;
+    };
+    'llm:resetMetrics': {
+        args: [];
+        return: void;
     };
 }
 
