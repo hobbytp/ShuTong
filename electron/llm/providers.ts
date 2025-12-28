@@ -21,6 +21,7 @@ export interface LLMRequest {
 
 export interface LLMProvider {
     generateContent(request: LLMRequest): Promise<string>;
+    generateContentStream?(request: LLMRequest): AsyncGenerator<string, void, unknown>;
     embedQuery?(text: string): Promise<number[]>;
 }
 
@@ -76,6 +77,97 @@ export function createLLMProviderFromConfig(providerName: string, apiKey: string
     return new OpenAIProvider(apiKey, baseUrl, model, normalizeProviderDisplayName(providerName));
 }
 
+/**
+ * Loads images from disk and returns them as base64 encoded strings.
+ * Shared helper to reduce code duplication across providers.
+ * 
+ * @param images Array of image paths and mime types
+ * @param logPrefix Prefix for error logs (e.g., provider name)
+ * @returns Array of { data: base64String, mimeType: string }
+ */
+async function loadImagesAsBase64(
+    images: { path: string; mimeType: string }[] | undefined,
+    logPrefix: string = 'LLM'
+): Promise<{ data: string; mimeType: string }[]> {
+    if (!images || images.length === 0) {
+        return [];
+    }
+
+    const fs = await import('fs/promises');
+    const results: { data: string; mimeType: string }[] = [];
+
+    for (const img of images) {
+        try {
+            const b64 = await fs.readFile(img.path, { encoding: 'base64' });
+            results.push({ data: b64, mimeType: img.mimeType });
+        } catch (e) {
+            console.error(`[${logPrefix}] Failed to read image ${img.path}`, e);
+        }
+    }
+
+    return results;
+}
+
+/**
+ * Consumes an async generator stream with idle timeout protection.
+ * Uses Promise.race to enforce timeout even if no tokens are received.
+ * 
+ * @param stream The async generator to consume
+ * @param idleTimeoutMs Maximum time to wait between tokens (default 30s)
+ * @returns The accumulated response string
+ */
+export async function consumeStreamWithIdleTimeout(
+    stream: AsyncGenerator<string, void, unknown>,
+    idleTimeoutMs: number = 30000
+): Promise<string> {
+    let result = '';
+    let maxIdleDuration = 0;
+
+    while (true) {
+        const startWait = Date.now();
+
+        // Create a timeout promise that rejects after idleTimeoutMs
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => {
+                reject(new Error(`Stream idle timeout: no token received in ${idleTimeoutMs}ms`));
+            }, idleTimeoutMs);
+        });
+
+        // Race between the stream and the timeout
+        let iterResult: IteratorResult<string, void>;
+        try {
+            iterResult = await Promise.race([
+                stream.next(),
+                timeoutPromise
+            ]);
+        } catch (error) {
+            // Timeout occurred - rethrow
+            throw error;
+        }
+
+        // Track idle duration
+        const idleDuration = Date.now() - startWait;
+        if (idleDuration > maxIdleDuration) {
+            maxIdleDuration = idleDuration;
+        }
+
+        // Check if stream is done
+        if (iterResult.done) {
+            break;
+        }
+
+        // Accumulate result
+        result += iterResult.value;
+    }
+
+    // Log max idle duration for observability
+    if (maxIdleDuration > 0) {
+        console.log('[LLMStream] Max idle duration:', maxIdleDuration, 'ms');
+    }
+
+    return result;
+}
+
 class MockProvider implements LLMProvider {
     async generateContent(request: LLMRequest): Promise<string> {
         // ... (existing mock implementation)
@@ -102,6 +194,16 @@ class MockProvider implements LLMProvider {
             });
         }
         return JSON.stringify({ message: "Mock response" });
+    }
+
+    async *generateContentStream(request: LLMRequest): AsyncGenerator<string, void, unknown> {
+        // Simulate streaming by yielding chunks of the response
+        const response = await this.generateContent(request);
+        const chunkSize = 50;
+        for (let i = 0; i < response.length; i += chunkSize) {
+            await new Promise(r => setTimeout(r, 100)); // Simulate network delay
+            yield response.slice(i, i + chunkSize);
+        }
     }
 
     async embedQuery(text: string): Promise<number[]> {
@@ -159,21 +261,15 @@ class OpenAIProvider implements LLMProvider {
             { type: "text", text: request.prompt }
         ];
 
-        if (request.images && request.images.length > 0) {
-            const fs = await import('fs/promises');
-            for (const img of request.images) {
-                try {
-                    const b64 = await fs.readFile(img.path, { encoding: 'base64' });
-                    content.push({
-                        type: "image_url",
-                        image_url: {
-                            url: `data:${img.mimeType};base64,${b64}`
-                        }
-                    });
-                } catch (e) {
-                    console.error(`[${this.providerName}] Failed to read image ${img.path}`, e);
+        // Load images using shared helper
+        const loadedImages = await loadImagesAsBase64(request.images, this.providerName);
+        for (const img of loadedImages) {
+            content.push({
+                type: "image_url",
+                image_url: {
+                    url: `data:${img.mimeType};base64,${img.data}`
                 }
-            }
+            });
         }
 
         const basePayload = {
@@ -285,6 +381,103 @@ class OpenAIProvider implements LLMProvider {
             throw error;
         }
     }
+
+    async *generateContentStream(request: LLMRequest): AsyncGenerator<string, void, unknown> {
+        const startTime = Date.now();
+        const metrics = getLLMMetrics();
+        const url = `${this.baseUrl}/chat/completions`;
+
+        const content: any[] = [
+            { type: "text", text: request.prompt }
+        ];
+
+        // Load images using shared helper
+        const loadedImages = await loadImagesAsBase64(request.images, this.providerName);
+        for (const img of loadedImages) {
+            content.push({
+                type: "image_url",
+                image_url: {
+                    url: `data:${img.mimeType};base64,${img.data}`
+                }
+            });
+        }
+
+        const payload = {
+            model: this.model,
+            messages: [{ role: "user", content }],
+            temperature: 0.2,
+            stream: true
+        };
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.apiKey}`
+                },
+                body: JSON.stringify(payload),
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`${this.providerName} API Error ${response.status}: ${errText}`);
+            }
+
+            const reader = response.body!.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (trimmed.startsWith('data: ') && !trimmed.includes('[DONE]')) {
+                        try {
+                            const json = JSON.parse(trimmed.slice(6));
+                            const chunk = json.choices?.[0]?.delta?.content;
+                            if (chunk) {
+                                yield chunk;
+                            }
+                        } catch {
+                            // Skip malformed JSON lines
+                        }
+                    }
+                }
+            }
+
+            metrics.recordRequest({
+                timestamp: startTime,
+                durationMs: Date.now() - startTime,
+                provider: this.providerName,
+                model: this.model,
+                success: true
+            });
+
+        } catch (error) {
+            metrics.recordRequest({
+                timestamp: startTime,
+                durationMs: Date.now() - startTime,
+                provider: this.providerName,
+                model: this.model,
+                success: false,
+                errorCategory: metrics.categorizeError(error)
+            });
+            throw error;
+        }
+    }
 }
 
 class GeminiProvider implements LLMProvider {
@@ -332,21 +525,15 @@ class GeminiProvider implements LLMProvider {
             parts: [{ text: request.prompt }]
         }];
 
-        if (request.images && request.images.length > 0) {
-            const fs = await import('fs/promises');
-            for (const img of request.images) {
-                try {
-                    const b64 = await fs.readFile(img.path, { encoding: 'base64' });
-                    contents[0].parts.push({
-                        inline_data: {
-                            mime_type: img.mimeType,
-                            data: b64
-                        }
-                    });
-                } catch (e) {
-                    console.error(`[Gemini] Failed to read image ${img.path}`, e);
+        // Load images using shared helper
+        const loadedImages = await loadImagesAsBase64(request.images, 'Gemini');
+        for (const img of loadedImages) {
+            contents[0].parts.push({
+                inline_data: {
+                    mime_type: img.mimeType,
+                    data: img.data
                 }
-            }
+            });
         }
 
         const payload = {
@@ -449,5 +636,100 @@ class GeminiProvider implements LLMProvider {
     async embedQuery(text: string): Promise<number[]> {
         void text;
         throw new Error("Embedding text is not yet implemented for GeminiProvider in this context");
+    }
+
+    async *generateContentStream(request: LLMRequest): AsyncGenerator<string, void, unknown> {
+        const startTime = Date.now();
+        const metrics = getLLMMetrics();
+        // Use streamGenerateContent endpoint for streaming
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:streamGenerateContent?key=${this.apiKey}&alt=sse`;
+
+        const contents: any[] = [{
+            parts: [{ text: request.prompt }]
+        }];
+
+        // Load images using shared helper
+        const loadedImages = await loadImagesAsBase64(request.images, 'Gemini');
+        for (const img of loadedImages) {
+            contents[0].parts.push({
+                inline_data: {
+                    mime_type: img.mimeType,
+                    data: img.data
+                }
+            });
+        }
+
+        const payload = {
+            contents,
+            generationConfig: {
+                temperature: 0.2
+            }
+        };
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(`Gemini API Error ${response.status}: ${errText}`);
+            }
+
+            const reader = response.body!.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (trimmed.startsWith('data: ')) {
+                        try {
+                            const json = JSON.parse(trimmed.slice(6));
+                            const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+                            if (text) {
+                                yield text;
+                            }
+                        } catch {
+                            // Skip malformed JSON lines
+                        }
+                    }
+                }
+            }
+
+            metrics.recordRequest({
+                timestamp: startTime,
+                durationMs: Date.now() - startTime,
+                provider: 'Gemini',
+                model: this.model,
+                success: true
+            });
+
+        } catch (error) {
+            metrics.recordRequest({
+                timestamp: startTime,
+                durationMs: Date.now() - startTime,
+                provider: 'Gemini',
+                model: this.model,
+                success: false,
+                errorCategory: metrics.categorizeError(error)
+            });
+            throw error;
+        }
     }
 }
