@@ -83,15 +83,11 @@ async function processBatch(batchId: number, screenshotsOverride?: Screenshot[])
         }
 
         // 1. Transcribe
-        // Downsample screenshots to avoid token limits (100k+ tokens for 60 images)
-        // We aim for ~15 images per batch (1 every 4s for 60s batch)
-        const MAX_SHOTS = 15;
-        const sampledScreenshots = sampleScreenshots(screenshots, MAX_SHOTS);
-
-        console.log(`[Analysis] Transcribing Batch #${batchId} (Sampled ${sampledScreenshots.length}/${screenshots.length} shots)...`);
+        console.log(`[Analysis] Transcribing Batch #${batchId} (${screenshots.length} shots)...`);
+        // We now use chunking internal to LLMService to process all screenshots without sampling loss
         // Type assertion needed because LLMService expects required fields (captured_at, file_path)
         // but our local Screenshot interface has optional fields for test compatibility
-        const observations = await llmService.transcribeBatch(sampledScreenshots as any);
+        const observations = await llmService.transcribeBatch(screenshots as any);
 
         const cfg = getMergedLLMConfig();
         const screenAnalyzeRole = cfg.roleConfigs?.SCREEN_ANALYZE;
@@ -314,20 +310,4 @@ function formatDuration(seconds: number): string {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m}m ${s}s`;
-}
-
-function sampleScreenshots(screenshots: Screenshot[], max: number): Screenshot[] {
-    if (screenshots.length <= max) return screenshots;
-
-    const result: Screenshot[] = [];
-    const step = (screenshots.length - 1) / (max - 1);
-
-    for (let i = 0; i < max; i++) {
-        const index = Math.round(i * step);
-        // Ensure valid index and no duplicates (though round with step should handle it)
-        if (index < screenshots.length) {
-            result.push(screenshots[index]);
-        }
-    }
-    return result;
 }

@@ -152,9 +152,11 @@ describe('LLMMetricsCollector', () => {
             });
 
             const chunkMetrics = metrics.getChunkMetrics();
-            expect(chunkMetrics.tokensPerSecondHistory).toHaveLength(1);
-            expect(chunkMetrics.tokensPerSecondHistory[0]).toBe(50);
-            expect(metrics.getAverageTokensPerSecond()).toBe(50);
+            // New structure uses hysteresis counters instead of tokensPerSecondHistory
+            expect(chunkMetrics.consecutiveSlowCount).toBe(0);
+            expect(chunkMetrics.consecutiveFastCount).toBe(0);
+            expect(chunkMetrics.cooldownRemaining).toBe(0);
+            expect(chunkMetrics.adjustedSize).toBe(15); // default
 
             // Update chunk size
             metrics.updateChunkSize(8, 'fast_performance');

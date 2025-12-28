@@ -17,6 +17,8 @@ export interface LLMRequest {
         mimeType: string;
     }[];
     schema?: any; // Optional JSON schema for structured output
+    chunkIndex?: number;
+    chunkTotal?: number;
 }
 
 export interface LLMProvider {
@@ -238,7 +240,9 @@ class OpenAIProvider implements LLMProvider {
                 durationMs: Date.now() - startTime,
                 provider: this.providerName,
                 model: this.model,
-                success: true
+                success: true,
+                chunkIndex: request.chunkIndex,
+                chunkTotal: request.chunkTotal
             });
             return result;
         } catch (error) {
@@ -248,7 +252,9 @@ class OpenAIProvider implements LLMProvider {
                 provider: this.providerName,
                 model: this.model,
                 success: false,
-                errorCategory: metrics.categorizeError(error)
+                errorCategory: metrics.categorizeError(error),
+                chunkIndex: request.chunkIndex,
+                chunkTotal: request.chunkTotal
             });
             throw error;
         }
@@ -463,7 +469,9 @@ class OpenAIProvider implements LLMProvider {
                 durationMs: Date.now() - startTime,
                 provider: this.providerName,
                 model: this.model,
-                success: true
+                success: true,
+                chunkIndex: request.chunkIndex,
+                chunkTotal: request.chunkTotal
             });
 
         } catch (error) {
@@ -473,7 +481,9 @@ class OpenAIProvider implements LLMProvider {
                 provider: this.providerName,
                 model: this.model,
                 success: false,
-                errorCategory: metrics.categorizeError(error)
+                errorCategory: metrics.categorizeError(error),
+                chunkIndex: request.chunkIndex,
+                chunkTotal: request.chunkTotal
             });
             throw error;
         }
@@ -502,7 +512,9 @@ class GeminiProvider implements LLMProvider {
                 durationMs: Date.now() - startTime,
                 provider: 'Gemini',
                 model: this.model,
-                success: true
+                success: true,
+                chunkIndex: request.chunkIndex,
+                chunkTotal: request.chunkTotal
             });
             return result;
         } catch (error) {
@@ -512,7 +524,9 @@ class GeminiProvider implements LLMProvider {
                 provider: 'Gemini',
                 model: this.model,
                 success: false,
-                errorCategory: metrics.categorizeError(error)
+                errorCategory: metrics.categorizeError(error),
+                chunkIndex: request.chunkIndex,
+                chunkTotal: request.chunkTotal
             });
             throw error;
         }
@@ -717,7 +731,9 @@ class GeminiProvider implements LLMProvider {
                 durationMs: Date.now() - startTime,
                 provider: 'Gemini',
                 model: this.model,
-                success: true
+                success: true,
+                chunkIndex: request.chunkIndex,
+                chunkTotal: request.chunkTotal
             });
 
         } catch (error) {
@@ -727,7 +743,9 @@ class GeminiProvider implements LLMProvider {
                 provider: 'Gemini',
                 model: this.model,
                 success: false,
-                errorCategory: metrics.categorizeError(error)
+                errorCategory: metrics.categorizeError(error),
+                chunkIndex: request.chunkIndex,
+                chunkTotal: request.chunkTotal
             });
             throw error;
         }

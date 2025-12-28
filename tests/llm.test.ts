@@ -19,11 +19,40 @@ interface ActivityCard {
 // Mock the dependencies
 const mockGenerateContent = vi.fn();
 
+// Mock electron module
+vi.mock('electron', () => ({
+    app: {
+        getAppPath: vi.fn().mockReturnValue('/mock/path'),
+        getPath: vi.fn().mockReturnValue('/mock/path')
+    },
+    ipcMain: {
+        handle: vi.fn()
+    }
+}));
+
+// Mock config_manager
+vi.mock('../electron/config_manager', () => ({
+    getMergedLLMConfig: vi.fn().mockReturnValue({
+        providers: {
+            mock: {
+                maxScreenshotsPerRequest: 15,
+                chunkDelayMs: 0
+            }
+        },
+        roleConfigs: {
+            SCREEN_ANALYZE: { provider: 'mock', model: 'test' },
+            TEXT_SUMMARY: { provider: 'mock', model: 'test' }
+        }
+    })
+}));
+
 // We will mock the provider factory or service directly
 vi.mock('../electron/llm/providers', () => ({
     getLLMProvider: () => ({
-        generateContent: mockGenerateContent
-    })
+        generateContent: mockGenerateContent,
+        generateContentStream: null
+    }),
+    consumeStreamWithIdleTimeout: vi.fn()
 }));
 
 import { LLMService } from '../electron/llm/service';

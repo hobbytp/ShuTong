@@ -1,5 +1,6 @@
-
-import { getLLMProvider } from './providers';
+import { getMergedLLMConfig } from '../config_manager';
+import { getLLMMetrics } from './metrics';
+import { consumeStreamWithIdleTimeout, getLLMProvider } from './providers';
 
 interface Screenshot {
     id: number;
@@ -34,6 +35,54 @@ export class LLMService {
     async transcribeBatch(screenshots: Screenshot[]): Promise<Observation[]> {
         if (screenshots.length === 0) return [];
 
+        const config = getMergedLLMConfig();
+        const roleConfig = config.roleConfigs['SCREEN_ANALYZE'];
+        const providerKey = roleConfig?.provider;
+        const providerCfg = providerKey ? config.providers[providerKey] : undefined;
+
+        // Adaptive chunking integration
+        const metrics = getLLMMetrics();
+        const adaptiveConfig = config.adaptiveChunking;
+
+        let maxPerChunk: number;
+        if (adaptiveConfig?.enabled) {
+            // Evaluate and potentially adjust chunk size based on performance
+            metrics.evaluateAdaptiveChunking(adaptiveConfig);
+            maxPerChunk = metrics.getChunkMetrics().adjustedSize;
+        } else {
+            maxPerChunk = providerCfg?.maxScreenshotsPerRequest || 15;
+        }
+
+        const delayMs = providerCfg?.chunkDelayMs || 1000;
+
+        if (screenshots.length <= maxPerChunk) {
+            return this._transcribeSingleChunk(screenshots);
+        }
+
+        // Multiple chunks
+        const chunks = this.splitIntoChunks(screenshots, maxPerChunk);
+        console.log(`[LLMService] Processing ${chunks.length} chunks of up to ${maxPerChunk} screenshots${adaptiveConfig?.enabled ? ' (adaptive)' : ''}`);
+
+        const allObservations: Observation[] = [];
+        for (let i = 0; i < chunks.length; i++) {
+            if (i > 0) {
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+
+            try {
+                const chunkObs = await this._transcribeSingleChunk(chunks[i]);
+                allObservations.push(...chunkObs);
+                console.log(`[LLMService] Chunk ${i + 1}/${chunks.length} complete: ${chunkObs.length} observations`);
+            } catch (err) {
+                console.error(`[LLMService] Chunk ${i + 1} failed:`, err);
+                // Continue with remaining chunks (partial results)
+            }
+        }
+
+        return allObservations;
+    }
+
+    private async _transcribeSingleChunk(screenshots: Screenshot[]): Promise<Observation[]> {
         // Prepare prompt
         const prompt = `
 Analyize this sequence of screenshots from a user's computer. 
@@ -56,10 +105,30 @@ Return JSON format:
 
         try {
             const provider = getLLMProvider('SCREEN_ANALYZE');
-            const responseStr = await provider.generateContent({
-                prompt,
-                images
-            });
+            let responseStr: string;
+
+            // Prefer streaming if available for more robust timeout handling
+            if (provider.generateContentStream) {
+                const config = getMergedLLMConfig();
+                const roleConfig = config.roleConfigs['SCREEN_ANALYZE'];
+                const providerKey = roleConfig?.provider;
+                const providerCfg = providerKey ? config.providers[providerKey] : undefined;
+                const idleTimeout = providerCfg?.streamIdleTimeout || 30000;
+
+                try {
+                    console.log('[LLMService] Using streaming for transcribeBatch');
+                    responseStr = await consumeStreamWithIdleTimeout(
+                        provider.generateContentStream({ prompt, images }),
+                        idleTimeout
+                    );
+                } catch (streamError) {
+                    // Fallback to non-streaming on streaming failure (has retry logic)
+                    console.warn('[LLMService] Streaming failed, falling back to non-streaming:', streamError);
+                    responseStr = await provider.generateContent({ prompt, images });
+                }
+            } else {
+                responseStr = await provider.generateContent({ prompt, images });
+            }
 
             const response = this.parseJSON(responseStr);
             if (!response || !response.observations) {
@@ -78,9 +147,17 @@ Return JSON format:
             });
 
         } catch (err) {
-            console.error('[LLMService] Transcription failed:', err);
+            console.error('[LLMService] Single chunk transcription failed:', err);
             throw err;
         }
+    }
+
+    private splitIntoChunks<T>(arr: T[], size: number): T[][] {
+        const chunks: T[][] = [];
+        for (let i = 0; i < arr.length; i += size) {
+            chunks.push(arr.slice(i, i + size));
+        }
+        return chunks;
     }
 
     async generateActivityCards(observations: Observation[]): Promise<ActivityCard[]> {
@@ -111,7 +188,31 @@ Return JSON:
 
         try {
             const provider = getLLMProvider('TEXT_SUMMARY');
-            const responseStr = await provider.generateContent({ prompt });
+            let responseStr: string;
+
+            // Prefer streaming if available for more robust timeout handling
+            if (provider.generateContentStream) {
+                const config = getMergedLLMConfig();
+                const roleConfig = config.roleConfigs['TEXT_SUMMARY'];
+                const providerKey = roleConfig?.provider;
+                const providerCfg = providerKey ? config.providers[providerKey] : undefined;
+                const idleTimeout = providerCfg?.streamIdleTimeout || 30000;
+
+                try {
+                    console.log('[LLMService] Using streaming for generateActivityCards');
+                    responseStr = await consumeStreamWithIdleTimeout(
+                        provider.generateContentStream({ prompt }),
+                        idleTimeout
+                    );
+                } catch (streamError) {
+                    // Fallback to non-streaming on streaming failure (has retry logic)
+                    console.warn('[LLMService] Streaming failed, falling back to non-streaming:', streamError);
+                    responseStr = await provider.generateContent({ prompt });
+                }
+            } else {
+                responseStr = await provider.generateContent({ prompt });
+            }
+
             const response = this.parseJSON(responseStr);
 
             if (!response || !response.cards) {

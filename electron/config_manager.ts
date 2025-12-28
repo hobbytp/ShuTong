@@ -30,6 +30,10 @@ export interface ProviderConfig {
     apiKeyEnv: string;
     openaiCompatible: boolean;
     timeout?: number; // Request timeout in ms (default: 60000)
+    firstTokenTimeout?: number; // Timeout for first token in streaming (default: 30000)
+    maxScreenshotsPerRequest?: number; // Max images per prompt (default: 15)
+    chunkDelayMs?: number; // Delay between chunks in ms (default: 1000)
+    streamIdleTimeout?: number; // Idle timeout for streaming in ms (default: 30000)
     models: Record<string, ModelConfig>;
     [key: string]: any;
 }
@@ -44,6 +48,17 @@ export interface RoleConfig {
 export interface LLMGlobalConfig {
     providers: Record<string, ProviderConfig>;
     roleConfigs: Record<string, RoleConfig>;
+    adaptiveChunking?: AdaptiveChunkingConfig;
+}
+
+export interface AdaptiveChunkingConfig {
+    enabled: boolean;
+    minSize: number;             // Minimum chunk size (default: 2)
+    maxSize: number;             // Maximum chunk size (default: 15)
+    slowSecsPerShot: number;     // Threshold for slow performance (default: 8s)
+    fastSecsPerShot: number;     // Threshold for fast performance (default: 2s)
+    hysteresisCount: number;     // Consecutive readings before adjustment (default: 3)
+    cooldownRequests: number;    // Requests to wait after adjustment (default: 5)
 }
 
 export interface RuntimeProviderConfig extends ProviderConfig {
@@ -117,7 +132,8 @@ export function getMergedLLMConfig() {
 
     return {
         providers: mergedProviders,
-        roleConfigs: mergedRoles
+        roleConfigs: mergedRoles,
+        adaptiveChunking: defaults.adaptiveChunking
     };
 }
 
@@ -236,6 +252,10 @@ const ProviderConfigSchema = z
         apiKeyEnv: z.string(),
         openaiCompatible: z.boolean(),
         timeout: z.number().optional(),
+        firstTokenTimeout: z.number().optional(),
+        maxScreenshotsPerRequest: z.number().optional(),
+        chunkDelayMs: z.number().optional(),
+        streamIdleTimeout: z.number().optional(),
         models: z.record(z.string(), ModelConfigSchema)
     })
     .passthrough();
@@ -247,9 +267,20 @@ const RoleConfigSchema = z.object({
     description: z.string()
 });
 
+const AdaptiveChunkingConfigSchema = z.object({
+    enabled: z.boolean(),
+    minSize: z.number().optional(),
+    maxSize: z.number().optional(),
+    slowSecsPerShot: z.number().optional(),
+    fastSecsPerShot: z.number().optional(),
+    hysteresisCount: z.number().optional(),
+    cooldownRequests: z.number().optional()
+});
+
 const LLMGlobalConfigSchema = z.object({
     providers: z.record(z.string(), ProviderConfigSchema),
-    roleConfigs: z.record(z.string(), RoleConfigSchema)
+    roleConfigs: z.record(z.string(), RoleConfigSchema),
+    adaptiveChunking: AdaptiveChunkingConfigSchema.optional()
 });
 
 export function validateLLMConfig(content: string): { success: boolean, error?: string, data?: LLMGlobalConfig } {
