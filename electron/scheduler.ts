@@ -36,7 +36,7 @@ export function sendNotification(type: 'morning' | 'evening') {
 export async function checkAndGenerateBriefing() {
     try {
         const { getLatestPulseCard, savePulseCard } = await import('./storage');
-        const { pulseAgent } = await import('./agent/pulse-agent');
+        const { pulseAgent } = await import('./features/pulse/agent/pulse-agent');
 
         // Check if we already have a briefing for today
         const latestBriefing = getLatestPulseCard('briefing');

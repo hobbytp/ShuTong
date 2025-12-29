@@ -175,7 +175,7 @@ async function startApp() {
 
     ipcMain.handle('generate-pulse-card', async (_, type: string) => {
       try {
-        const { pulseAgent } = await import('./agent/pulse-agent');
+        const { pulseAgent } = await import('./features/pulse/agent/pulse-agent');
         const { savePulseCard } = await import('./storage');
         // @ts-ignore
         const card = await pulseAgent.generateCard(type);
@@ -251,10 +251,13 @@ async function startApp() {
       }
     });
 
-    ipcMain.handle('ask-pulse', async (_, question: string) => {
+    ipcMain.handle('ask-pulse', async (_, payload: string | { question: string; threadId?: string }) => {
       try {
-        const { pulseAgent } = await import('./agent/pulse-agent');
-        const update = await pulseAgent.run(question);
+        const { pulseAgent } = await import('./features/pulse/agent/pulse-agent');
+        // Support both old (string) and new ({ question, threadId }) format
+        const question = typeof payload === 'string' ? payload : payload.question;
+        const threadId = typeof payload === 'object' ? payload.threadId : undefined;
+        const update = await pulseAgent.run(question, { thread_id: threadId });
         return { success: true, response: update };
       } catch (err: any) {
         return { success: false, error: err.message };
@@ -452,10 +455,16 @@ async function startApp() {
       const { vectorStorage } = await import('./storage/vector-storage');
       await vectorStorage.init();
       console.log('[Main] Vector storage initialized')
+
+      // Initialize Memory Store for PulseAgent
+      const { memoryStore } = await import('./features/pulse/agent/memory-store');
+      await memoryStore.init();
+      console.log('[Main] Memory store initialized')
+
       const { checkAndGenerateBriefing } = await import('./scheduler');
       checkAndGenerateBriefing().catch(err => console.error('[Main] Scheduler error:', err));
     } catch (err) {
-      console.error('[Main] Vector storage init failed:', err);
+      console.error('[Main] Vector storage or Memory store init failed:', err);
     }
 
     setupScreenCapture()
