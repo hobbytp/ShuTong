@@ -105,7 +105,7 @@ import { setupDeepLinks } from './deeplink'
 import { setupScreenCapture } from './features/capture'
 import { cleanupOldSnapshots, startAnalysisJob } from './features/timeline'
 import { checkReminders, sendNotification } from './scheduler'
-import { closeStorage, getCardDetails, getReminderSettings, getRetentionSettings, getScreenshotsForCard, getTimelineCards, initStorage } from './storage'
+import { closeStorage, getCardDetails, getIsResetting, getReminderSettings, getRetentionSettings, getScreenshotsForCard, getTimelineCards, initStorage } from './storage'
 
 app.on('activate', () => {
   // ...
@@ -447,6 +447,14 @@ async function startApp() {
 
     initStorage()
     console.log('[Main] Storage initialized')
+
+    // Register before-quit handler after storage is initialized
+    app.on('before-quit', (e) => {
+      if (getIsResetting()) {
+        e.preventDefault();
+        dialog.showErrorBox('Cannot Quit', 'Database reset in progress. Please wait until completion.');
+      }
+    });
 
     createWindow()
     console.log('[Main] Window created')

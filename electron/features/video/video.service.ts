@@ -34,7 +34,11 @@ export function createVideoGenerationWindow() {
     console.log('[VideoService] Creating window with preload:', preloadPath);
 
     videoWindow = new BrowserWindow({
-        show: false,
+        show: true,
+        x: -2000, // Move far off-screen
+        y: -2000,
+        width: 1,
+        height: 1,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
@@ -45,7 +49,8 @@ export function createVideoGenerationWindow() {
     });
 
     if (VITE_DEV_SERVER_URL) {
-        const url = `${VITE_DEV_SERVER_URL}/src/video-generator/index.html`;
+        const baseUrl = VITE_DEV_SERVER_URL.endsWith('/') ? VITE_DEV_SERVER_URL.slice(0, -1) : VITE_DEV_SERVER_URL;
+        const url = `${baseUrl}/src/video-generator/index.html`;
         console.log('[VideoService] Loading URL:', url);
         videoWindow.loadURL(url);
     } else {
@@ -62,8 +67,23 @@ export function createVideoGenerationWindow() {
 
     videoWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
         console.error('[VideoService] Failed to load video generator:', errorCode, errorDescription);
-        // Destroy the window so next request will recreate it
         videoWindow?.destroy();
+        videoWindow = null;
+    });
+
+    videoWindow.on('unresponsive', () => {
+        console.error('[VideoService] Video generator window became unresponsive');
+        videoWindow?.destroy();
+        videoWindow = null;
+    });
+
+    videoWindow.webContents.on('render-process-gone', (_event, details) => {
+        console.error('[VideoService] Video generator render process gone:', details.reason, details.exitCode);
+        videoWindow?.destroy();
+        videoWindow = null;
+    });
+
+    videoWindow.on('closed', () => {
         videoWindow = null;
     });
 }
@@ -234,7 +254,7 @@ function executeVideoGeneration(
             // then reclaim renderer/GPU resources. Next request will recreate the window.
             const windowToDestroy = videoWindow;
             videoWindow = null;
-            
+
             if (windowToDestroy && !windowToDestroy.isDestroyed()) {
                 setTimeout(() => {
                     try {

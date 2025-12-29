@@ -1,39 +1,35 @@
+/**
+ * PulseAgent - Memory-Enhanced LangGraph Agent
+ * 
+ * A stateful conversational agent with:
+ * - Long-term memory (semantic, episodic, procedural)
+ * - Activity context from VectorStorage
+ * - Conversation persistence via Checkpointer
+ * - Background memory extraction (Option B)
+ */
+
 import { AIMessage, BaseMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { RunnableConfig } from "@langchain/core/runnables";
 import { END, START, StateGraph } from "@langchain/langgraph";
 import { ChatOpenAI } from "@langchain/openai";
 import { getLLMConfigForMain } from "../../../config_manager";
 import { vectorStorage } from "../../../storage/vector-storage";
-import { PulseState } from "./schema";
+import { createCheckpointer, SQLiteCheckpointer } from "./checkpointer";
+import { BaseStore, EpisodicMemory, Memory, memoryStore, MemoryType, ProceduralMemory, SemanticMemory } from "./memory-store";
+import { graphStateChannels, PulseState } from "./schema";
 
-// Define how state updates are handled (Reducers)
-const graphStateChannels = {
-    messages: {
-        reducer: (x: BaseMessage[], y: BaseMessage[]) => x.concat(y),
-        default: () => [],
-    },
-    relevant_activities: {
-        reducer: (x: any, y: any) => y ?? x,
-        default: () => [],
-    },
-    target_card_type: {
-        reducer: (x: any, y: any) => y ?? x,
-        default: () => undefined,
-    },
-    user_intent: {
-        reducer: (x: any, y: any) => y ?? x,
-        default: () => undefined,
-    },
-    current_time: {
-        reducer: (x: any, y: any) => y ?? x,
-        default: () => new Date().toISOString(),
-    }
-};
+// ============ PulseAgent Class ============
 
 export class PulseAgent {
     private graph: any;
+    private checkpointer: SQLiteCheckpointer;
+    private memoryExtractionQueue: Array<{ userId: string; messages: BaseMessage[] }> = [];
+    private extractionInterval: ReturnType<typeof setInterval> | null = null;
 
     constructor() {
+        this.checkpointer = createCheckpointer();
         this.graph = this.buildGraph();
+        this.startBackgroundMemoryExtraction();
     }
 
     private buildGraph() {
@@ -46,16 +42,22 @@ export class PulseAgent {
             .addEdge("context_retrieval", "agent_reasoning")
             .addEdge("agent_reasoning", END);
 
-        return workflow.compile();
+        // Compile with checkpointer for conversation persistence
+        return workflow.compile({
+            checkpointer: this.checkpointer,
+            store: memoryStore as any
+        });
     }
+
+    // ============ Graph Nodes ============
 
     /**
      * Node 1: Context Retrieval
-     * Analyzes the latest user message and retrieves relevant context from VectorStorage
+     * Retrieves relevant activity context from VectorStorage
      */
     private async contextRetrievalNode(state: PulseState) {
         const lastMessage = state.messages[state.messages.length - 1];
-        const query = lastMessage.content.toString();
+        const query = lastMessage?.content?.toString() || '';
 
         console.log(`[PulseAgent] Retrieving context for: "${query.substring(0, 50)}..."`);
 
@@ -68,17 +70,75 @@ export class PulseAgent {
     }
 
     /**
-     * Node 2: Agent Reasoning
-     * Uses the context to generate a response (or Pulse card)
+     * Node 3: Agent Reasoning
+     * Uses memories and context to generate a response
      */
-    private async agentReasoningNode(state: PulseState) {
-        const { messages, relevant_activities, target_card_type } = state;
+    private async agentReasoningNode(state: PulseState, config?: RunnableConfig) {
+        const { messages, relevant_activities, target_card_type, user_id } = state;
+        const userId = user_id || 'local';
+        const store = (config as any)?.store as BaseStore;
 
-        // Construct the LLM client dynamically based on config
+        // Memory Recall Logic
+        let recalled_memories: Memory[] = [];
+        if (store) {
+            const lastMessage = messages[messages.length - 1];
+            const query = lastMessage?.content?.toString() || '';
+            console.log(`[PulseAgent] Recalling memories for: "${query.substring(0, 50)}..."`);
+
+            try {
+                // 1. Instructions (Procedural)
+                const instructionItems = await store.search([userId, 'instructions'], {
+                    filter: { type: 'procedural' }
+                });
+                const instructions = (instructionItems || [])
+                    .map(item => item.value as any as ProceduralMemory)
+                    .sort((a, b) => (b.priority || 0) - (a.priority || 0));
+
+                // 2. Semantic Memories
+                const semanticItems = query
+                    ? await store.search([userId, 'memories'], {
+                        query,
+                        limit: 5,
+                        filter: { type: 'semantic' }
+                    })
+                    : [];
+                const semanticMemories = (semanticItems || []).map(item => item.value as any as SemanticMemory);
+
+                // 3. Episodic Memories
+                const episodicItems = query
+                    ? await store.search([userId, 'memories'], {
+                        query,
+                        limit: 3,
+                        filter: { type: 'episodic' }
+                    })
+                    : [];
+                const episodicMemories = (episodicItems || []).map(item => item.value as any as EpisodicMemory);
+
+                recalled_memories = [...instructions, ...semanticMemories, ...episodicMemories];
+                console.log(`[PulseAgent] Recalled ${recalled_memories.length} memories`);
+            } catch (err) {
+                console.error('[PulseAgent] Memory recall failed:', err);
+            }
+        }
+
+        // Trim messages to keep within context window (e.g. last 20)
+        // But always keep the system message or first message if possible
+        const MAX_MESSAGES = 20;
+        let activeMessages = messages;
+        if (messages.length > MAX_MESSAGES) {
+            activeMessages = [
+                messages[0], // Keep first message (likely system or first user query)
+                ...messages.slice(-(MAX_MESSAGES - 1))
+            ];
+        }
+
         const llm = this.getLLMClient();
 
-        // Prepare context string
-        const contextStr = relevant_activities.map(a =>
+        // Build memory context string
+        const memoryContext = this.buildMemoryContext(recalled_memories);
+
+        // Build activity context string
+        const activityContext = relevant_activities.map(a =>
             `- [${new Date(a.start_ts * 1000).toLocaleTimeString()}] ${a.title}: ${a.summary}`
         ).join("\n");
 
@@ -92,8 +152,10 @@ export class PulseAgent {
             };
 
             const systemPrompt = `You are ShuTong Pulse.
-Current Context:
-${contextStr || "No relevant recent activities found."}
+
+${memoryContext ? `User Preferences & Knowledge:\n${memoryContext}\n` : ''}
+Current Activity Context:
+${activityContext || "No relevant recent activities found."}
 
 Task: ${cardPrompts[target_card_type] || "Analyze the activities."}
 
@@ -109,29 +171,243 @@ Return your response in strict JSON format:
                 new HumanMessage("Generate the card.")
             ]);
 
-            return { messages: [response] };
+            return {
+                messages: [response],
+                recalled_memories
+            };
         }
 
         // DEFAULT: Chat Mode
         const systemPrompt = `You are ShuTong Pulse, an intelligent assistant that helps users reflect on their activities.
-        
-Current Context:
-${contextStr || "No relevant recent activities found."}
+
+${memoryContext ? `User Preferences & Knowledge:\n${memoryContext}\n` : ''}
+Recent Activity Context:
+${activityContext || "No relevant recent activities found."}
 
 Your goal is to answer the user's question based on the activity history provided above.
 If the user asks for a summary, synthesize the information.
 If the user asks specific questions, use the timestamps and details to answer accurately.
-`;
+If the user expresses preferences or shares personal information, acknowledge it naturally.`;
 
         const response = await llm.invoke([
             new SystemMessage(systemPrompt),
-            ...messages
+            ...activeMessages
         ]);
 
+        // Queue memory extraction in background (Option B)
+        // Include the new AI response in the extraction context
+        this.queueMemoryExtraction(user_id || 'local', [...activeMessages, response]);
+
         return {
-            messages: [response]
+            messages: [response],
+            recalled_memories
         };
     }
+
+    // ============ Memory Helpers ============
+
+    private buildMemoryContext(memories: Memory[]): string {
+        if (!memories || memories.length === 0) return '';
+
+        const lines: string[] = [];
+
+        // Group by type
+        const procedural = memories.filter(m => m.type === 'procedural');
+        const semantic = memories.filter(m => m.type === 'semantic');
+        const episodic = memories.filter(m => m.type === 'episodic');
+
+        if (procedural.length > 0) {
+            lines.push('Instructions:');
+            procedural.forEach(m => lines.push(`- ${m.content}`));
+        }
+
+        if (semantic.length > 0) {
+            lines.push('Known Facts & Preferences:');
+            semantic.forEach(m => lines.push(`- ${m.content}`));
+        }
+
+        if (episodic.length > 0) {
+            lines.push('Past Interactions:');
+            episodic.forEach(m => lines.push(`- ${m.content}`));
+        }
+
+        return lines.join('\n');
+    }
+
+    // ============ Background Memory Extraction (Option B) ============
+
+    private queueMemoryExtraction(userId: string, messages: BaseMessage[]) {
+        // Only queue if we have enough context (at least 2 messages)
+        if (messages.length < 2) return;
+
+        this.memoryExtractionQueue.push({
+            userId,
+            messages: [...messages] // Clone to avoid mutation
+        });
+        console.log(`[PulseAgent] Queued memory extraction, queue size: ${this.memoryExtractionQueue.length}`);
+    }
+
+    private startBackgroundMemoryExtraction() {
+        // Process extraction queue every 30 seconds
+        this.extractionInterval = setInterval(() => {
+            this.processMemoryExtractionQueue();
+        }, 30000);
+    }
+
+    private async processMemoryExtractionQueue() {
+        if (this.memoryExtractionQueue.length === 0) return;
+
+        const item = this.memoryExtractionQueue.shift();
+        if (!item) return;
+
+        try {
+            await this.extractAndStoreMemories(item.userId, item.messages);
+        } catch (err) {
+            console.error('[PulseAgent] Memory extraction failed:', err);
+        }
+    }
+
+    private async extractAndStoreMemories(userId: string, messages: BaseMessage[]) {
+        if (!memoryStore.isReady()) {
+            await memoryStore.init();
+        }
+
+        // Get existing memories to include in prompt for deduplication
+        const existingMemories = await memoryStore.list([userId, 'memories'], 20);
+        const existingMemoriesText = existingMemories.length > 0
+            ? existingMemories.map(m => `- ${m.content}`).join('\n')
+            : '(None yet)';
+
+        // Use LLM to extract potential memories
+        const llm = this.getLLMClient();
+
+        const conversationText = messages
+            .map(m => {
+                if (m instanceof HumanMessage) return `User: ${m.content}`;
+                if (m instanceof AIMessage) return `Assistant: ${m.content}`;
+                return '';
+            })
+            .filter(Boolean)
+            .join('\n');
+
+        const extractionPrompt = `Analyze this conversation and extract any NEW information worth remembering for future interactions.
+
+EXISTING MEMORIES (do NOT duplicate these):
+${existingMemoriesText}
+
+CURRENT CONVERSATION:
+${conversationText}
+
+Extract ONLY genuinely NEW, useful information that is NOT already in existing memories.
+Output JSON array (empty [] if nothing new worth remembering):
+[
+  {
+    "type": "preference" | "fact" | "context" | "episodic",
+    "content": "The extracted information in natural language",
+    "confidence": 0.0-1.0,
+    "action": "add" | "update",
+    "updateId": "optional - id of existing memory to update if action is update"
+  }
+]
+
+Examples of what to extract:
+- User preferences: "用户喜欢简洁的中文回复" (type: preference)
+- Personal facts: "用户在科技公司工作" (type: fact)
+- Context: "用户最近在准备季度报告" (type: context)
+- Episodic / Past Actions: "Assist helped user analyze their coding patterns on monday morning" (type: episodic)
+
+Rules:
+1. Do NOT extract temporary or trivial information
+2. If info is already known (in EXISTING MEMORIES), return empty []
+3. If new info UPDATES existing knowledge, use action "update"
+4. Be conservative - only extract genuinely useful memories
+5. For episodic memories, focus on significant milestones or tasks completed`;
+
+        try {
+            const response = await llm.invoke([
+                new SystemMessage(extractionPrompt)
+            ]);
+
+            const content = typeof response.content === 'string'
+                ? response.content
+                : JSON.stringify(response.content);
+
+            // Parse JSON from response
+            const jsonMatch = content.match(/\[[\s\S]*\]/);
+            if (!jsonMatch) return;
+
+            const extracted = JSON.parse(jsonMatch[0]) as Array<{
+                type: 'preference' | 'fact' | 'context' | 'episodic';
+                content: string;
+                confidence: number;
+                action?: 'add' | 'update';
+                updateId?: string;
+            }>;
+
+            if (extracted.length === 0) {
+                console.log('[PulseAgent] No new memories to extract');
+                return;
+            }
+
+            // Store each extracted memory with duplicate check
+            let added = 0;
+            let updated = 0;
+            let skipped = 0;
+
+            for (const item of extracted) {
+                if (item.confidence < 0.6) {
+                    skipped++;
+                    continue;
+                }
+
+                // Check for similar existing memory (semantic duplicate detection)
+                const similar = await memoryStore.findSimilarMemory(userId, item.content);
+
+                if (similar) {
+                    // Update existing memory if new info is more confident
+                    if (item.confidence > (similar.memory as any).confidence) {
+                        // Determine correct memory type
+                        const memoryType: MemoryType = item.type === 'episodic' ? 'episodic' : 'semantic';
+
+                        await memoryStore.put([userId, 'memories'], similar.memory.id, {
+                            type: memoryType,
+                            content: item.content,
+                            category: item.type,
+                            confidence: item.confidence
+                        } as Omit<SemanticMemory, 'id' | 'created_at' | 'updated_at' | 'namespace' | 'vector'>);
+                        updated++;
+                        console.log(`[PulseAgent] Updated memory: ${item.content.substring(0, 50)}...`);
+                    } else {
+                        skipped++;
+                        console.log(`[PulseAgent] Skipped duplicate: ${item.content.substring(0, 50)}...`);
+                    }
+                } else {
+                    // Add new memory with correct type
+                    const memoryId = `mem-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                    const memoryType: MemoryType = item.type === 'episodic' ? 'episodic' : 'semantic';
+
+                    await memoryStore.put([userId, 'memories'], memoryId, {
+                        type: memoryType,
+                        content: item.content,
+                        category: item.type,
+                        confidence: item.confidence
+                    } as Omit<SemanticMemory, 'id' | 'created_at' | 'updated_at' | 'namespace' | 'vector'>);
+                    added++;
+                    console.log(`[PulseAgent] Added memory: ${item.content.substring(0, 50)}...`);
+                }
+            }
+
+            console.log(`[PulseAgent] Memory extraction complete: ${added} added, ${updated} updated, ${skipped} skipped`);
+
+            // Prune old memories if over limit (keep last 100)
+            await memoryStore.pruneOldMemories([userId, 'memories'], 100);
+
+        } catch (err) {
+            console.error('[PulseAgent] Memory extraction LLM call failed:', err);
+        }
+    }
+
+    // ============ LLM Client ============
 
     /**
      * Helper to get an initialized ChatOpenAI client
@@ -271,8 +547,6 @@ If the user asks specific questions, use the timestamps and details to answer ac
             return requested;
         };
 
-        // Pulse is expected to use the user-selected PULSE_AGENT role.
-        // We only fall back to other roles/providers when PULSE_AGENT is not configured at all.
         let selectedProviderName: string | undefined;
         let apiKey: string | undefined;
         let baseURL: string | undefined;
@@ -333,7 +607,6 @@ If the user asks specific questions, use the timestamps and details to answer ac
 
         const hasPulseRole = Boolean((config.roleConfigs as any)?.PULSE_AGENT);
         if (hasPulseRole) {
-            // Strict: if user configured PULSE_AGENT, do not silently fall back.
             tryRole('PULSE_AGENT');
         } else {
             tryRole('DEEP_THINKING');
@@ -389,17 +662,31 @@ If the user asks specific questions, use the timestamps and details to answer ac
         });
     }
 
-    /**
-     * Public API to run the agent conversationally
-     */
-    public async run(userMessage: string) {
-        try {
-            const result = await this.graph.invoke({
-                messages: [new HumanMessage(userMessage)],
-                current_time: new Date().toISOString()
-            });
+    // ============ Public API ============
 
-            // Return the last AI message content
+    /**
+     * Run the agent conversationally with memory support
+     */
+    public async run(userMessage: string, options?: { thread_id?: string; user_id?: string }) {
+        try {
+            const threadId = options?.thread_id || 'default';
+            const userId = options?.user_id || 'local';
+
+            const result = await this.graph.invoke(
+                {
+                    messages: [new HumanMessage(userMessage)],
+                    current_time: new Date().toISOString(),
+                    thread_id: threadId,
+                    user_id: userId
+                },
+                {
+                    configurable: {
+                        thread_id: threadId,
+                        user_id: userId
+                    }
+                }
+            );
+
             const lastMsg = result.messages[result.messages.length - 1];
             return lastMsg.content;
         } catch (err: any) {
@@ -411,26 +698,42 @@ If the user asks specific questions, use the timestamps and details to answer ac
     }
 
     /**
-     * Public API to generate a specific Pulse card type
+     * Generate a specific Pulse card type
      */
-    public async generateCard(type: 'briefing' | 'action' | 'sprouting' | 'challenge') {
-        // For card generation, we use an implicit query to pull relevant context
+    public async generateCard(
+        type: 'briefing' | 'action' | 'sprouting' | 'challenge',
+        options?: { user_id?: string }
+    ) {
         const implicitQuery = type === 'briefing' ? "summary of today's activities" :
             type === 'action' ? "tasks and action items" :
                 type === 'challenge' ? "distractions and inefficiencies" :
                     "recent important work and topics";
 
-        const result = await this.graph.invoke({
-            messages: [new HumanMessage(implicitQuery)],
-            target_card_type: type,
-            current_time: new Date().toISOString()
-        });
+        const userId = options?.user_id || 'local';
+        // Use a dedicated thread for card generation to avoid polluting conversation history
+        // or use a random one if we don't want persistence at all.
+        // For now, let's use a fixed one per card type to allow some continuity if needed,
+        // or just 'card-generation' to keep it simple.
+        const threadId = `card-gen-${type}-${new Date().toISOString().split('T')[0]}`;
+
+        const result = await this.graph.invoke(
+            {
+                messages: [new HumanMessage(implicitQuery)],
+                target_card_type: type,
+                current_time: new Date().toISOString(),
+                user_id: userId
+            },
+            {
+                configurable: {
+                    thread_id: threadId,
+                    user_id: userId
+                }
+            }
+        );
 
         const lastMsg = result.messages[result.messages.length - 1];
         try {
-            // Attempt to parse JSON content
             const content = typeof lastMsg.content === 'string' ? lastMsg.content : JSON.stringify(lastMsg.content);
-            // Handle markdown code block wrapping
             const jsonStr = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
             return JSON.parse(jsonStr);
         } catch (e) {
@@ -438,7 +741,42 @@ If the user asks specific questions, use the timestamps and details to answer ac
             return { title: "Generation Result", content: lastMsg.content, suggested_actions: [] };
         }
     }
+
+    /**
+     * Get conversation threads
+     */
+    public getThreads(): string[] {
+        return this.checkpointer.getThreadIds();
+    }
+
+    /**
+     * Delete a conversation thread
+     */
+    public async deleteThread(threadId: string): Promise<void> {
+        await this.checkpointer.deleteThread(threadId);
+    }
+
+    /**
+     * Reset the agent state:
+     * 1. Clear conversation history (checkpoints)
+     * 2. Clear pending memory extraction queue
+     */
+    public reset(): void {
+        this.checkpointer.reset();
+        this.memoryExtractionQueue = [];
+        console.log('[PulseAgent] Reset agent state and cleared memory queue');
+    }
+
+    /**
+     * Cleanup resources
+     */
+    public cleanup() {
+        if (this.extractionInterval) {
+            clearInterval(this.extractionInterval);
+            this.extractionInterval = null;
+        }
+        this.checkpointer.close();
+    }
 }
 
 export const pulseAgent = new PulseAgent();
-

@@ -280,6 +280,7 @@ export interface IPCContract {
     'select-directory': { args: [isOnboarding?: boolean]; return: string | null };
     'open-data-folder': { args: []; return: string };
     'get-app-path': { args: [name: string]; return: string };
+    'reset-database': { args: []; return: { success: boolean; error?: string; stats?: { filesDeleted: number; tablesCleared: number } } };
 
     // -------------------------------------------------------------------------
     // Analytics

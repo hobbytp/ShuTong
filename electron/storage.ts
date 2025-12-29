@@ -8,6 +8,7 @@
 import Database from 'better-sqlite3';
 import { app } from 'electron';
 import fs from 'fs';
+import path from 'path';
 import type { JournalEntry, Snapshot } from '../shared/ipc-contract';
 import { closeDatabase, getDbPath, initDatabase } from './infrastructure/database';
 import { typedHandle } from './infrastructure/ipc/typed-ipc';
@@ -19,6 +20,12 @@ let ipcConfigured = false;
 
 // Repository factory instance
 let repos: IRepositoryFactory | null = null;
+
+let isResetting = false;
+
+export function getIsResetting() {
+    return isResetting;
+}
 
 /**
  * Get the repository factory.
@@ -114,6 +121,118 @@ export function getWindowDwellStats(startTs: number, endTs: number): { app: stri
     return repos?.windowSwitches.getDwellStats(startTs, endTs) ?? [];
 }
 
+/**
+ * Reset the database by clearing all user data.
+ * Preserves settings table. Returns success/error result with statistics.
+ * Uses a transaction to ensure atomicity of SQLite operations.
+ */
+export async function resetDatabase(): Promise<{ success: boolean; error?: string; stats?: { filesDeleted: number; tablesCleared: number } }> {
+    if (!db) {
+        return { success: false, error: 'Database not initialized' };
+    }
+
+    if (isResetting) {
+        return { success: false, error: 'Reset already in progress' };
+    }
+
+    isResetting = true;
+    const stats = { filesDeleted: 0, tablesCleared: 0 };
+
+    try {
+        console.log('[ShuTong] Resetting database...');
+
+        // 0. Stop recording if active (to prevent file lock issues and ghost data)
+        try {
+            const { getIsRecording, stopRecording } = await import('./features/capture');
+            if (getIsRecording()) {
+                stopRecording();
+                console.log('[ShuTong] Automatically stopped recording before reset');
+            }
+        } catch (err) {
+            console.warn('[ShuTong] Failed to check/stop recording:', err);
+        }
+
+        // 1. Delete screenshot files from disk
+        const screenshotDir = path.join(app.getPath('userData'), 'screenshots');
+        if (fs.existsSync(screenshotDir)) {
+            const files = fs.readdirSync(screenshotDir);
+            for (const file of files) {
+                try {
+                    fs.unlinkSync(path.join(screenshotDir, file));
+                    stats.filesDeleted++;
+                } catch (err) {
+                    console.warn(`[ShuTong] Failed to delete screenshot: ${file}`, err);
+                }
+            }
+            console.log(`[ShuTong] Deleted ${stats.filesDeleted} screenshot files`);
+        }
+
+        // 2. Clear SQLite tables in a transaction (preserve settings)
+        const tablesToClear = [
+            'snapshots',
+            'screenshots',
+            'analysis_batches',
+            'batch_screenshots',
+            'observations',
+            'timeline_cards',
+            'pulse_cards',
+            'window_switches',
+            'journal'
+        ];
+
+        const clearTablesTransaction = db.transaction(() => {
+            for (const table of tablesToClear) {
+                db!.exec(`DELETE FROM ${table}`);
+                stats.tablesCleared++;
+            }
+        });
+
+        try {
+            clearTablesTransaction();
+            console.log(`[ShuTong] Cleared ${stats.tablesCleared} SQLite tables`);
+        } catch (err) {
+            console.error('[ShuTong] Transaction failed, rolling back:', err);
+            throw new Error('Failed to clear database tables');
+        }
+
+        // 3. Reset vector storage (activity context)
+        try {
+            const { vectorStorage } = await import('./storage/vector-storage');
+            await vectorStorage.reset();
+            console.log('[ShuTong] Reset vector storage');
+        } catch (err) {
+            console.warn('[ShuTong] Failed to reset vector storage:', err);
+        }
+
+        // 4. Reset checkpointer (Pulse chat history) and agent state
+        try {
+            const { pulseAgent } = await import('./features/pulse/agent/pulse-agent');
+            pulseAgent.reset();
+            console.log('[ShuTong] Reset Pulse agent');
+        } catch (err) {
+            console.warn('[ShuTong] Failed to reset Pulse agent:', err);
+        }
+
+        // 5. Reset memory store (Pulse long-term memories)
+        try {
+            const { memoryStore } = await import('./features/pulse/agent/memory-store');
+            await memoryStore.reset();
+            console.log('[ShuTong] Reset memory store');
+        } catch (err) {
+            console.warn('[ShuTong] Failed to reset memory store:', err);
+        }
+
+        console.log('[ShuTong] Database reset complete');
+        return { success: true, stats };
+
+    } catch (err: any) {
+        console.error('[ShuTong] Failed to reset database:', err);
+        return { success: false, error: err.message || 'Unknown error', stats };
+    } finally {
+        isResetting = false;
+    }
+}
+
 export function closeStorage() {
     closeDatabase();
     db = null;
@@ -141,6 +260,11 @@ function setupStorageIPC() {
 
     // Dashboard Stats
     typedHandle('get-dashboard-stats', () => getDashboardStats());
+
+    // Reset Database
+    typedHandle('reset-database', async () => {
+        return await resetDatabase();
+    });
 
     ipcConfigured = true;
 }

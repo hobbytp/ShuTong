@@ -289,6 +289,31 @@ export class VectorStorage {
         }
         return this.search(query);
     }
+
+    /**
+     * Reset the vector storage by dropping and recreating the activity table.
+     * Call this during database reset.
+     */
+    public async reset(): Promise<void> {
+        if (!this.db) {
+            console.warn('[VectorStorage] Cannot reset: not initialized');
+            return;
+        }
+
+        try {
+            const tableName = 'activity_context';
+            const existingTables = await this.db.tableNames();
+
+            if (existingTables.includes(tableName)) {
+                await this.db.dropTable(tableName);
+                this.activityTable = null;
+                console.log(`[VectorStorage] Dropped table '${tableName}'`);
+            }
+        } catch (err) {
+            console.error('[VectorStorage] Failed to reset:', err);
+            throw err;
+        }
+    }
 }
 
 export const vectorStorage = VectorStorage.getInstance();

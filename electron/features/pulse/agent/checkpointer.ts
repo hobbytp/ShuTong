@@ -285,6 +285,20 @@ export class SQLiteCheckpointer extends BaseCheckpointSaver {
     }
 
     /**
+     * Reset all checkpoints (delete all data)
+     * Call this during database reset.
+     */
+    reset(): void {
+        try {
+            this.db.exec('DELETE FROM checkpoints');
+            console.log('[SQLiteCheckpointer] Reset all checkpoints');
+        } catch (err) {
+            console.error('[SQLiteCheckpointer] reset error:', err);
+            throw err;
+        }
+    }
+
+    /**
      * Close the database connection
      */
     close(): void {

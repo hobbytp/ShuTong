@@ -58,11 +58,42 @@ export function StorageSettings() {
         }
     };
 
-    const handleClearStorage = () => {
-        if (!confirm('Are you sure? This will delete all history.')) return;
+    const handleClearStorage = async () => {
+        // Require user to type "RESET" for confirmation
+        const confirmation = prompt(
+            'This will PERMANENTLY DELETE all timeline entries, screenshots, and chat history.\n\n' +
+            'This action CANNOT be undone.\n\n' +
+            'Type "RESET" to confirm:'
+        );
+
+        if (confirmation !== 'RESET') {
+            if (confirmation !== null) {
+                alert('Reset cancelled. You must type exactly "RESET" to confirm.');
+            }
+            return;
+        }
+
         setClearing(true);
-        // Implement actual clear logic if needed via IPC
-        setTimeout(() => setClearing(false), 2000);
+        try {
+            if (window.ipcRenderer) {
+                const result = await window.ipcRenderer.invoke('reset-database');
+                if (result.success) {
+                    const stats = result.stats;
+                    const message = stats
+                        ? `Database reset complete!\n\n• ${stats.filesDeleted} screenshot files deleted\n• ${stats.tablesCleared} database tables cleared`
+                        : 'Database reset complete!';
+                    alert(message);
+                    // Reload the page to refresh all UI components
+                    window.location.reload();
+                } else {
+                    alert('Failed to reset database: ' + (result.error || 'Unknown error'));
+                }
+            }
+        } catch (err) {
+            alert('Failed to reset database: ' + (err as Error).message);
+        } finally {
+            setClearing(false);
+        }
     };
 
     return (

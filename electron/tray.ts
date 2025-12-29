@@ -80,7 +80,17 @@ export function updateTrayMenu(getMainWindow: () => BrowserWindow | null, isReco
         { type: 'separator' },
         {
             label: 'Quit',
-            click: () => {
+            click: async () => {
+                try {
+                    const { getIsResetting } = await import('./storage');
+                    if (getIsResetting()) {
+                        const { dialog } = await import('electron');
+                        dialog.showErrorBox('Cannot Quit', 'Database reset in progress. Please wait until completion.');
+                        return;
+                    }
+                } catch (err) {
+                    console.error('Failed to check reset status:', err);
+                }
                 isQuitting = true;
                 app.quit();
             }
