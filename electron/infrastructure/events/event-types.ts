@@ -10,6 +10,7 @@ export interface EventMap {
     // Capture Domain Events
     'recording:state-changed': { isRecording: boolean };
     'capture:error': { title: string; message: string; fatal?: boolean };
+    'screenshot:captured': { id: number; timestamp: number };
 
     // Video Domain Events
     'video:generated': { cardId: number; videoPath: string };

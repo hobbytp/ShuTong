@@ -15,7 +15,7 @@ export function getIsQuitting() {
 }
 
 export function setupTray(getMainWindow: () => BrowserWindow | null) {
-    const iconPath = path.join(process.env.VITE_PUBLIC, 'electron-vite.svg');
+    const iconPath = path.join(process.env.VITE_PUBLIC, 'ShuTong.png');
     // Use a simple logic to ensure icon exists or use fallback if needed
     // ideally we should have a tray-specific icon
     const icon = nativeImage.createFromPath(iconPath);

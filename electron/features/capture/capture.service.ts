@@ -526,7 +526,12 @@ async function captureFrame(config: CaptureConfig) {
 
         const unixTs = Math.floor(now.getTime() / 1000);
         // Save with metadata
-        saveScreenshot(filePath, unixTs, jpeg.length, captureType, appName || undefined);
+        const screenshotId = saveScreenshot(filePath, unixTs, jpeg.length, captureType, appName || undefined);
+
+        // Notify UI about new screenshot for real-time updates
+        if (screenshotId) {
+            eventBus.emitEvent('screenshot:captured', { id: screenshotId as number, timestamp: unixTs });
+        }
 
         // Log capture info in window mode
         if (config.captureMode === 'window' && appName) {

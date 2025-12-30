@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, powerMonitor } from 'electron';
+import { BrowserWindow, ipcMain, nativeImage, powerMonitor } from 'electron';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -31,6 +31,11 @@ export function createVideoGenerationWindow() {
     const APP_ROOT = process.env.APP_ROOT || path.join(__dirname, '..');
     const preloadPath = path.join(APP_ROOT, 'dist-electron', 'preload.mjs');
 
+    // Use .ico for Windows, PNG for other platforms
+    const VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(APP_ROOT, 'public') : path.join(APP_ROOT, 'dist');
+    const iconFile = process.platform === 'win32' ? 'icon.ico' : 'ShuTong.png';
+    const iconPath = path.join(VITE_PUBLIC, iconFile);
+
     console.log('[VideoService] Creating window with preload:', preloadPath);
 
     videoWindow = new BrowserWindow({
@@ -39,6 +44,7 @@ export function createVideoGenerationWindow() {
         y: -2000,
         width: 1,
         height: 1,
+        icon: nativeImage.createFromPath(iconPath),
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,

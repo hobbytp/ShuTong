@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, screen as electronScreen, ipcMain, net, protocol, shell } from 'electron'
+import { app, BrowserWindow, dialog, screen as electronScreen, ipcMain, nativeImage, net, protocol, shell } from 'electron'
 import { createLLMProviderFromConfig } from './llm/providers'
 
 import { autoUpdater } from 'electron-updater'
@@ -14,6 +14,12 @@ import { eventBus } from './infrastructure/events'
 import { getLLMMetrics } from './llm/metrics'
 import { copyUserData } from './migration-utils'
 import { getIsQuitting, setupTray, updateTrayMenu } from './tray'
+
+// Set App name and User Model ID for Windows taskbar icon
+app.name = 'ShuTong';
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.raytan.shutong');
+}
 
 // Resolve custom path before anything else
 resolveUserDataPath();
@@ -41,9 +47,12 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 let win: BrowserWindow | null
 
 function createWindow() {
+  // Use .ico for Windows taskbar (better native support), PNG for other platforms
+  const iconFile = process.platform === 'win32' ? 'icon.ico' : 'ShuTong.png';
+
   win = new BrowserWindow({
     show: false, // Prevent white screen
-    icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
+    icon: nativeImage.createFromPath(path.join(process.env.VITE_PUBLIC, iconFile)),
     frame: false, // Frameless for all
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden', // Mac: Traffic lights, Win: None
     webPreferences: {

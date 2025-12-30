@@ -33,7 +33,8 @@ class TypedEventBus extends EventEmitter {
             'capture:error',
             'video:generated',
             'video:generation-failed',
-            'card:created'
+            'card:created',
+            'screenshot:captured'
         ];
 
         if (rendererEvents.includes(type)) {

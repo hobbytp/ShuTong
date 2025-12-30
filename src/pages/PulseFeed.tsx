@@ -1,5 +1,7 @@
 import { AlertCircle, ChevronRight, Lightbulb, Loader2, MessageCircle, Sparkles, Target, Zap } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 
@@ -487,7 +489,11 @@ export function PulseFeed() {
                                     ? 'bg-indigo-600 text-white'
                                     : 'bg-zinc-800 text-zinc-200'
                                     }`}>
-                                    {msg.content}
+                                    <div className="prose prose-invert prose-sm max-w-none break-words">
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                            {msg.content}
+                                        </ReactMarkdown>
+                                    </div>
                                 </div>
                             </div>
                         ))}

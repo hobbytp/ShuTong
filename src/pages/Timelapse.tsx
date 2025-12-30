@@ -30,7 +30,22 @@ export function Timelapse() {
 
     useEffect(() => {
         fetchSnapshots(selectedDate)
-        return () => stopPlayback()
+
+        // Subscribe to real-time screenshot events for auto-refresh
+        const cleanup = (window as any).electron?.on('app-event', (event: any) => {
+            if (event.type === 'screenshot:captured') {
+                // Refresh if viewing today's snapshots
+                const today = new Date().toISOString().split('T')[0];
+                if (selectedDate === today) {
+                    fetchSnapshots(selectedDate);
+                }
+            }
+        });
+
+        return () => {
+            stopPlayback();
+            if (cleanup) cleanup();
+        }
     }, [selectedDate])
 
     useEffect(() => {

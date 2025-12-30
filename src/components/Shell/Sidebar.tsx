@@ -20,10 +20,15 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
 
     return (
         <div className={cn(
-            "w-[64px] h-full flex flex-col bg-zinc-950/50 border-r border-zinc-800/50 pt-2 flex-shrink-0 transition-all items-center z-50",
+            "w-[64px] h-full flex flex-col bg-zinc-950/50 border-r border-zinc-800/50 pt-4 flex-shrink-0 transition-all items-center z-50",
             "backdrop-blur-xl"
         )}>
-            <div className="flex-1 overflow-y-auto no-scrollbar py-4 flex flex-col gap-4 items-center w-full">
+            {/* Logo */}
+            <div className="mb-4">
+                <img src="/ShuTong.png" alt="ShuTong" className="w-10 h-10 rounded-xl shadow-lg ring-1 ring-white/10" />
+            </div>
+
+            <div className="flex-1 overflow-y-auto no-scrollbar py-2 flex flex-col gap-4 items-center w-full">
                 {navItems.map(item => (
                     <Tooltip key={item.id} content={item.label} side="right">
                         <Button
