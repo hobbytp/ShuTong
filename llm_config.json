@@ -275,12 +275,12 @@
                 "deepseek-chat": {
                     "displayName": "DeepSeek Chat",
                     "contextWindow": 128000,
-                    "maxOutputTokens": 4096,
+                    "maxOutputTokens": 8000,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
                     "pricing": {
-                        "inputTokensPrice": 4,
-                        "outputTokensPrice": 16,
+                        "inputTokensPrice": 2,
+                        "outputTokensPrice": 3,
                         "currency": "CNY",
                         "per": 1000000
                     }
@@ -288,13 +288,13 @@
                 "deepseek-reasoner": {
                     "displayName": "DeepSeek Reasoner",
                     "contextWindow": 128000,
-                    "maxOutputTokens": 4096,
-                    "supportsFunctionCalling": false,
+                    "maxOutputTokens": 64000,
+                    "supportsFunctionCalling": true,
                     "supportsVision": false,
                     "isReasoning": true,
                     "pricing": {
-                        "inputTokensPrice": 0.55,
-                        "outputTokensPrice": 2.19,
+                        "inputTokensPrice": 2,
+                        "outputTokensPrice": 3,
                         "currency": "CNY",
                         "per": 1000000
                     }
@@ -315,8 +315,8 @@
                     "supportsFunctionCalling": true,
                     "supportsVision": true,
                     "pricing": {
-                        "inputTokensPrice": 0.6,
-                        "outputTokensPrice": 6,
+                        "inputTokensPrice": 0.15,
+                        "outputTokensPrice": 1.5,
                         "currency": "CNY",
                         "per": 1000000
                     }
@@ -329,8 +329,8 @@
                     "supportsFunctionCalling": true,
                     "supportsVision": true,
                     "pricing": {
-                        "inputTokensPrice": 4,
-                        "outputTokensPrice": 8,
+                        "inputTokensPrice": 0.8,
+                        "outputTokensPrice": 2,
                         "currency": "CNY",
                         "per": 1000000
                     }
@@ -376,15 +376,15 @@
                         "per": 1000000
                     }
                 },
-                "deepseek-v3": {
-                    "displayName": "DeepSeek V3",
+                "deepseek-v3.2": {
+                    "displayName": "DeepSeek V3.2",
                     "contextWindow": 128000,
                     "maxOutputTokens": 16384,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
                     "pricing": {
                         "inputTokensPrice": 2,
-                        "outputTokensPrice": 8,
+                        "outputTokensPrice": 3,
                         "currency": "CNY",
                         "per": 1000000
                     }
@@ -392,40 +392,56 @@
             }
         },
         "DashScope": {
+            "docUrl": "https://bailian.console.aliyun.com/",
             "apiBaseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "apiKeyEnv": "DASHSCOPE_API_KEY",
             "openaiCompatible": true,
             "models": {
+                "qwen-flash": {
+                    "displayName": "Qwen Flash",
+                    "contextWindow": 1000000,
+                    "maxOutputTokens": 32768,
+                    "supportsFunctionCalling": true,
+                    "supportsVision": false,
+                    "pricing": {
+                        "inputTokensPrice": 0.15,
+                        "outputTokensPrice": 1.5,
+                        "currency": "CNY",
+                        "per": 1000000
+                    }
+                },
                 "qwen-max": {
                     "displayName": "Qwen Max",
-                    "contextWindow": 128000,
-                    "maxOutputTokens": 4096,
+                    "contextWindow": 262144,
+                    "maxOutputTokens": 65536,
                     "supportsFunctionCalling": true,
-                    "supportsVision": true,
+                    "supportsVision": false,
                     "pricing": {
-                        "inputTokensPrice": 0.14,
-                        "outputTokensPrice": 0.28,
-                        "currency": "USD",
+                        "inputTokensPrice": 3.2,
+                        "outputTokensPrice": 12,
+                        "currency": "CNY",
                         "per": 1000000
                     }
                 },
                 "qwen-plus": {
                     "displayName": "Qwen Plus",
-                    "contextWindow": 128000,
-                    "maxOutputTokens": 4096,
+                    "contextWindow": 1000000,
+                    "maxInputTokens": 131072,
+                    "maxOutputTokens": 32768,
                     "supportsFunctionCalling": true,
-                    "supportsVision": true,
+                    "supportsVision": false,
                     "pricing": {
-                        "inputTokensPrice": 0.14,
-                        "outputTokensPrice": 0.28,
-                        "currency": "USD",
+                        "inputTokensPrice": 0.8,
+                        "outputTokensPrice": 2,
+                        "currency": "CNY",
                         "per": 1000000
                     }
                 },
                 "deepseek-r1": {
                     "displayName": "DeepSeek R1",
-                    "contextWindow": 128000,
-                    "maxOutputTokens": 16384,
+                    "contextWindow": 131072,
+                    "maxInputTokens": 98304,
+                    "maxOutputTokens": 65536,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
                     "pricing": {
@@ -435,41 +451,30 @@
                         "per": 1000000
                     }
                 },
-                "deepseek-v3": {
-                    "displayName": "DeepSeek V3",
-                    "contextWindow": 128000,
+                "deepseek-v3.2": {
+                    "displayName": "DeepSeek V3.2",
+                    "contextWindow": 131072,
+                    "maxInputTokens": 98304,
                     "maxOutputTokens": 16384,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
                     "pricing": {
                         "inputTokensPrice": 2,
-                        "outputTokensPrice": 8,
+                        "outputTokensPrice": 3,
                         "currency": "CNY",
                         "per": 1000000
                     }
                 },
-                "deepseek-v3.2-exp": {
-                    "displayName": "DeepSeek V3.2 Exp",
-                    "contextWindow": 128000,
-                    "maxOutputTokens": 16384,
-                    "supportsFunctionCalling": true,
-                    "supportsVision": false,
-                    "pricing": {
-                        "inputTokensPrice": 2,
-                        "outputTokensPrice": 8,
-                        "currency": "CNY",
-                        "per": 1000000
-                    }
-                },
-                "glm-4.6": {
-                    "displayName": "GLM 4.6",
+                "GLM-4.7": {
+                    "displayName": "GLM 4.7",
                     "contextWindow": 202752,
+                    "maxInputTokens": 169984,
                     "maxOutputTokens": 16384,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
                     "pricing": {
-                        "inputTokensPrice": 2,
-                        "outputTokensPrice": 8,
+                        "inputTokensPrice": 3,
+                        "outputTokensPrice": 14,
                         "currency": "CNY",
                         "per": 1000000
                     }
@@ -477,11 +482,26 @@
             }
         },
         "ModelScope": {
-            "docUrl": "https://modelscope.cn/",
+            "docUrl": "https://modelscope.cn/models/",
             "apiBaseUrl": "https://api-inference.modelscope.cn/v1",
             "apiKeyEnv": "MODELSCOPE_API_KEY",
             "openaiCompatible": true,
             "models": {
+                "ZhipuAI/GLM-4.7": {
+                    "displayName": "GLM 4.7",
+                    "docUrl": "https://www.modelscope.cn/models/ZhipuAI/GLM-4.7",
+                    "contextWindow": 202752,
+                    "maxInputTokens": 169984,
+                    "maxOutputTokens": 16384,
+                    "supportsFunctionCalling": true,
+                    "supportsVision": false,
+                    "pricing": {
+                        "inputTokensPrice": 3,
+                        "outputTokensPrice": 14,
+                        "currency": "CNY",
+                        "per": 1000000
+                    }
+                },
                 "Qwen/Qwen3-Next-80B-A3B-Instruct": {
                     "displayName": "Qwen3-Next-80B-A3B-Instruct",
                     "docUrl": "https://www.modelscope.cn/models/Qwen/Qwen3-Next-80B-A3B-Instruct",
