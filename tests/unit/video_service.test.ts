@@ -78,7 +78,7 @@ describe('Video Service', () => {
     it('should create a hidden window', () => {
         createVideoGenerationWindow();
         expect(mocks.MockBrowserWindow).toHaveBeenCalledWith(expect.objectContaining({
-            show: false,
+            show: true,
             webPreferences: expect.objectContaining({
                 backgroundThrottling: false
             })

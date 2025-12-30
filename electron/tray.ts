@@ -88,6 +88,13 @@ export function updateTrayMenu(getMainWindow: () => BrowserWindow | null, isReco
                         dialog.showErrorBox('Cannot Quit', 'Database reset in progress. Please wait until completion.');
                         return;
                     }
+                    // Check Backup/Restore Status
+                    const { backupService } = await import('./features/backup');
+                    if (backupService.isInProgress) {
+                        const { dialog } = await import('electron');
+                        dialog.showErrorBox('Cannot Quit', 'Data backup/restore in progress. Please wait until completion.');
+                        return;
+                    }
                 } catch (err) {
                     console.error('Failed to check reset status:', err);
                 }

@@ -15,7 +15,8 @@ import { ChatOpenAI } from "@langchain/openai";
 import { getLLMConfigForMain } from "../../../config_manager";
 import { vectorStorage } from "../../../storage/vector-storage";
 import { createCheckpointer, SQLiteCheckpointer } from "./checkpointer";
-import { BaseStore, EpisodicMemory, Memory, memoryStore, MemoryType, ProceduralMemory, SemanticMemory } from "./memory-store";
+import { MemoryProcessor } from "./memory-processor";
+import { BaseStore, EpisodicMemory, Memory, memoryStore, ProceduralMemory, SemanticMemory } from "./memory-store";
 import { graphStateChannels, PulseState } from "./schema";
 
 // ============ PulseAgent Class ============
@@ -25,11 +26,30 @@ export class PulseAgent {
     private checkpointer: SQLiteCheckpointer;
     private memoryExtractionQueue: Array<{ userId: string; messages: BaseMessage[] }> = [];
     private extractionInterval: ReturnType<typeof setInterval> | null = null;
+    private memoryProcessor: MemoryProcessor;
 
     constructor() {
         this.checkpointer = createCheckpointer();
+        this.memoryProcessor = new MemoryProcessor({
+            store: memoryStore,
+            model: this.getLLMClient()
+        });
         this.graph = this.buildGraph();
         this.startBackgroundMemoryExtraction();
+    }
+
+    public getCheckpointer(): SQLiteCheckpointer {
+        return this.checkpointer;
+    }
+
+    public stop(): void {
+        if (this.extractionInterval) {
+            clearInterval(this.extractionInterval);
+            this.extractionInterval = null;
+        }
+        if (this.checkpointer) {
+            this.checkpointer.close();
+        }
     }
 
     private buildGraph() {
@@ -267,19 +287,14 @@ If the user expresses preferences or shares personal information, acknowledge it
         }
     }
 
-    private async extractAndStoreMemories(userId: string, messages: BaseMessage[]) {
+
+
+    // ... existing methods ...
+
+    private async extractAndStoreMemories(_userId: string, messages: BaseMessage[]) {
         if (!memoryStore.isReady()) {
             await memoryStore.init();
         }
-
-        // Get existing memories to include in prompt for deduplication
-        const existingMemories = await memoryStore.list([userId, 'memories'], 20);
-        const existingMemoriesText = existingMemories.length > 0
-            ? existingMemories.map(m => `- ${m.content}`).join('\n')
-            : '(None yet)';
-
-        // Use LLM to extract potential memories
-        const llm = this.getLLMClient();
 
         const conversationText = messages
             .map(m => {
@@ -290,120 +305,25 @@ If the user expresses preferences or shares personal information, acknowledge it
             .filter(Boolean)
             .join('\n');
 
-        const extractionPrompt = `Analyze this conversation and extract any NEW information worth remembering for future interactions.
-
-EXISTING MEMORIES (do NOT duplicate these):
-${existingMemoriesText}
-
-CURRENT CONVERSATION:
-${conversationText}
-
-Extract ONLY genuinely NEW, useful information that is NOT already in existing memories.
-Output JSON array (empty [] if nothing new worth remembering):
-[
-  {
-    "type": "preference" | "fact" | "context" | "episodic",
-    "content": "The extracted information in natural language",
-    "confidence": 0.0-1.0,
-    "action": "add" | "update",
-    "updateId": "optional - id of existing memory to update if action is update"
-  }
-]
-
-Examples of what to extract:
-- User preferences: "用户喜欢简洁的中文回复" (type: preference)
-- Personal facts: "用户在科技公司工作" (type: fact)
-- Context: "用户最近在准备季度报告" (type: context)
-- Episodic / Past Actions: "Assist helped user analyze their coding patterns on monday morning" (type: episodic)
-
-Rules:
-1. Do NOT extract temporary or trivial information
-2. If info is already known (in EXISTING MEMORIES), return empty []
-3. If new info UPDATES existing knowledge, use action "update"
-4. Be conservative - only extract genuinely useful memories
-5. For episodic memories, focus on significant milestones or tasks completed`;
+        console.log('[PulseAgent] Background extraction starting (Mem0 Style)...');
 
         try {
-            const response = await llm.invoke([
-                new SystemMessage(extractionPrompt)
-            ]);
+            // Stage 1: Atomic Fact Extraction
+            const facts = await this.memoryProcessor.extractFacts(conversationText);
 
-            const content = typeof response.content === 'string'
-                ? response.content
-                : JSON.stringify(response.content);
-
-            // Parse JSON from response
-            const jsonMatch = content.match(/\[[\s\S]*\]/);
-            if (!jsonMatch) return;
-
-            const extracted = JSON.parse(jsonMatch[0]) as Array<{
-                type: 'preference' | 'fact' | 'context' | 'episodic';
-                content: string;
-                confidence: number;
-                action?: 'add' | 'update';
-                updateId?: string;
-            }>;
-
-            if (extracted.length === 0) {
-                console.log('[PulseAgent] No new memories to extract');
+            if (facts.length === 0) {
+                console.log('[PulseAgent] No new facts extracted.');
                 return;
             }
+            console.log(`[PulseAgent] Extracted ${facts.length} atomic facts:`, facts);
 
-            // Store each extracted memory with duplicate check
-            let added = 0;
-            let updated = 0;
-            let skipped = 0;
+            // Stage 2: Conflict Resolution & Storage
+            await this.memoryProcessor.processFacts(_userId, facts);
 
-            for (const item of extracted) {
-                if (item.confidence < 0.6) {
-                    skipped++;
-                    continue;
-                }
-
-                // Check for similar existing memory (semantic duplicate detection)
-                const similar = await memoryStore.findSimilarMemory(userId, item.content);
-
-                if (similar) {
-                    // Update existing memory if new info is more confident
-                    if (item.confidence > (similar.memory as any).confidence) {
-                        // Determine correct memory type
-                        const memoryType: MemoryType = item.type === 'episodic' ? 'episodic' : 'semantic';
-
-                        await memoryStore.put([userId, 'memories'], similar.memory.id, {
-                            type: memoryType,
-                            content: item.content,
-                            category: item.type,
-                            confidence: item.confidence
-                        } as Omit<SemanticMemory, 'id' | 'created_at' | 'updated_at' | 'namespace' | 'vector'>);
-                        updated++;
-                        console.log(`[PulseAgent] Updated memory: ${item.content.substring(0, 50)}...`);
-                    } else {
-                        skipped++;
-                        console.log(`[PulseAgent] Skipped duplicate: ${item.content.substring(0, 50)}...`);
-                    }
-                } else {
-                    // Add new memory with correct type
-                    const memoryId = `mem-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                    const memoryType: MemoryType = item.type === 'episodic' ? 'episodic' : 'semantic';
-
-                    await memoryStore.put([userId, 'memories'], memoryId, {
-                        type: memoryType,
-                        content: item.content,
-                        category: item.type,
-                        confidence: item.confidence
-                    } as Omit<SemanticMemory, 'id' | 'created_at' | 'updated_at' | 'namespace' | 'vector'>);
-                    added++;
-                    console.log(`[PulseAgent] Added memory: ${item.content.substring(0, 50)}...`);
-                }
-            }
-
-            console.log(`[PulseAgent] Memory extraction complete: ${added} added, ${updated} updated, ${skipped} skipped`);
-
-            // Prune old memories if over limit (keep last 100)
-            await memoryStore.pruneOldMemories([userId, 'memories'], 100);
+            console.log(`[PulseAgent] Mem0 processing complete.`);
 
         } catch (err) {
-            console.error('[PulseAgent] Memory extraction LLM call failed:', err);
+            console.error('[PulseAgent] Memory extraction failed:', err);
         }
     }
 

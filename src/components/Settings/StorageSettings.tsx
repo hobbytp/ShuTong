@@ -1,6 +1,9 @@
 
-import { AlertTriangle, Clock, Database, FolderOpen, HardDrive, MapPin, Trash2 } from 'lucide-react';
+import { AlertTriangle, Archive, Clock, Database, Download, FolderOpen, HardDrive, MapPin, Trash2, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useBackup } from '../../hooks/useBackup';
+import { BackupProgressModal } from './BackupProgressModal';
+import { ConfirmDialog } from './ConfirmDialog';
 import { Button, Input } from './Shared';
 
 const StatCard = ({ label, value, icon: Icon }: any) => (
@@ -19,6 +22,22 @@ export function StorageSettings() {
     const [clearing, setClearing] = useState(false);
     const [retentionDays, setRetentionDays] = useState('30');
     const [dataPath, setDataPath] = useState('Loading...');
+    const [backupBeforeReset, setBackupBeforeReset] = useState(true);
+    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+
+    // Backup Hooks
+    const {
+        isBackingUp,
+        isRestoring,
+        progress,
+        createBackup,
+        restoreBackup,
+        resetProgress,
+        selectSavePath,
+        selectOpenPath
+    } = useBackup();
+
+
 
     useEffect(() => {
         loadSettings();
@@ -58,23 +77,38 @@ export function StorageSettings() {
         }
     };
 
-    const handleClearStorage = async () => {
-        // Require user to type "RESET" for confirmation
-        const confirmation = prompt(
-            'This will PERMANENTLY DELETE all timeline entries, screenshots, and chat history.\n\n' +
-            'This action CANNOT be undone.\n\n' +
-            'Type "RESET" to confirm:'
-        );
+    const handleClearStorage = () => {
+        setIsConfirmOpen(true);
+    };
 
-        if (confirmation !== 'RESET') {
-            if (confirmation !== null) {
-                alert('Reset cancelled. You must type exactly "RESET" to confirm.');
-            }
-            return;
-        }
-
+    const executeReset = async () => {
+        setIsConfirmOpen(false);
         setClearing(true);
+        // ... (rest of logic moved here)
         try {
+            if (backupBeforeReset) {
+                // Determine backup path - default to desktop or documents?
+                // For auto-backup, we might just put it in a default location or ask user?
+                // Let's ask user for location first if they chose backup
+                const path = await selectSavePath();
+                if (!path) {
+                    if (!confirm('Backup cancelled. Do you want to proceed with reset WITHOUT backup?')) {
+                        setClearing(false);
+                        return;
+                    }
+                } else {
+                    const backupRes = await createBackup({ targetPath: path, includeScreenshots: true });
+                    if (!backupRes.success) {
+                        if (!confirm(`Backup failed: ${backupRes.error}. Proceed with reset anyway?`)) {
+                            setClearing(false);
+                            resetProgress();
+                            return;
+                        }
+                    }
+                    resetProgress();
+                }
+            }
+
             if (window.ipcRenderer) {
                 const result = await window.ipcRenderer.invoke('reset-database');
                 if (result.success) {
@@ -151,6 +185,70 @@ export function StorageSettings() {
                 </div>
             </div>
 
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
+                <div className="flex items-center gap-2 mb-4">
+                    <Archive size={20} className="text-indigo-400" />
+                    <h3 className="text-lg font-bold text-zinc-100">Data Management</h3>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-4 bg-zinc-950 border border-zinc-900 rounded-lg">
+                        <h4 className="text-sm font-medium text-zinc-200 mb-2">Export Backup</h4>
+                        <p className="text-xs text-zinc-500 mb-4">Save all your data (database, vectors, screenshots) to a portable zip file.</p>
+                        <Button variant="outline" onClick={async () => {
+                            const path = await selectSavePath();
+                            if (path) {
+                                const res = await createBackup({ targetPath: path, includeScreenshots: true });
+                                if (res.success) {
+                                    alert(`Backup created successfully at ${res.outputPath}`);
+                                    resetProgress();
+                                } else {
+                                    alert('Backup failed: ' + res.error);
+                                }
+                            }
+                        }} disabled={isBackingUp || isRestoring}>
+                            <Download size={14} /> Export Backup
+                        </Button>
+                    </div>
+
+                    <div className="p-4 bg-zinc-950 border border-zinc-900 rounded-lg">
+                        <h4 className="text-sm font-medium text-zinc-200 mb-2">Import Backup</h4>
+                        <p className="text-xs text-zinc-500 mb-4">Restore data from a previous backup. Current data will be replaced.</p>
+                        <Button variant="outline" onClick={async () => {
+                            if (!confirm('This will overwrite your current data. Are you sure?')) return;
+                            const path = await selectOpenPath();
+                            if (path) {
+                                const res = await restoreBackup({ sourcePath: path });
+                                if (res.success) {
+                                    alert('Restore complete! The app will now reload.');
+                                    window.location.reload();
+                                } else {
+                                    alert('Restore failed: ' + res.error);
+                                }
+                            }
+                        }} disabled={isBackingUp || isRestoring}>
+                            <Upload size={14} /> Import Backup
+                        </Button>
+                    </div>
+                </div>
+
+                <BackupProgressModal
+                    progress={progress}
+                    onClose={resetProgress}
+                />
+
+                <ConfirmDialog
+                    isOpen={isConfirmOpen}
+                    title="Reset Database?"
+                    message={`This will PERMANENTLY DELETE all timeline entries, screenshots, and chat history.\n\nThis action CANNOT be undone.`}
+                    confirmText={clearing ? "Resetting..." : "Reset Database"}
+                    isDestructive={true}
+                    requireTyping="RESET"
+                    onConfirm={executeReset}
+                    onCancel={() => setIsConfirmOpen(false)}
+                />
+            </div>
+
             <div className="bg-red-950/10 border border-red-900/30 rounded-xl p-6">
                 <div className="flex items-start gap-4">
                     <div className="p-2 bg-red-500/10 rounded-lg shrink-0">
@@ -161,6 +259,18 @@ export function StorageSettings() {
                         <p className="text-sm text-red-400/80 mb-6 max-w-lg">
                             Resetting the database will remove all timeline entries, journal logs, and analyzed data. This action cannot be undone.
                         </p>
+
+                        <div className="mb-4">
+                            <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={backupBeforeReset}
+                                    onChange={e => setBackupBeforeReset(e.target.checked)}
+                                    className="rounded border-zinc-700 bg-zinc-900 text-indigo-500 focus:ring-indigo-500/20"
+                                />
+                                Create a backup before resetting
+                            </label>
+                        </div>
 
                         <Button
                             onClick={handleClearStorage}

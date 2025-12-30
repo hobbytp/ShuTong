@@ -125,7 +125,8 @@ export async function consumeStreamWithIdleTimeout(
     let result = '';
     let maxIdleDuration = 0;
 
-    while (true) {
+    let isDone = false;
+    while (!isDone) {
         const startWait = Date.now();
 
         // Create a timeout promise that rejects after idleTimeoutMs
@@ -137,15 +138,11 @@ export async function consumeStreamWithIdleTimeout(
 
         // Race between the stream and the timeout
         let iterResult: IteratorResult<string, void>;
-        try {
-            iterResult = await Promise.race([
-                stream.next(),
-                timeoutPromise
-            ]);
-        } catch (error) {
-            // Timeout occurred - rethrow
-            throw error;
-        }
+        // No try/catch needed here as we just let errors propagate
+        iterResult = await Promise.race([
+            stream.next(),
+            timeoutPromise
+        ]);
 
         // Track idle duration
         const idleDuration = Date.now() - startWait;
@@ -155,6 +152,7 @@ export async function consumeStreamWithIdleTimeout(
 
         // Check if stream is done
         if (iterResult.done) {
+            isDone = true;
             break;
         }
 

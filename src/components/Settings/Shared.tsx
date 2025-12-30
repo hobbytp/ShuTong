@@ -6,15 +6,19 @@ export const Label = ({ children, className }: { children: React.ReactNode, clas
     </label>
 );
 
-export const Input = (props: React.InputHTMLAttributes<HTMLInputElement>) => (
+import React from 'react';
+
+export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>((props, ref) => (
     <input
         {...props}
+        ref={ref}
         className={cn(
             "w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/50 transition-all",
             props.className
         )}
     />
-);
+));
+Input.displayName = 'Input';
 
 export const Select = (props: React.SelectHTMLAttributes<HTMLSelectElement>) => (
     <div className="relative">

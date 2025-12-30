@@ -1,9 +1,12 @@
 import { app, BrowserWindow, dialog, screen as electronScreen, ipcMain, net, protocol, shell } from 'electron'
+import { createLLMProviderFromConfig } from './llm/providers'
+
 import { autoUpdater } from 'electron-updater'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { cancelMigration, commitMigration, getBootstrapConfig, PendingMigration, resolveUserDataPath, setCustomUserDataPath, setPendingMigration } from './bootstrap'
-import { getMergedLLMConfig, setLLMProviderConfig, setRoleConfig } from './config_manager'
+import { getMergedLLMConfig, getRawLLMConfig, saveRawLLMConfig, setLLMProviderConfig, setRoleConfig } from './config_manager'
+import { backupService, setupBackupIPC } from './features/backup'
 import { getIsRecording, startRecording, stopRecording } from './features/capture'
 import { setupAnalyticsIPC } from './features/timeline'
 import { createVideoGenerationWindow, setupVideoIPC, setupVideoSubscribers } from './features/video'
@@ -58,6 +61,15 @@ function createWindow() {
     win?.webContents.send('main-process-message', (new Date).toLocaleString())
   })
 
+  // Proxy backup progress events to window
+  // Remove listener to prevent duplicates if window re-created (unlikely here but safe)
+  backupService.removeAllListeners('progress');
+  backupService.on('progress', (e) => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('backup:progress', e);
+    }
+  });
+
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
@@ -105,7 +117,7 @@ import { setupDeepLinks } from './deeplink'
 import { setupScreenCapture } from './features/capture'
 import { cleanupOldSnapshots, startAnalysisJob } from './features/timeline'
 import { checkReminders, sendNotification } from './scheduler'
-import { closeStorage, getCardDetails, getIsResetting, getReminderSettings, getRetentionSettings, getScreenshotsForCard, getTimelineCards, initStorage } from './storage'
+import { closeStorage, exportTimelineMarkdown, getCardDetails, getIsResetting, getPulseCardById, getPulseCards, getReminderSettings, getRetentionSettings, getScreenshotsForCard, getSetting, getTimelineCards, initStorage, savePulseCard } from './storage'
 
 app.on('activate', () => {
   // ...
@@ -148,6 +160,7 @@ async function startApp() {
 
     setupAnalyticsIPC();
     setupVideoIPC();
+    setupBackupIPC();
 
     ipcMain.handle('get-available-screens', () => {
       try {
@@ -165,7 +178,7 @@ async function startApp() {
 
     ipcMain.handle('get-pulse-cards', async (_, limit?: number) => {
       try {
-        const { getPulseCards } = await import('./storage');
+
         const cards = getPulseCards(limit || 20);
         return { success: true, cards };
       } catch (err: any) {
@@ -176,7 +189,7 @@ async function startApp() {
     ipcMain.handle('generate-pulse-card', async (_, type: string) => {
       try {
         const { pulseAgent } = await import('./features/pulse/agent/pulse-agent');
-        const { savePulseCard } = await import('./storage');
+
         // @ts-ignore
         const card = await pulseAgent.generateCard(type);
         const cardWithMeta = {
@@ -197,7 +210,7 @@ async function startApp() {
     ipcMain.handle('generate-research-proposal', async () => {
       try {
         const { generateResearchProposalCard } = await import('./research/pulse-research');
-        const { getPulseCardById } = await import('./storage');
+
         const result = await generateResearchProposalCard();
         if ('error' in result) return { success: false, error: result.error };
         const card = getPulseCardById(result.cardId);
@@ -317,12 +330,12 @@ async function startApp() {
     });
 
     ipcMain.handle('get-raw-llm-config', async () => {
-      const { getRawLLMConfig } = await import('./config_manager');
+
       return getRawLLMConfig();
     });
 
     ipcMain.handle('save-raw-llm-config', async (_, content) => {
-      const { saveRawLLMConfig } = await import('./config_manager');
+
       const result = saveRawLLMConfig(content);
       if (result.success) {
         import('./storage/vector-storage').then(({ vectorStorage }) => {
@@ -367,7 +380,7 @@ async function startApp() {
 
     ipcMain.handle('export-timeline-markdown', async (_, date) => {
       if (!win) return { success: false, error: 'No window' };
-      const { exportTimelineMarkdown } = await import('./storage');
+
       const result = await dialog.showSaveDialog(win, {
         defaultPath: `shutong-log-${date}.md`,
         filters: [{ name: 'Markdown', extensions: ['md'] }]
@@ -378,8 +391,7 @@ async function startApp() {
 
     ipcMain.handle('test-llm-connection', async (_, providerName, config, passedModelName) => {
       try {
-        const { createLLMProviderFromConfig } = await import('./llm/providers');
-        const { getMergedLLMConfig } = await import('./config_manager');
+
         let modelName = passedModelName;
         if (!modelName) {
           const fullConfig = getMergedLLMConfig();
@@ -450,9 +462,17 @@ async function startApp() {
 
     // Register before-quit handler after storage is initialized
     app.on('before-quit', (e) => {
+      // Check Reset Status
       if (getIsResetting()) {
         e.preventDefault();
         dialog.showErrorBox('Cannot Quit', 'Database reset in progress. Please wait until completion.');
+        return;
+      }
+      // Check Backup/Restore Status
+      if (backupService.isInProgress) {
+        e.preventDefault();
+        dialog.showErrorBox('Cannot Quit', 'Data backup/restore in progress. Please wait until completion.');
+        return;
       }
     });
 
@@ -479,7 +499,7 @@ async function startApp() {
     console.log('[Main] Screen capture setup')
 
     try {
-      const { getSetting } = await import('./storage');
+
       const autoStart = getSetting('auto_start_recording');
       if (autoStart === 'true') {
         startRecording();
@@ -507,7 +527,9 @@ async function startApp() {
       } else {
         startRecording();
       }
-    }); setInterval(() => {
+    });
+
+    setInterval(() => {
       const settings = getReminderSettings();
       const notificationType = checkReminders(new Date(), settings);
       if (notificationType) sendNotification(notificationType);

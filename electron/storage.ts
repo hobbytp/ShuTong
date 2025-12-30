@@ -152,29 +152,47 @@ export async function resetDatabase(): Promise<{ success: boolean; error?: strin
             console.warn('[ShuTong] Failed to check/stop recording:', err);
         }
 
-        // 1. Delete screenshot files from disk
-        const screenshotDir = path.join(app.getPath('userData'), 'screenshots');
+        // 1. Delete screenshot files from disk (Recursive)
+        const screenshotDir = path.join(app.getPath('userData'), 'recordings');
         if (fs.existsSync(screenshotDir)) {
-            const files = fs.readdirSync(screenshotDir);
-            for (const file of files) {
-                try {
-                    fs.unlinkSync(path.join(screenshotDir, file));
-                    stats.filesDeleted++;
-                } catch (err) {
-                    console.warn(`[ShuTong] Failed to delete screenshot: ${file}`, err);
+            // Helper to recursively delete
+            const deleteFolderRecursive = (dirPath: string) => {
+                if (fs.existsSync(dirPath)) {
+                    fs.readdirSync(dirPath).forEach((file) => {
+                        const curPath = path.join(dirPath, file);
+                        if (fs.lstatSync(curPath).isDirectory()) { // recurse
+                            deleteFolderRecursive(curPath);
+                        } else { // delete file
+                            fs.unlinkSync(curPath);
+                            stats.filesDeleted++;
+                        }
+                    });
+                    // Don't remove the root recordings dir itself, just content, or maybe recreate it?
+                    // Actually, removing the folders inside 'recordings' is what we want.
+                    // If we are deep inside, we remove the dir.
+                    if (dirPath !== screenshotDir) {
+                        fs.rmdirSync(dirPath);
+                    }
                 }
+            };
+            try {
+                deleteFolderRecursive(screenshotDir);
+            } catch (err) {
+                console.warn('[ShuTong] Failed to delete recordings:', err);
             }
             console.log(`[ShuTong] Deleted ${stats.filesDeleted} screenshot files`);
         }
 
         // 2. Clear SQLite tables in a transaction (preserve settings)
+        // ORDER MATTERS due to Foreign Key Constraints!
+        // Delete CHILD tables first, then PARENTS.
         const tablesToClear = [
-            'snapshots',
-            'screenshots',
-            'analysis_batches',
-            'batch_screenshots',
-            'observations',
-            'timeline_cards',
+            'batch_screenshots',  // Links batches <-> screenshots
+            'observations',       // Links to analysis_batches
+            'timeline_cards',     // Links to analysis_batches
+            'analysis_batches',   // Parent of above
+            'screenshots',        // Parent of batch_screenshots
+            'snapshots',          // Legacy
             'pulse_cards',
             'window_switches',
             'journal'
@@ -182,8 +200,13 @@ export async function resetDatabase(): Promise<{ success: boolean; error?: strin
 
         const clearTablesTransaction = db.transaction(() => {
             for (const table of tablesToClear) {
-                db!.exec(`DELETE FROM ${table}`);
-                stats.tablesCleared++;
+                try {
+                    db!.exec(`DELETE FROM ${table}`);
+                    stats.tablesCleared++;
+                } catch (e) {
+                    console.error(`[ShuTong] FAILED to clear table ${table}:`, e);
+                    throw e; // Abort transaction
+                }
             }
         });
 

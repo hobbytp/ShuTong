@@ -684,6 +684,16 @@ export class MemoryStore extends BaseStore {
     public isReady(): boolean {
         return this.initialized && this.db !== null;
     }
+
+    public async close(): Promise<void> {
+        if (this.db) {
+            // LanceDB connection close? currently it doesn't have an explicit close in my wrapper.
+            // But we should set initialized to false at least.
+            this.db = null;
+            this.initialized = false;
+            console.log('[MemoryStore] Closed');
+        }
+    }
 }
 
 // Export singleton instance
