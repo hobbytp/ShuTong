@@ -15,6 +15,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { getLLMConfigForMain } from "../../../config_manager";
 import { vectorStorage } from "../../../storage/vector-storage";
 import { createCheckpointer, SQLiteCheckpointer } from "./checkpointer";
+import { GraphMemoryStore } from "./graph-memory-store";
 import { MemoryProcessor } from "./memory-processor";
 import { BaseStore, EpisodicMemory, Memory, memoryStore, ProceduralMemory, SemanticMemory } from "./memory-store";
 import { graphStateChannels, PulseState } from "./schema";
@@ -27,6 +28,7 @@ export class PulseAgent {
     private memoryExtractionQueue: Array<{ userId: string; messages: BaseMessage[] }> = [];
     private extractionInterval: ReturnType<typeof setInterval> | null = null;
     private memoryProcessor: MemoryProcessor;
+    private graphMemoryStore: GraphMemoryStore | undefined;
 
     constructor() {
         this.checkpointer = createCheckpointer();
@@ -134,8 +136,32 @@ export class PulseAgent {
                     : [];
                 const episodicMemories = (episodicItems || []).map(item => item.value as any as EpisodicMemory);
 
-                recalled_memories = [...instructions, ...semanticMemories, ...episodicMemories];
-                console.log(`[PulseAgent] Recalled ${recalled_memories.length} memories`);
+                // 4. Graph Memories
+                const graphStore = await this.ensureGraphStore();
+                let graphMemories: SemanticMemory[] = [];
+                if (graphStore && query) {
+                    try {
+                        const graphResults = await graphStore.search(userId, query);
+                        graphMemories = graphResults.map(r => ({
+                            id: `graph-${r.source_id}-${r.relation_id}-${r.destination_id}`,
+                            type: 'semantic',
+                            content: `Graph Relation: ${r.source} --${r.relationship}--> ${r.destination}`,
+                            created_at: Date.now(),
+                            updated_at: Date.now(),
+                            namespace: userId,
+                            category: 'fact',
+                            confidence: 1.0
+                        }));
+                        if (graphMemories.length > 0) {
+                            console.log(`[PulseAgent] Recalled ${graphMemories.length} graph relations`);
+                        }
+                    } catch (gErr) {
+                        console.error('[PulseAgent] Graph search failed:', gErr);
+                    }
+                }
+
+                recalled_memories = [...instructions, ...semanticMemories, ...episodicMemories, ...graphMemories];
+                console.log(`[PulseAgent] Recalled ${recalled_memories.length} total memories`);
             } catch (err) {
                 console.error('[PulseAgent] Memory recall failed:', err);
             }
@@ -320,6 +346,15 @@ If the user expresses preferences or shares personal information, acknowledge it
             // Stage 2: Conflict Resolution & Storage
             await this.memoryProcessor.processFacts(_userId, facts);
 
+            // Stage 3: Graph Memory Extraction
+            const graphStore = await this.ensureGraphStore();
+            if (graphStore && graphStore.isEnabled()) {
+                console.log('[PulseAgent] Processing Graph Memory...');
+                // We pass the full conversation text. GraphMemoryStore expects text.
+                // Or should we pass just the new facts? Mem0 passes text.
+                await this.memoryProcessor.processGraphMemory(_userId, conversationText);
+            }
+
             console.log(`[PulseAgent] Mem0 processing complete.`);
 
         } catch (err) {
@@ -328,6 +363,27 @@ If the user expresses preferences or shares personal information, acknowledge it
     }
 
     // ============ LLM Client ============
+
+    private async ensureGraphStore(): Promise<GraphMemoryStore | undefined> {
+        if (this.graphMemoryStore) return this.graphMemoryStore;
+
+        if (!memoryStore.isReady()) {
+            await memoryStore.init();
+        }
+
+        const embeddings = memoryStore.getEmbeddings();
+        if (!embeddings) return undefined;
+
+        const config = getLLMConfigForMain();
+        if (config.graphStore?.enabled) {
+            const llm = this.getLLMClient();
+            this.graphMemoryStore = new GraphMemoryStore(config.graphStore, llm as any, embeddings);
+            this.memoryProcessor.setGraphStore(this.graphMemoryStore);
+            console.log('[PulseAgent] GraphMemoryStore initialized');
+        }
+
+        return this.graphMemoryStore;
+    }
 
     /**
      * Helper to get an initialized ChatOpenAI client

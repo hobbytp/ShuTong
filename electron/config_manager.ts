@@ -49,6 +49,7 @@ export interface LLMGlobalConfig {
     providers: Record<string, ProviderConfig>;
     roleConfigs: Record<string, RoleConfig>;
     adaptiveChunking?: AdaptiveChunkingConfig;
+    graphStore?: GraphStoreConfig;
 }
 
 export interface AdaptiveChunkingConfig {
@@ -59,6 +60,14 @@ export interface AdaptiveChunkingConfig {
     fastSecsPerShot: number;     // Threshold for fast performance (default: 2s)
     hysteresisCount: number;     // Consecutive readings before adjustment (default: 3)
     cooldownRequests: number;    // Requests to wait after adjustment (default: 5)
+}
+
+export interface GraphStoreConfig {
+    enabled: boolean;
+    url?: string;
+    username?: string;
+    password?: string;
+    customPrompt?: string; // For EXTRACT_RELATIONS_PROMPT customization
 }
 
 export interface RuntimeProviderConfig extends ProviderConfig {
@@ -133,7 +142,8 @@ export function getMergedLLMConfig() {
     return {
         providers: mergedProviders,
         roleConfigs: mergedRoles,
-        adaptiveChunking: defaults.adaptiveChunking
+        adaptiveChunking: defaults.adaptiveChunking,
+        graphStore: defaults.graphStore || { enabled: false }
     };
 }
 
@@ -179,7 +189,9 @@ export function getLLMConfigForMain() {
 
     return {
         providers: mergedProviders,
-        roleConfigs: mergedRoles
+        roleConfigs: mergedRoles,
+        adaptiveChunking: defaults.adaptiveChunking,
+        graphStore: defaults.graphStore || { enabled: false }
     };
 }
 
@@ -277,10 +289,19 @@ const AdaptiveChunkingConfigSchema = z.object({
     cooldownRequests: z.number().optional()
 });
 
+const GraphStoreConfigSchema = z.object({
+    enabled: z.boolean(),
+    url: z.string().optional(),
+    username: z.string().optional(),
+    password: z.string().optional(),
+    customPrompt: z.string().optional()
+});
+
 const LLMGlobalConfigSchema = z.object({
     providers: z.record(z.string(), ProviderConfigSchema),
     roleConfigs: z.record(z.string(), RoleConfigSchema),
-    adaptiveChunking: AdaptiveChunkingConfigSchema.optional()
+    adaptiveChunking: AdaptiveChunkingConfigSchema.optional(),
+    graphStore: GraphStoreConfigSchema.optional()
 });
 
 export function validateLLMConfig(content: string): { success: boolean, error?: string, data?: LLMGlobalConfig } {

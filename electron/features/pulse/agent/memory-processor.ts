@@ -1,5 +1,6 @@
 import { RunnableConfig } from "@langchain/core/runnables";
 import { v4 as uuidv4 } from "uuid";
+import { GraphMemoryStore } from "./graph-memory-store";
 import { BaseStore } from "./memory-store";
 import {
     FactRetrievalSchema,
@@ -9,21 +10,27 @@ import {
     MemoryUpdateSchema,
 } from "./prompts";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LLMModel = any; // Supports ChatOpenAI, custom ChatModel, etc.
 
 interface MemoryProcessorConfig {
     store: BaseStore;
     model: LLMModel;
+    graphStore?: GraphMemoryStore;
 }
 
 export class MemoryProcessor {
     private store: BaseStore;
     private model: LLMModel;
+    private graphStore?: GraphMemoryStore;
 
     constructor(config: MemoryProcessorConfig) {
         this.store = config.store;
         this.model = config.model;
+        this.graphStore = config.graphStore;
+    }
+
+    public setGraphStore(store: GraphMemoryStore) {
+        this.graphStore = store;
     }
 
     /**
@@ -156,6 +163,22 @@ export class MemoryProcessor {
 
         } catch (error) {
             console.error("Error resolving memory conflicts:", error);
+        }
+    }
+
+    /**
+     * Stage 3: Graph Memory Extraction (Parallel)
+     * Extracts entities and relationships from the text and updates the graph.
+     */
+    public async processGraphMemory(userId: string, data: string): Promise<void> {
+        if (!this.graphStore || !this.graphStore.isEnabled()) {
+            return;
+        }
+
+        try {
+            await this.graphStore.add(userId, data);
+        } catch (error) {
+            console.error("Error processing graph memory:", error);
         }
     }
 

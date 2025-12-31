@@ -116,6 +116,10 @@ export class MemoryStore extends BaseStore {
     private embeddingsDisabledReason: string | null = null;
     private embeddingsDisableLogged = false;
 
+    public getEmbeddings(): OpenAIEmbeddings | null {
+        return this.embeddings;
+    }
+
     private readonly TABLE_NAME = 'pulse_memories';
 
     private constructor() {
