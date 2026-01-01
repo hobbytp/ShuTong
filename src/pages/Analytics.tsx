@@ -1,5 +1,6 @@
 import { ArrowLeft, ArrowRight, BarChart2, Calendar, Clock, LayoutGrid, Monitor, ShieldAlert } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/utils';
 
 interface AppUsageEntry {
@@ -23,6 +24,7 @@ interface ActivityTimelineEvent {
 }
 
 export function Analytics() {
+    const { t } = useTranslation();
     const [date, setDate] = useState(new Date());
     const [summary, setSummary] = useState<DailyActivitySummary | null>(null);
     const [timeline, setTimeline] = useState<ActivityTimelineEvent[]>([]);
@@ -80,9 +82,9 @@ export function Analytics() {
                 <div>
                     <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
                         <BarChart2 className="text-indigo-400" />
-                        Activity Analytics
+                        {t('analytics.title', 'Activity Analytics')}
                     </h1>
-                    <p className="text-zinc-500 text-sm mt-1">Daily overview of your digital activity</p>
+                    <p className="text-zinc-500 text-sm mt-1">{t('analytics.subtitle', 'Daily overview of your digital activity')}</p>
                 </div>
 
                 <div className="flex items-center gap-4 bg-zinc-900/50 p-1.5 rounded-lg border border-zinc-800">
@@ -113,17 +115,17 @@ export function Analytics() {
                         {/* KPI Cards */}
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                             <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
-                                <div className="text-zinc-500 text-xs uppercase tracking-wider mb-1">Active Time</div>
+                                <div className="text-zinc-500 text-xs uppercase tracking-wider mb-1">{t('analytics.active_time', 'Active Time')}</div>
                                 <div className="text-2xl font-bold text-zinc-100">{formatDuration(summary?.totalActiveSeconds || 0)}</div>
                             </div>
                             <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
-                                <div className="text-zinc-500 text-xs uppercase tracking-wider mb-1">Top App</div>
+                                <div className="text-zinc-500 text-xs uppercase tracking-wider mb-1">{t('analytics.top_app', 'Top App')}</div>
                                 <div className="text-xl font-bold text-zinc-100 truncate" title={summary?.appUsage[0]?.app}>
                                     {summary?.appUsage[0]?.app || '-'}
                                 </div>
                             </div>
                             <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 hidden sm:block">
-                                <div className="text-zinc-500 text-xs uppercase tracking-wider mb-1">Productive Hours</div>
+                                <div className="text-zinc-500 text-xs uppercase tracking-wider mb-1">{t('analytics.productive_hours', 'Productive Hours')}</div>
                                 <div className="text-xl font-bold text-emerald-400">
                                     {/* Placeholder for future productivity metric */}
                                     -
@@ -135,7 +137,7 @@ export function Analytics() {
                         <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
                             <h3 className="text-sm font-medium text-zinc-300 mb-6 flex items-center gap-2">
                                 <Clock size={16} className="text-indigo-400" />
-                                Hourly Activity
+                                {t('analytics.hourly_activity', 'Hourly Activity')}
                             </h3>
                             <div className="h-48 flex items-end gap-1.5 sm:gap-3">
                                 {summary?.hourlyActivity.map((seconds, hour) => {
@@ -165,11 +167,11 @@ export function Analytics() {
                         <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
                             <h3 className="text-sm font-medium text-zinc-300 mb-4 flex items-center gap-2">
                                 <LayoutGrid size={16} className="text-emerald-400" />
-                                Top Applications
+                                {t('analytics.top_applications', 'Top Applications')}
                             </h3>
                             <div className="space-y-4">
                                 {summary?.appUsage.length === 0 ? (
-                                    <div className="text-zinc-600 italic text-sm">No app activity recorded.</div>
+                                    <div className="text-zinc-600 italic text-sm">{t('analytics.no_app_activity', 'No app activity recorded.')}</div>
                                 ) : (
                                     summary?.appUsage.slice(0, 8).map((app, i) => (
                                         <div key={i} className="group">
@@ -198,12 +200,12 @@ export function Analytics() {
                         <div className="p-4 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur">
                             <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
                                 <Monitor size={16} className="text-amber-400" />
-                                Activity Feed
+                                {t('analytics.activity_feed', 'Activity Feed')}
                             </h3>
                         </div>
                         <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
                             {timeline.length === 0 ? (
-                                <div className="text-zinc-600 italic text-center text-sm py-10">No events found.</div>
+                                <div className="text-zinc-600 italic text-center text-sm py-10">{t('analytics.no_events', 'No events found.')}</div>
                             ) : (
                                 timeline.map((event, i) => (
                                     <div key={i} className="flex gap-3 relative">

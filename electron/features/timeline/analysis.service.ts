@@ -1,8 +1,10 @@
+import path from 'path';
 import { getMergedLLMConfig } from '../../config_manager';
 import { eventBus } from '../../infrastructure/events';
 import { LLMService } from '../../llm/service';
 import {
     fetchUnprocessedScreenshots,
+    getRepositories,
     getSetting,
     saveBatchWithScreenshots,
     saveObservation,
@@ -10,6 +12,8 @@ import {
     screenshotsForBatch,
     updateBatchStatus
 } from '../../storage';
+import { isContextChange, parseWindowContext, type ActivityContext } from './context-parser';
+import { ocrService } from './ocr.service';
 
 // ... existing interfaces ...
 
@@ -36,8 +40,10 @@ export async function processRecordings() {
 
         console.log(`[Analysis] Found ${screenshots.length} unprocessed screenshots. Grouping...`);
 
-        // 2. Build logical batches
-        const batches = createScreenshotBatches(screenshots);
+        // 2. Build logical batches (use event-based or time-based based on feature flag)
+        const batches = useEventBasedBatching()
+            ? createEventBatches(screenshots)
+            : createScreenshotBatches(screenshots);
 
         // 3. Persist batches
         for (const batch of batches) {
@@ -82,12 +88,55 @@ async function processBatch(batchId: number, screenshotsOverride?: Screenshot[])
             return;
         }
 
-        // 1. Transcribe
+        // 1. (Optional) OCR Extraction - sample screenshots for text extraction
+        let ocrTexts: Map<string, string> = new Map();
+        if (ocrService.isEnabled() && !isTest) {
+            try {
+                console.log(`[Analysis] Running OCR on sample screenshots for Batch #${batchId}...`);
+                // Sample up to 3 screenshots for OCR (first, middle, last)
+                const sampleIndices = getSampleIndices(screenshots.length, 3);
+                const samplePaths = sampleIndices
+                    .map(i => screenshots[i]?.file_path)
+                    .filter((p): p is string => !!p);
+
+                const ocrResults = await ocrService.extractTextBatch(samplePaths);
+                for (const [path, result] of ocrResults) {
+                    if (result?.text) {
+                        ocrTexts.set(path, result.text);
+                    }
+                }
+                console.log(`[Analysis] OCR extracted text from ${ocrTexts.size}/${samplePaths.length} samples`);
+            } catch (ocrError) {
+                console.warn('[Analysis] OCR extraction failed, continuing without:', ocrError);
+            }
+        }
+
+        // 2. Transcribe (with OCR context if available)
         console.log(`[Analysis] Transcribing Batch #${batchId} (${screenshots.length} shots)...`);
         // We now use chunking internal to LLMService to process all screenshots without sampling loss
         // Type assertion needed because LLMService expects required fields (captured_at, file_path)
         // but our local Screenshot interface has optional fields for test compatibility
         const observations = await llmService.transcribeBatch(screenshots as any);
+
+        // P0 Fix: Enhance observations with OCR text if available
+        // This provides richer context for card generation
+        if (ocrTexts.size > 0) {
+            // New logic: Include filename and truncate per image to preserve diversity
+            const summaries: string[] = [];
+            for (const [filePath, text] of ocrTexts) {
+                const fileName = path.basename(filePath);
+                // Truncate individual texts to ensure we fit multiple images in context
+                const truncatedText = text.length > 800 ? text.slice(0, 800) + '...[truncated]' : text;
+                summaries.push(`[Image: ${fileName}]\n${truncatedText}`);
+            }
+            const ocrSummary = summaries.join('\n---\n');
+
+            // Add OCR context to first observation (will be used in generateActivityCards)
+            if (observations.length > 0) {
+                observations[0].text = `[OCR Context]\n${ocrSummary}\n\n[Visual Analysis]\n${observations[0].text}`;
+                console.log(`[Analysis] Enhanced first observation with OCR context from ${ocrTexts.size} images`);
+            }
+        }
 
         const cfg = getMergedLLMConfig();
         const screenAnalyzeRole = cfg.roleConfigs?.SCREEN_ANALYZE;
@@ -306,8 +355,183 @@ function getScreenshotCapturedAt(screenshot: Screenshot): number {
     return Number.isFinite(asNumber) ? asNumber : NaN;
 }
 
+/**
+ * Get evenly distributed sample indices for OCR processing
+ * @param length Total array length
+ * @param count Number of samples desired
+ * @returns Array of indices (first, middle, last pattern)
+ */
+function getSampleIndices(length: number, count: number): number[] {
+    if (length <= 0) return [];
+    if (length <= count) return Array.from({ length }, (_, i) => i);
+
+    const indices: number[] = [];
+    for (let i = 0; i < count; i++) {
+        const idx = Math.floor((i / (count - 1)) * (length - 1));
+        indices.push(idx);
+    }
+    return [...new Set(indices)]; // Remove duplicates
+}
+
 function formatDuration(seconds: number): string {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m}m ${s}s`;
+}
+
+/**
+ * Extended batch interface with activity context
+ */
+interface EventBatch extends ScreenshotBatch {
+    context: ActivityContext | null;
+}
+
+/**
+ * Creates screenshot batches based on window switch events (semantic segmentation).
+ * This replaces time-based batching with event-driven segmentation.
+ * 
+ * Logic:
+ * 1. Fetch window_switch events for the screenshot time range
+ * 2. For each screenshot, determine its context from the most recent window switch
+ * 3. Create a new batch when context changes (different app or project)
+ * 4. Cap batch duration at 15 minutes to prevent excessively long segments
+ */
+export function createEventBatches(screenshots: Screenshot[]): EventBatch[] {
+    if (screenshots.length === 0) return [];
+
+    const config = getBatchingConfig();
+    const MAX_BATCH_DURATION = 15 * 60; // 15 minutes hard cap
+
+    // Normalize and sort screenshots
+    const ordered = screenshots
+        .map(s => ({ ...s, captured_at: getScreenshotCapturedAt(s) }))
+        .filter(s => Number.isFinite(s.captured_at))
+        .sort((a, b) => (a.captured_at as number) - (b.captured_at as number));
+
+    if (ordered.length === 0) return [];
+
+    // Get time range
+    const startTs = ordered[0].captured_at as number;
+    const endTs = ordered[ordered.length - 1].captured_at as number;
+
+    // P0 Fix: Defensive null check for repositories
+    const repos = getRepositories();
+    if (!repos) {
+        console.warn('[Analysis] Repositories not ready, falling back to time-based batching');
+        return createScreenshotBatches(screenshots) as EventBatch[];
+    }
+
+    const windowSwitches = repos.windowSwitches?.getInRange(startTs, endTs, 1000) || [];
+
+    // Sort window switches by timestamp (ascending)
+    const sortedSwitches = [...windowSwitches].sort((a, b) => a.timestamp - b.timestamp);
+
+    // Build a timeline of context changes
+    // Each switch event marks the start of a new context
+    const contextTimeline: { timestamp: number; context: ActivityContext }[] = [];
+
+    for (const sw of sortedSwitches) {
+        if (sw.to_app) {
+            const ctx = parseWindowContext(sw.to_app, sw.to_title || '');
+            contextTimeline.push({ timestamp: sw.timestamp, context: ctx });
+        }
+    }
+
+    // P2 Fix: Handle empty window switches
+    if (contextTimeline.length === 0) {
+        console.log('[Analysis] No window switches found for range, using time-based batching as fallback');
+        return createScreenshotBatches(screenshots) as EventBatch[];
+    }
+
+    // P1 Fix: Optimized context lookup using index pointer (O(n) instead of O(n²))
+    // Build event-based batches
+    const batches: EventBatch[] = [];
+    let bucket: Screenshot[] = [];
+    let currentContext: ActivityContext | null = null;
+    let contextIndex = 0; // Track position in contextTimeline
+
+    for (const screenshot of ordered) {
+        const ts = screenshot.captured_at as number;
+
+        // Advance context index while next context is still before or at this screenshot time
+        while (contextIndex < contextTimeline.length - 1 &&
+            contextTimeline[contextIndex + 1].timestamp <= ts) {
+            contextIndex++;
+        }
+
+        // Get context: if timestamp is before first switch, we have null context
+        const ctx = contextTimeline[contextIndex].timestamp <= ts
+            ? contextTimeline[contextIndex].context
+            : null;
+
+        if (bucket.length === 0) {
+            // Start new bucket
+            bucket.push(screenshot);
+            currentContext = ctx;
+            continue;
+        }
+
+        const first = bucket[0];
+        const duration = ts - (first.captured_at as number);
+        const last = bucket[bucket.length - 1];
+        const gap = ts - (last.captured_at as number);
+
+        // Close batch conditions:
+        // 1. Context changed (different app/project)
+        // 2. Duration exceeds max (15 min)
+        // 3. Gap exceeds maxGap (user went idle)
+        const contextChanged = ctx && isContextChange(currentContext, ctx);
+        const durationExceeded = duration > MAX_BATCH_DURATION;
+        const gapExceeded = gap > config.maxGap;
+
+        if (contextChanged || durationExceeded || gapExceeded) {
+            // Close current batch
+            batches.push({
+                screenshots: [...bucket],
+                start: first.captured_at as number,
+                end: last.captured_at as number,
+                context: currentContext
+            });
+
+            // Start new bucket
+            bucket = [screenshot];
+            currentContext = ctx;
+        } else {
+            bucket.push(screenshot);
+        }
+    }
+
+    // Handle leftover bucket
+    if (bucket.length > 0) {
+        const first = bucket[0];
+        const last = bucket[bucket.length - 1];
+        const duration = (last.captured_at as number) - (first.captured_at as number);
+
+        const now = Math.floor(Date.now() / 1000);
+        const timeSinceLast = now - (last.captured_at as number);
+
+        // Save if duration meets minimum OR session is old
+        if (duration >= config.minBatchDuration || timeSinceLast > config.maxGap) {
+            batches.push({
+                screenshots: [...bucket],
+                start: first.captured_at as number,
+                end: last.captured_at as number,
+                context: currentContext
+            });
+        } else {
+            console.log(`[Analysis] Pending event bucket of ${bucket.length} shots (${duration}s) waiting for more data...`);
+        }
+    }
+
+    return batches;
+}
+
+/**
+ * Feature flag: Enable event-based batching
+ * Set to true to use semantic segmentation, false for time-based
+ */
+export function useEventBasedBatching(): boolean {
+    // TODO: Make this configurable via settings
+    // For now, default to true (enable new feature)
+    return true;
 }

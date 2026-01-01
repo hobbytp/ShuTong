@@ -173,10 +173,10 @@ export function RecordingSettings() {
         // 2. Load Screens (Optional / Progressive)
         try {
             const screenList = await window.ipcRenderer.invoke('get-available-screens');
-            setScreens(screenList || [{ id: 0, name: 'Primary Display' }]);
+            setScreens(screenList || [{ id: 0, name: t('recording.primary_display', 'Primary Display') }]);
         } catch (err) {
             console.warn('Failed to get screens, defaulting to Primary:', err);
-            setScreens([{ id: 0, name: 'Primary Display' }]);
+            setScreens([{ id: 0, name: t('recording.primary_display', 'Primary Display') }]);
         }
     };
 
@@ -273,7 +273,9 @@ export function RecordingSettings() {
                                 className="w-full appearance-none bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
                             >
                                 {CAPTURE_MODE_OPTIONS.map(opt => (
-                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    <option key={opt.value} value={opt.value}>
+                                        {opt.value === 'screen' ? t('recording.full_screen', 'Full Screen') : t('recording.active_window', 'Active Window')}
+                                    </option>
                                 ))}
                             </select>
                         </div>
@@ -298,7 +300,7 @@ export function RecordingSettings() {
                                     className="w-full appearance-none bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
                                 >
                                     {screens.map((s, i) => (
-                                        <option key={i} value={String(i)}>{s.name || `Display ${i + 1}`}</option>
+                                        <option key={i} value={String(i)}>{s.name || `${t('recording.display', 'Display')} ${i + 1}`}</option>
                                     ))}
                                 </select>
                             </div>
@@ -312,8 +314,8 @@ export function RecordingSettings() {
                                 <Gauge size={18} className="text-amber-400" />
                             </div>
                             <div>
-                                <div className="text-sm font-medium text-zinc-200">Capture Resolution</div>
-                                <div className="text-xs text-zinc-500">Maximum resolution for screenshots</div>
+                                <div className="text-sm font-medium text-zinc-200">{t('recording.capture_resolution', 'Capture Resolution')}</div>
+                                <div className="text-xs text-zinc-500">{t('recording.resolution_desc', 'Maximum resolution for screenshots')}</div>
                             </div>
                         </div>
                         <div className="w-48">
@@ -336,8 +338,8 @@ export function RecordingSettings() {
                                 <Eye size={18} className="text-rose-400" />
                             </div>
                             <div>
-                                <div className="text-sm font-medium text-zinc-200">JPEG Quality</div>
-                                <div className="text-xs text-zinc-500">Higher = better quality, larger files (1-100)</div>
+                                <div className="text-sm font-medium text-zinc-200">{t('recording.jpeg_quality', 'JPEG Quality')}</div>
+                                <div className="text-xs text-zinc-500">{t('recording.quality_desc', 'Higher = better quality, larger files (1-100)')}</div>
                             </div>
                         </div>
                         <div className="flex items-center gap-3">
@@ -383,8 +385,8 @@ export function RecordingSettings() {
                                 <HardDrive size={18} className="text-orange-400" />
                             </div>
                             <div>
-                                <div className="text-sm font-medium text-zinc-200">Minimum Disk Space</div>
-                                <div className="text-xs text-zinc-500">Stop recording when disk space falls below this</div>
+                                <div className="text-sm font-medium text-zinc-200">{t('recording.min_disk_space', 'Minimum Disk Space')}</div>
+                                <div className="text-xs text-zinc-500">{t('recording.min_disk_desc', 'Stop recording when disk space falls below this')}</div>
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -415,8 +417,8 @@ export function RecordingSettings() {
                     <div className="flex items-center justify-between p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
                         <div className="flex items-center gap-4">
                             <div>
-                                <div className="text-sm font-medium text-zinc-200">System Idle Threshold</div>
-                                <div className="text-xs text-zinc-500">Pause recording after seconds of inactivity</div>
+                                <div className="text-sm font-medium text-zinc-200">{t('recording.idle_threshold', 'System Idle Threshold')}</div>
+                                <div className="text-xs text-zinc-500">{t('recording.idle_desc', 'Pause recording after seconds of inactivity')}</div>
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -438,8 +440,8 @@ export function RecordingSettings() {
                     <div className="flex items-center justify-between p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
                         <div className="flex items-center gap-4">
                             <div>
-                                <div className="text-sm font-medium text-zinc-200">Pause When Idle</div>
-                                <div className="text-xs text-zinc-500">Skip captures when system is inactive</div>
+                                <div className="text-sm font-medium text-zinc-200">{t('recording.pause_idle', 'Pause When Idle')}</div>
+                                <div className="text-xs text-zinc-500">{t('recording.pause_idle_desc', 'Skip captures when system is inactive')}</div>
                             </div>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">
@@ -457,8 +459,8 @@ export function RecordingSettings() {
                     <div className="flex items-center justify-between p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
                         <div className="flex items-center gap-4">
                             <div>
-                                <div className="text-sm font-medium text-zinc-200">Pause on Lock Screen</div>
-                                <div className="text-xs text-zinc-500">Automatically pause when screen is locked or sleeping</div>
+                                <div className="text-sm font-medium text-zinc-200">{t('recording.pause_lock', 'Pause on Lock Screen')}</div>
+                                <div className="text-xs text-zinc-500">{t('recording.pause_lock_desc', 'Automatically pause when screen is locked or sleeping')}</div>
                             </div>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">
@@ -476,8 +478,8 @@ export function RecordingSettings() {
                     <div className="flex items-center justify-between p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
                         <div className="flex items-center gap-4">
                             <div>
-                                <div className="text-sm font-medium text-zinc-200">Window Switch Delay</div>
-                                <div className="text-xs text-zinc-500">Wait before capturing new active window (avoids Alt+Tab spam)</div>
+                                <div className="text-sm font-medium text-zinc-200">{t('recording.window_delay', 'Window Switch Delay')}</div>
+                                <div className="text-xs text-zinc-500">{t('recording.window_delay_desc', 'Wait before capturing new active window (avoids Alt+Tab spam)')}</div>
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -499,8 +501,8 @@ export function RecordingSettings() {
                     <div className="flex items-center justify-between p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
                         <div className="flex items-center gap-4">
                             <div>
-                                <div className="text-sm font-medium text-zinc-200">Skip Similar Frames</div>
-                                <div className="text-xs text-zinc-500">Avoid storing redundant screenshots when screen is static</div>
+                                <div className="text-sm font-medium text-zinc-200">{t('recording.skip_similar', 'Skip Similar Frames')}</div>
+                                <div className="text-xs text-zinc-500">{t('recording.skip_similar_desc', 'Avoid storing redundant screenshots when screen is static')}</div>
                             </div>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">
@@ -518,8 +520,8 @@ export function RecordingSettings() {
                     <div className="flex items-center justify-between p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
                         <div className="flex items-center gap-4">
                             <div>
-                                <div className="text-sm font-medium text-zinc-200">Battery Saver Mode</div>
-                                <div className="text-xs text-zinc-500">Reduce capture frequency when on battery power</div>
+                                <div className="text-sm font-medium text-zinc-200">{t('recording.battery_saver', 'Battery Saver Mode')}</div>
+                                <div className="text-xs text-zinc-500">{t('recording.battery_desc', 'Reduce capture frequency when on battery power')}</div>
                             </div>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">
@@ -536,7 +538,7 @@ export function RecordingSettings() {
                     {config.guard_enable_battery_mode && (
                         <div className="ml-4 space-y-3">
                             <div className="flex items-center justify-between p-3 bg-zinc-950/50 border border-zinc-800/50 rounded-lg">
-                                <div className="text-sm text-zinc-400">Interval Multiplier</div>
+                                <div className="text-sm text-zinc-400">{t('recording.interval_multiplier', 'Interval Multiplier')}</div>
                                 <div className="flex items-center gap-2">
                                     <div className="w-20">
                                         <Input
@@ -552,7 +554,7 @@ export function RecordingSettings() {
                                 </div>
                             </div>
                             <div className="flex items-center justify-between p-3 bg-zinc-950/50 border border-zinc-800/50 rounded-lg">
-                                <div className="text-sm text-zinc-400">Pause below battery</div>
+                                <div className="text-sm text-zinc-400">{t('recording.pause_battery', 'Pause below battery')}</div>
                                 <div className="flex items-center gap-2">
                                     <div className="w-20">
                                         <Input
@@ -590,8 +592,8 @@ export function RecordingSettings() {
                                     <Shield size={18} className="text-emerald-400" />
                                 </div>
                                 <div>
-                                    <div className="text-sm font-medium text-zinc-200">Capture Strategy</div>
-                                    <div className="text-xs text-zinc-500">Choose how to filter captured content</div>
+                                    <div className="text-sm font-medium text-zinc-200">{t('recording.capture_strategy', 'Capture Strategy')}</div>
+                                    <div className="text-xs text-zinc-500">{t('recording.strategy_desc', 'Choose how to filter captured content')}</div>
                                 </div>
                             </div>
 
@@ -601,8 +603,8 @@ export function RecordingSettings() {
                                     className={`relative flex items-center p-3 rounded-lg border transition-all ${!config.guard_enable_whitelist_mode ? 'bg-zinc-800 border-indigo-500/50 ring-1 ring-indigo-500/20' : 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800/50'}`}
                                 >
                                     <div className="flex-1 text-left">
-                                        <div className={`text-sm font-medium ${!config.guard_enable_whitelist_mode ? 'text-indigo-400' : 'text-zinc-300'}`}>Default (Blacklist)</div>
-                                        <div className="text-xs text-zinc-500 mt-0.5">Capture everything except excluded apps</div>
+                                        <div className={`text-sm font-medium ${!config.guard_enable_whitelist_mode ? 'text-indigo-400' : 'text-zinc-300'}`}>{t('recording.blacklist', 'Default (Blacklist)')}</div>
+                                        <div className="text-xs text-zinc-500 mt-0.5">{t('recording.blacklist_desc', 'Capture everything except excluded apps')}</div>
                                     </div>
                                     {!config.guard_enable_whitelist_mode && (
                                         <div className="h-2 w-2 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]" />
@@ -614,8 +616,8 @@ export function RecordingSettings() {
                                     className={`relative flex items-center p-3 rounded-lg border transition-all ${config.guard_enable_whitelist_mode ? 'bg-zinc-800 border-amber-500/50 ring-1 ring-amber-500/20' : 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800/50'}`}
                                 >
                                     <div className="flex-1 text-left">
-                                        <div className={`text-sm font-medium ${config.guard_enable_whitelist_mode ? 'text-amber-400' : 'text-zinc-300'}`}>Focus (Whitelist)</div>
-                                        <div className="text-xs text-zinc-500 mt-0.5">Only capture specific approved apps</div>
+                                        <div className={`text-sm font-medium ${config.guard_enable_whitelist_mode ? 'text-amber-400' : 'text-zinc-300'}`}>{t('recording.whitelist', 'Focus (Whitelist)')}</div>
+                                        <div className="text-xs text-zinc-500 mt-0.5">{t('recording.whitelist_desc', 'Only capture specific approved apps')}</div>
                                     </div>
                                     {config.guard_enable_whitelist_mode && (
                                         <div className="h-2 w-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
@@ -632,10 +634,10 @@ export function RecordingSettings() {
                             <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-lg animate-in fade-in slide-in-from-top-2 duration-300">
                                 <div className="flex items-center gap-2 mb-3">
                                     <EyeOff size={16} className="text-zinc-400" />
-                                    <span className="text-sm font-medium text-zinc-200">Excluded Applications</span>
+                                    <span className="text-sm font-medium text-zinc-200">{t('recording.excluded_apps', 'Excluded Applications')}</span>
                                 </div>
                                 <p className="text-xs text-zinc-500 mb-3">
-                                    Recording will pause when these applications are in focus (one per line)
+                                    {t('recording.excluded_apps_desc', 'Recording will pause when these applications are in focus (one per line)')}
                                 </p>
                                 <textarea
                                     value={excludedAppsText}
@@ -650,10 +652,10 @@ export function RecordingSettings() {
                             <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-lg animate-in fade-in slide-in-from-top-2 duration-300 delay-75">
                                 <div className="flex items-center gap-2 mb-3">
                                     <EyeOff size={16} className="text-zinc-400" />
-                                    <span className="text-sm font-medium text-zinc-200">Excluded Window Titles</span>
+                                    <span className="text-sm font-medium text-zinc-200">{t('recording.excluded_titles', 'Excluded Window Titles')}</span>
                                 </div>
                                 <p className="text-xs text-zinc-500 mb-3">
-                                    Recording will pause when window title contains these keywords (one per line)
+                                    {t('recording.excluded_titles_desc', 'Recording will pause when window title contains these keywords (one per line)')}
                                 </p>
                                 <textarea
                                     value={excludedPatternsText}
@@ -669,10 +671,10 @@ export function RecordingSettings() {
                         <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-lg animate-in fade-in slide-in-from-top-2 duration-300">
                             <div className="flex items-center gap-2 mb-3">
                                 <Shield size={16} className="text-amber-400" />
-                                <span className="text-sm font-medium text-zinc-200">Whitelisted Applications</span>
+                                <span className="text-sm font-medium text-zinc-200">{t('recording.whitelisted_apps', 'Whitelisted Applications')}</span>
                             </div>
                             <p className="text-xs text-zinc-500 mb-3">
-                                Only captures from these applications will be recorded (one per line)
+                                {t('recording.whitelisted_apps_desc', 'Only captures from these applications will be recorded (one per line)')}
                             </p>
                             <textarea
                                 className="w-full h-32 bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-sm text-zinc-200 resize-none focus:outline-none focus:ring-2 focus:ring-amber-500/50"
@@ -682,7 +684,7 @@ export function RecordingSettings() {
                             />
                             <div className="flex items-center gap-2 mt-3 p-2 bg-amber-500/10 rounded text-xs text-amber-200/80 border border-amber-500/20">
                                 <Shield size={12} className="shrink-0" />
-                                <span>Blacklist rules are disabled while Whitelist Mode is active.</span>
+                                <span>{t('recording.whitelist_notice', 'Blacklist rules are disabled while Whitelist Mode is active.')}</span>
                             </div>
                         </div>
                     )}
@@ -709,11 +711,11 @@ export function RecordingSettings() {
                 {/* Skip Reason Breakdown */}
                 {guardStats?.skipsByReason && Object.keys(guardStats.skipsByReason).length > 0 && (
                     <div className="mb-6 space-y-2">
-                        <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">Skip Reasons</div>
+                        <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">{t('recording.skip_reasons', 'Skip Reasons')}</div>
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                             {Object.entries(guardStats.skipsByReason).map(([reason, count]) => (
                                 <div key={reason} className="flex px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-md justify-between items-center text-xs">
-                                    <span className="text-zinc-400 truncate mr-2 capitalize">{reason.replace(/_/g, ' ')}</span>
+                                    <span className="text-zinc-400 truncate mr-2 capitalize">{t(`recording.reasons.${reason}`, reason.replace(/_/g, ' '))}</span>
                                     <span className="font-mono font-bold text-zinc-200">{count}</span>
                                 </div>
                             ))}
@@ -725,16 +727,16 @@ export function RecordingSettings() {
                 <div className="space-y-3">
                     <div className="flex items-center gap-2">
                         <FileText size={16} className="text-zinc-400" />
-                        <span className="text-sm font-medium text-zinc-200">Recent Skip Log</span>
+                        <span className="text-sm font-medium text-zinc-200">{t('recording.recent_log', 'Recent Skip Log')}</span>
                     </div>
                     <div className="h-48 overflow-y-auto bg-zinc-950 border border-zinc-800 rounded-lg p-3 space-y-1 font-mono text-[10px] sm:text-xs no-scrollbar">
                         {skipLog.length === 0 ? (
-                            <div className="text-zinc-600 italic text-center py-4">No skips recorded yet</div>
+                            <div className="text-zinc-600 italic text-center py-4">{t('recording.no_skips', 'No skips recorded yet')}</div>
                         ) : (
                             skipLog.map((entry, i) => (
                                 <div key={i} className="flex gap-3 text-zinc-400 border-b border-zinc-900/50 pb-1 last:border-0 last:pb-0">
                                     <span className="text-zinc-600 shrink-0">{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                                    <span className="text-amber-500/80 font-bold shrink-0 w-24 truncate" title={entry.reason}>[{entry.reason}]</span>
+                                    <span className="text-amber-500/80 font-bold shrink-0 w-24 truncate" title={entry.reason}>[{t(`recording.reasons.${entry.reason}`, entry.reason)}]</span>
                                     <span className="truncate text-zinc-500">
                                         {entry.appName ? <span className="text-zinc-300 mr-2">{entry.appName}</span> : null}
                                         {entry.details || '-'}

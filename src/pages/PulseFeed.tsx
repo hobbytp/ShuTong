@@ -1,5 +1,6 @@
 import { AlertCircle, ChevronRight, Lightbulb, Loader2, MessageCircle, Sparkles, Target, Zap } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '../components/ui/button';
@@ -80,6 +81,7 @@ function safeParseDeliverable(content: string): DeliverableContent | null {
 }
 
 export function PulseFeed() {
+    const { t } = useTranslation();
     const [cards, setCards] = useState<PulseCard[]>([]);
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState<string | null>(null);
@@ -247,9 +249,9 @@ export function PulseFeed() {
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
                         <Sparkles className="text-indigo-400" />
-                        Pulse
+                        {t('pulse.title', 'Pulse')}
                     </h1>
-                    <p className="text-zinc-400 mt-1">AI-powered insights from your activity.</p>
+                    <p className="text-zinc-400 mt-1">{t('pulse.subtitle', 'AI-powered insights from your activity.')}</p>
                 </div>
                 <div className="flex gap-2">
                     <Button
@@ -260,7 +262,7 @@ export function PulseFeed() {
                         className={proposalGenerating ? 'opacity-80' : ''}
                     >
                         {proposalGenerating ? <Loader2 size={16} className="mr-2 animate-spin" /> : <Zap size={16} className="mr-2" />}
-                        Research Proposal
+                        {t('pulse.research_proposal', 'Research Proposal')}
                     </Button>
                     <Button
                         variant="outline"
@@ -269,7 +271,7 @@ export function PulseFeed() {
                         className={chatOpen ? 'bg-indigo-600 text-white' : ''}
                     >
                         <MessageCircle size={16} className="mr-2" />
-                        Ask Pulse
+                        {t('pulse.ask_pulse', 'Ask Pulse')}
                     </Button>
                 </div>
             </div>
@@ -296,10 +298,10 @@ export function PulseFeed() {
                                 <span className="text-sm font-medium text-zinc-200 capitalize">{type}</span>
                             </div>
                             <p className="text-xs text-zinc-500 text-left">
-                                {type === 'briefing' && 'Daily summary'}
-                                {type === 'action' && 'Todo items'}
-                                {type === 'sprouting' && 'Connect ideas'}
-                                {type === 'challenge' && 'Improve focus'}
+                                {type === 'briefing' && t('pulse.briefing_desc', 'Daily summary')}
+                                {type === 'action' && t('pulse.action_desc', 'Todo items')}
+                                {type === 'sprouting' && t('pulse.sprouting_desc', 'Connect ideas')}
+                                {type === 'challenge' && t('pulse.challenge_desc', 'Improve focus')}
                             </p>
                         </button>
                     );
@@ -311,7 +313,7 @@ export function PulseFeed() {
                 {cards.length === 0 && !loading && (
                     <Card className="bg-zinc-900/50 border-zinc-800 p-12 text-center">
                         <Zap className="mx-auto mb-4 text-zinc-600" size={32} />
-                        <p className="text-zinc-500">No insights yet. Generate a card above to get started.</p>
+                        <p className="text-zinc-500">{t('pulse.no_insights', 'No insights yet. Generate a card above to get started.')}</p>
                     </Card>
                 )}
 
@@ -372,18 +374,18 @@ export function PulseFeed() {
                                                             className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
                                                             disabled={busy}
                                                         >
-                                                            <option value="auto">Auto</option>
-                                                            <option value="fast">Fast</option>
-                                                            <option value="deep">Deep</option>
+                                                            <option value="auto">{t('pulse.auto', 'Auto')}</option>
+                                                            <option value="fast">{t('pulse.fast', 'Fast')}</option>
+                                                            <option value="deep">{t('pulse.deep', 'Deep')}</option>
                                                         </select>
 
                                                         <Button size="sm" onClick={() => startResearch(card.id)} disabled={busy}>
                                                             {busy ? <Loader2 size={14} className="mr-2 animate-spin" /> : null}
-                                                            Start
+                                                            {t('pulse.start', 'Start')}
                                                         </Button>
 
                                                         <Button variant="outline" size="sm" onClick={() => dismissProposal(card.id)} disabled={busy}>
-                                                            Dismiss
+                                                            {t('pulse.dismiss', 'Dismiss')}
                                                         </Button>
                                                     </div>
                                                 )}
@@ -391,7 +393,7 @@ export function PulseFeed() {
                                                 {proposal.status === 'running' && (
                                                     <div className="flex items-center gap-2 text-sm text-amber-300">
                                                         <Loader2 size={14} className="animate-spin" />
-                                                        Running research...
+                                                        {t('pulse.running_research', 'Running research...')}
                                                     </div>
                                                 )}
 
@@ -420,15 +422,14 @@ export function PulseFeed() {
                                                             ))}
                                                         </div>
                                                     )}
-
                                                     {deliverable.budget_limited && (
-                                                        <p className="text-xs text-amber-400">Note: This result was budget-limited.</p>
+                                                        <p className="text-xs text-amber-400">{t('pulse.budget_limited_note', 'Note: This result was budget-limited.')}</p>
                                                     )}
 
                                                     <div className="flex items-center gap-2 text-xs text-zinc-500">
-                                                        <span className="uppercase tracking-wider">Status:</span>
+                                                        <span className="uppercase tracking-wider">{t('pulse.status', 'Status')}:</span>
                                                         <span className={deliverable.save_status === 'saved' ? 'text-emerald-400' : deliverable.save_status === 'discarded' ? 'text-rose-400' : 'text-amber-400'}>
-                                                            {deliverable.save_status === 'pending_save' ? 'Pending Save' : deliverable.save_status === 'saved' ? 'Saved' : 'Discarded'}
+                                                            {deliverable.save_status === 'pending_save' ? t('pulse.pending_save', 'Pending Save') : deliverable.save_status === 'saved' ? t('pulse.saved', 'Saved') : t('pulse.discarded', 'Discarded')}
                                                         </span>
                                                     </div>
 
@@ -436,10 +437,10 @@ export function PulseFeed() {
                                                         <div className="flex items-center gap-3 pt-2">
                                                             <Button size="sm" onClick={() => saveDeliverable(card.id)} disabled={dBusy}>
                                                                 {dBusy ? <Loader2 size={14} className="mr-2 animate-spin" /> : null}
-                                                                Save
+                                                                {t('pulse.save', 'Save')}
                                                             </Button>
                                                             <Button variant="outline" size="sm" onClick={() => discardDeliverable(card.id)} disabled={dBusy}>
-                                                                Discard
+                                                                {t('pulse.discard', 'Discard')}
                                                             </Button>
                                                         </div>
                                                     )}
@@ -474,14 +475,14 @@ export function PulseFeed() {
                     <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
                         <h3 className="font-semibold text-zinc-100 flex items-center gap-2">
                             <MessageCircle size={16} className="text-indigo-400" />
-                            Ask Pulse
+                            {t('pulse.ask_pulse', 'Ask Pulse')}
                         </h3>
                         <button onClick={() => setChatOpen(false)} className="text-zinc-500 hover:text-zinc-300">×</button>
                     </div>
 
                     <div className="h-64 overflow-y-auto p-4 space-y-3">
                         {chatMessages.length === 0 && (
-                            <p className="text-sm text-zinc-500 text-center mt-8">Ask anything about your activities...</p>
+                            <p className="text-sm text-zinc-500 text-center mt-8">{t('pulse.ask_anything', 'Ask anything about your activities...')}</p>
                         )}
                         {chatMessages.map((msg, i) => (
                             <div key={i} className={`text-sm ${msg.role === 'user' ? 'text-right' : ''}`}>
@@ -500,7 +501,7 @@ export function PulseFeed() {
                         {chatLoading && (
                             <div className="flex items-center gap-2 text-zinc-500">
                                 <Loader2 size={14} className="animate-spin" />
-                                <span className="text-sm">Thinking...</span>
+                                <span className="text-sm">{t('pulse.thinking', 'Thinking...')}</span>
                             </div>
                         )}
                     </div>
@@ -512,11 +513,11 @@ export function PulseFeed() {
                                 value={chatInput}
                                 onChange={(e) => setChatInput(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && sendChatMessage()}
-                                placeholder="Ask a question..."
+                                placeholder={t('pulse.ask_question', 'Ask a question...')}
                                 className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
                             />
                             <Button size="sm" onClick={sendChatMessage} disabled={chatLoading}>
-                                Send
+                                {t('pulse.send', 'Send')}
                             </Button>
                         </div>
                     </div>

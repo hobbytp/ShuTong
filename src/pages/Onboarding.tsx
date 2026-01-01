@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { invoke } from '../lib/ipc'
 
 type Step = 'welcome' | 'storage' | 'complete'
@@ -8,6 +9,7 @@ interface OnboardingProps {
 }
 
 export function Onboarding({ onComplete }: OnboardingProps) {
+    const { t } = useTranslation();
     const [step, setStep] = useState<Step>('welcome')
     const [recordingPath, setRecordingPath] = useState('');
 
@@ -69,10 +71,10 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                 {step === 'welcome' && (
                     <>
                         <h1 style={{ fontSize: '2rem', fontWeight: 'bold', marginBottom: '16px', textAlign: 'center' }}>
-                            👋 Welcome to ShuTong
+                            {t('onboarding.welcome_title', '👋 Welcome to ShuTong')}
                         </h1>
                         <p style={{ color: '#9CA3AF', textAlign: 'center', marginBottom: '24px' }}>
-                            ShuTong records your screen and uses AI to help you understand how you spend your time.
+                            {t('onboarding.welcome_desc', 'ShuTong records your screen and uses AI to help you understand how you spend your time.')}
                         </p>
                         <button
                             onClick={() => setStep('storage')}
@@ -88,7 +90,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                                 cursor: 'pointer'
                             }}
                         >
-                            Get Started →
+                            {t('onboarding.get_started', 'Get Started →')}
                         </button>
                     </>
                 )}
@@ -96,14 +98,14 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                 {step === 'storage' && (
                     <>
                         <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '16px' }}>
-                            Data Storage
+                            {t('onboarding.data_storage', 'Data Storage')}
                         </h2>
                         <p style={{ color: '#9CA3AF', marginBottom: '24px', fontSize: '14px' }}>
-                            Choose where to store your recordings and database. We recommend a drive with plenty of space (e.g., D: or E:).
+                            {t('onboarding.storage_desc', 'Choose where to store your recordings and database. We recommend a drive with plenty of space (e.g., D: or E:).')}
                         </p>
 
                         <div style={{ marginBottom: '24px' }}>
-                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', color: '#9CA3AF' }}>Storage Path</label>
+                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', color: '#9CA3AF' }}>{t('onboarding.storage_path', 'Storage Path')}</label>
                             <div style={{ display: 'flex', gap: '8px' }}>
                                 <input
                                     type="text"
@@ -132,7 +134,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                                         fontSize: '14px'
                                     }}
                                 >
-                                    Browse...
+                                    {t('onboarding.browse', 'Browse...')}
                                 </button>
                             </div>
                         </div>
@@ -151,7 +153,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                                 cursor: 'pointer'
                             }}
                         >
-                            Next Step →
+                            {t('onboarding.next_step', 'Next Step →')}
                         </button>
                     </>
                 )}
@@ -161,10 +163,10 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                         <div style={{ textAlign: 'center' }}>
                             <div style={{ fontSize: '64px', marginBottom: '16px' }}>🎉</div>
                             <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '16px' }}>
-                                You're All Set!
+                                {t('onboarding.all_set', 'You\'re All Set!')}
                             </h2>
                             <p style={{ color: '#9CA3AF', marginBottom: '24px' }}>
-                                ShuTong is ready to start recording. Click "Start Recording" on the main screen to begin.
+                                {t('onboarding.ready', 'ShuTong is ready to start recording. Click "Start Recording" on the main screen to begin.')}
                             </p>
                             <button
                                 onClick={handleFinish}
@@ -180,7 +182,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                                     cursor: 'pointer'
                                 }}
                             >
-                                Start Using ShuTong
+                                {t('onboarding.start_using', 'Start Using ShuTong')}
                             </button>
                         </div>
                     </>

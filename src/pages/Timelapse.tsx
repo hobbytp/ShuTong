@@ -1,5 +1,6 @@
 import { FastForward, Film, Pause, Play, Rewind, Search } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 interface Snapshot {
     id: number
@@ -8,6 +9,7 @@ interface Snapshot {
 }
 
 export function Timelapse() {
+    const { t } = useTranslation();
     const [snapshots, setSnapshots] = useState<Snapshot[]>([])
     const [loading, setLoading] = useState(false)
     const [isPlaying, setIsPlaying] = useState(false)
@@ -101,8 +103,8 @@ export function Timelapse() {
                         <Film className="w-6 h-6 text-indigo-400" />
                     </div>
                     <div>
-                        <h1 className="text-3xl font-bold tracking-tight">Timelapse</h1>
-                        <p className="text-zinc-400">Watch your day in review</p>
+                        <h1 className="text-3xl font-bold tracking-tight">{t('timelapse.title', 'Timelapse')}</h1>
+                        <p className="text-zinc-400">{t('timelapse.subtitle', 'Watch your day in review')}</p>
                     </div>
                 </div>
 
@@ -122,7 +124,7 @@ export function Timelapse() {
             {loading ? (
                 <div className="h-[500px] flex flex-col gap-4 items-center justify-center bg-zinc-900/30 border border-zinc-800 rounded-xl ring-1 ring-white/5">
                     <div className="w-12 h-12 border-4 border-zinc-700 border-t-indigo-500 rounded-full animate-spin"></div>
-                    <p className="text-zinc-400 font-medium">Loading snapshots...</p>
+                    <p className="text-zinc-400 font-medium">{t('timelapse.loading', 'Loading snapshots...')}</p>
                 </div>
             ) : snapshots.length > 0 ? (
                 <div className="flex flex-col gap-6">
@@ -145,7 +147,7 @@ export function Timelapse() {
                         ) : (
                             <div className="flex flex-col items-center justify-center h-full text-zinc-600">
                                 <Film size={48} strokeWidth={1} className="mb-4 opacity-50" />
-                                <p>No frame selected</p>
+                                <p>{t('timelapse.no_frame', 'No frame selected')}</p>
                             </div>
                         )}
 
@@ -164,7 +166,7 @@ export function Timelapse() {
                     <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 shadow-lg">
                         {/* Scrubber */}
                         <div className="flex items-center gap-4 mb-6">
-                            <span className="text-xs font-mono text-zinc-500 w-16 text-right">Start</span>
+                            <span className="text-xs font-mono text-zinc-500 w-16 text-right">{t('timelapse.start', 'Start')}</span>
                             <div className="relative flex-1 group/track">
                                 <div className="absolute inset-0 bg-zinc-800 rounded-full h-2 my-auto"></div>
                                 <div
@@ -180,7 +182,7 @@ export function Timelapse() {
                                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                 />
                             </div>
-                            <span className="text-xs font-mono text-zinc-500 w-16">End</span>
+                            <span className="text-xs font-mono text-zinc-500 w-16">{t('timelapse.end', 'End')}</span>
                         </div>
 
                         {/* Buttons */}
@@ -232,9 +234,9 @@ export function Timelapse() {
                     <div className="p-4 bg-zinc-900 rounded-full mb-4">
                         <Film size={32} className="text-zinc-600" />
                     </div>
-                    <p className="text-lg font-medium text-zinc-300 mb-2">No recordings found for {selectedDate}</p>
+                    <p className="text-lg font-medium text-zinc-300 mb-2">{t('timelapse.no_recordings', 'No recordings found for')} {selectedDate}</p>
                     <p className="text-zinc-500 max-w-sm">
-                        ShuTong hasn't captured any snapshots for this day yet. Ensure recording is enabled!
+                        {t('timelapse.ensure_recording', 'ShuTong hasn\'t captured any snapshots for this day yet. Ensure recording is enabled!')}
                     </p>
                 </div>
             )}
