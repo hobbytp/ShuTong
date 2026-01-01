@@ -1,5 +1,6 @@
 import { Activity, ArrowUpRight, Clock, MonitorPlay, Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card } from '../components/ui/card';
 
 interface DashboardStats {
@@ -16,6 +17,7 @@ interface TimelineCard {
 }
 
 export function Dashboard() {
+    const { t } = useTranslation();
     const [stats, setStats] = useState<DashboardStats>({
         focusTime: '0h 0m',
         productivePercentage: 0,
@@ -80,8 +82,8 @@ export function Dashboard() {
             {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-10">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight mb-2">Dashboard</h1>
-                    <p className="text-zinc-400">Overview of your day.</p>
+                    <h1 className="text-3xl font-bold tracking-tight mb-2">{t('dashboard.title', 'Dashboard')}</h1>
+                    <p className="text-zinc-400">{t('dashboard.subtitle', 'Overview of your day.')}</p>
                 </div>
                 <div className="text-right">
                     <p className="text-2xl font-mono font-medium tracking-tight text-zinc-200">
@@ -105,12 +107,12 @@ export function Dashboard() {
                     </div>
                     <div className="p-8 flex flex-col justify-between h-full relative z-10">
                         <div>
-                            <span className="text-sm font-medium text-zinc-500 uppercase tracking-wider">Total Focus</span>
+                            <span className="text-sm font-medium text-zinc-500 uppercase tracking-wider">{t('dashboard.total_focus', 'Total Focus')}</span>
                             <h2 className="text-5xl font-bold text-white tracking-tighter mt-2">{stats.focusTime}</h2>
                         </div>
                         <div className="mt-8">
                             <div className="flex justify-between text-xs text-zinc-400 mb-2">
-                                <span>Productivity Score</span>
+                                <span>{t('dashboard.productivity_score', 'Productivity Score')}</span>
                                 <span className="text-indigo-400 font-bold">{stats.productivePercentage}%</span>
                             </div>
                             <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
@@ -150,10 +152,10 @@ export function Dashboard() {
                         </div>
                         <div className="text-center">
                             <span className={`block font-bold text-lg ${isRecording ? 'text-red-400' : 'text-zinc-200 group-hover:text-white'}`}>
-                                {isRecording ? 'Stop Session' : 'Start Session'}
+                                {isRecording ? t('dashboard.stop_session', 'Stop Session') : t('dashboard.start_session', 'Start Session')}
                             </span>
                             <span className="text-xs text-zinc-500 group-hover:text-zinc-400 transition-colors">
-                                {isRecording ? 'Recording active...' : 'Resume tracking'}
+                                {isRecording ? t('dashboard.recording_active', 'Recording active...') : t('dashboard.resume_tracking', 'Resume tracking')}
                             </span>
                         </div>
                     </div>
@@ -174,8 +176,8 @@ export function Dashboard() {
                         </div>
                         <div className="mt-auto">
                             <div className="text-3xl font-bold text-white mb-1">{stats.productivePercentage}%</div>
-                            <p className="text-sm text-zinc-400">Efficiency Rating</p>
-                            <p className="text-xs text-emerald-500/80 mt-2 font-medium">Top performance zone</p>
+                            <p className="text-sm text-zinc-400">{t('dashboard.efficiency_rating', 'Efficiency Rating')}</p>
+                            <p className="text-xs text-emerald-500/80 mt-2 font-medium">{t('dashboard.top_performance', 'Top performance zone')}</p>
                         </div>
                     </div>
                 </Card>
@@ -186,7 +188,7 @@ export function Dashboard() {
             <div className="space-y-4">
                 <div className="flex items-center gap-2 mb-2">
                     <Activity size={16} className="text-indigo-400" />
-                    <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-wider">Recent Activity</h3>
+                    <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-wider">{t('dashboard.recent_activity', 'Recent Activity')}</h3>
                 </div>
 
                 <Card className="bg-zinc-900/50 border-zinc-800/50">
@@ -195,8 +197,8 @@ export function Dashboard() {
                             <div key={card.id} className="flex items-center justify-between p-4 hover:bg-zinc-900/80 transition-colors group">
                                 <div className="flex items-center gap-4">
                                     <div className={`w-2 h-2 rounded-full ring-2 ring-zinc-900 ${card.category === 'Work' ? 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]' :
-                                            card.category === 'Personal' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' :
-                                                'bg-zinc-500'
+                                        card.category === 'Personal' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' :
+                                            'bg-zinc-500'
                                         }`} />
                                     <div>
                                         <p className="text-zinc-200 font-medium group-hover:text-indigo-300 transition-colors">{card.title}</p>
@@ -209,7 +211,7 @@ export function Dashboard() {
                             </div>
                         )) : (
                             <div className="p-8 text-center">
-                                <p className="text-zinc-500 text-sm italic">No recent activity detected yet.</p>
+                                <p className="text-zinc-500 text-sm italic">{t('dashboard.no_activity', 'No recent activity detected yet.')}</p>
                             </div>
                         )}
                     </div>

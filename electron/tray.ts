@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, nativeImage, Tray } from 'electron';
+import i18next from 'i18next';
 import path from 'path';
 import { eventBus } from './infrastructure/events';
 
@@ -48,7 +49,7 @@ export function updateTrayMenu(getMainWindow: () => BrowserWindow | null, isReco
 
     const contextMenu = Menu.buildFromTemplate([
         {
-            label: 'Open ShuTong',
+            label: i18next.t('tray.open', 'Open ShuTong'),
             click: () => {
                 const win = getMainWindow();
                 if (win) {
@@ -59,7 +60,7 @@ export function updateTrayMenu(getMainWindow: () => BrowserWindow | null, isReco
         },
         { type: 'separator' },
         {
-            label: isRecording ? 'Stop Recording' : 'Start Recording',
+            label: isRecording ? i18next.t('tray.stop_recording', 'Stop Recording') : i18next.t('tray.start_recording', 'Start Recording'),
             click: () => {
                 // We need to trigger start/stop recording in main process
                 // This is a bit circular dependency if we import startRecording/stopRecording from main.ts
@@ -79,7 +80,7 @@ export function updateTrayMenu(getMainWindow: () => BrowserWindow | null, isReco
         },
         { type: 'separator' },
         {
-            label: 'Quit',
+            label: i18next.t('tray.quit', 'Quit'),
             click: async () => {
                 try {
                     const { getIsResetting } = await import('./storage');

@@ -1,4 +1,5 @@
 import { ArrowLeft, Cpu, HardDrive, Plug, Settings, Sliders, Video } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '../../lib/utils';
 
 interface SidebarProps {
@@ -8,12 +9,13 @@ interface SidebarProps {
 }
 
 export function Sidebar({ activeTab, onTabChange, onBack }: SidebarProps) {
+    const { t } = useTranslation();
     const tabs = [
-        { id: 'general', label: 'General', icon: Sliders },
-        { id: 'recording', label: 'Recording', icon: Video },
-        { id: 'llm', label: 'AI Models', icon: Cpu },
-        { id: 'mcp', label: 'MCP Tools', icon: Plug },
-        { id: 'storage', label: 'Storage', icon: HardDrive },
+        { id: 'general', label: t('settings.general', 'General'), icon: Sliders },
+        { id: 'recording', label: t('settings.recording_title', 'Recording'), icon: Video },
+        { id: 'llm', label: t('settings.ai_models', 'AI Models'), icon: Cpu },
+        { id: 'mcp', label: t('settings.mcp_tools', 'MCP Tools'), icon: Plug },
+        { id: 'storage', label: t('settings.storage', 'Storage'), icon: HardDrive },
     ];
 
     return (
@@ -24,7 +26,7 @@ export function Sidebar({ activeTab, onTabChange, onBack }: SidebarProps) {
                     className="flex items-center gap-2 text-sm font-medium text-zinc-400 hover:text-white transition-colors group mb-6 px-2"
                 >
                     <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
-                    <span>Back to App</span>
+                    <span>{t('settings.back_to_app', 'Back to App')}</span>
                 </button>
 
                 <div className="h-px bg-zinc-800/50 mb-6" />

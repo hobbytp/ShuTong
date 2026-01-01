@@ -1,9 +1,11 @@
 
 import { Plug, Plus, RefreshCw, Server, Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from './Shared';
 
 export function MCPSettings() {
+    const { t } = useTranslation();
     const [servers, _setServers] = useState([
         { id: 1, name: 'Filesystem', status: 'connected', type: 'stdio' },
         { id: 2, name: 'Browser', status: 'connected', type: 'stdio' }
@@ -14,11 +16,11 @@ export function MCPSettings() {
             <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
                 <div className="flex justify-between items-center mb-6">
                     <div>
-                        <h3 className="text-lg font-bold text-zinc-100">MCP Servers</h3>
-                        <p className="text-sm text-zinc-400 mt-1">Manage Model Context Protocol connections.</p>
+                        <h3 className="text-lg font-bold text-zinc-100">{t('mcp.title', 'MCP Servers')}</h3>
+                        <p className="text-sm text-zinc-400 mt-1">{t('mcp.subtitle', 'Manage Model Context Protocol connections.')}</p>
                     </div>
                     <Button>
-                        <Plus size={14} /> Add Server
+                        <Plus size={14} /> {t('mcp.add_server', 'Add Server')}
                     </Button>
                 </div>
 
@@ -52,9 +54,8 @@ export function MCPSettings() {
             <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4 flex gap-3">
                 <Plug className="text-blue-400 shrink-0 mt-0.5" size={18} />
                 <div className="text-sm text-blue-200/80">
-                    <p className="font-medium text-blue-200 mb-1">About MCP</p>
-                    MCP (Model Context Protocol) allows ShuTong to securely access local resources and tools.
-                    Configure servers here to expand your AI capabilities.
+                    <p className="font-medium text-blue-200 mb-1">{t('mcp.about_title', 'About MCP')}</p>
+                    {t('mcp.about_desc', 'MCP (Model Context Protocol) allows ShuTong to securely access local resources and tools. Configure servers here to expand your AI capabilities.')}
                 </div>
             </div>
         </div>

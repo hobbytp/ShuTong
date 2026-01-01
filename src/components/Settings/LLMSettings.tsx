@@ -1,6 +1,7 @@
 
 import { AlertCircle, Check, Download, Eye, EyeOff, Loader2, RotateCcw, Save, Terminal, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '../../lib/utils';
 import { Button, Input, Label, Select } from './Shared';
 
@@ -26,6 +27,7 @@ interface LLMConfig {
 }
 
 export function LLMSettings() {
+    const { t } = useTranslation();
     const [config, setConfig] = useState<LLMConfig | null>(null);
     const [activeSubTab, setActiveSubTab] = useState<'providers' | 'roles' | 'config'>('providers');
     const [toastState, setToastState] = useState<'idle' | 'saved'>('idle');
@@ -70,7 +72,7 @@ export function LLMSettings() {
     if (!config) return (
         <div className="flex items-center justify-center h-48 text-zinc-500 gap-2">
             <Loader2 className="animate-spin" size={16} />
-            Loading Configuration...
+            {t('llm.loading_config', 'Loading Configuration...')}
         </div>
     );
 
@@ -82,9 +84,9 @@ export function LLMSettings() {
             {/* Sub-tabs */}
             <div className="flex gap-2 border-b border-zinc-800 pb-1">
                 {[
-                    { id: 'providers', label: 'Providers' },
-                    { id: 'roles', label: 'Role Assignments' },
-                    { id: 'config', label: 'Raw Config' }
+                    { id: 'providers', label: t('llm.providers', 'Providers') },
+                    { id: 'roles', label: t('llm.roles', 'Role Assignments') },
+                    { id: 'config', label: t('llm.config', 'Raw Config') }
                 ].map(tab => (
                     <button
                         key={tab.id}
@@ -112,17 +114,17 @@ export function LLMSettings() {
                                 </h3>
                                 {p.hasKey ?
                                     <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
-                                        <Check size={12} strokeWidth={3} /> Active
+                                        <Check size={12} strokeWidth={3} /> {t('llm.active', 'Active')}
                                     </span> :
                                     <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-medium">
-                                        <AlertCircle size={12} strokeWidth={2.5} /> Setup Required
+                                        <AlertCircle size={12} strokeWidth={2.5} /> {t('llm.setup_required', 'Setup Required')}
                                     </span>
                                 }
                             </div>
 
                             <div className="space-y-4">
                                 <div>
-                                    <Label>Base URL</Label>
+                                    <Label>{t('llm.base_url', 'Base URL')}</Label>
                                     <Input
                                         type="text"
                                         defaultValue={p.apiBaseUrl}
@@ -132,11 +134,11 @@ export function LLMSettings() {
                                 </div>
 
                                 <div>
-                                    <Label>API Key</Label>
+                                    <Label>{t('llm.api_key', 'API Key')}</Label>
                                     <div className="relative mb-3">
                                         <Input
                                             type="password"
-                                            placeholder={p.hasKey ? "Loaded from Settings/Env (Hidden)" : "Enter API Key"}
+                                            placeholder={p.hasKey ? t('llm.api_key_placeholder_loaded', 'Loaded from Settings/Env (Hidden)') : t('llm.api_key_placeholder_enter', 'Enter API Key')}
                                             defaultValue={p.apiKey} // Note: Usually empty or hidden
                                             onBlur={(e) => handleProviderUpdate(name, { apiKey: e.target.value })}
                                             className="pr-10"
@@ -173,7 +175,7 @@ export function LLMSettings() {
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div>
-                                        <Label>Provider</Label>
+                                        <Label>{t('llm.provider', 'Provider')}</Label>
                                         <Select
                                             value={roleCfg.provider}
                                             onChange={(e) => {
@@ -188,17 +190,17 @@ export function LLMSettings() {
                                         </Select>
                                         <p className="mt-2 text-[10px] text-zinc-500 font-mono flex items-center gap-1">
                                             <Terminal size={10} />
-                                            Active Key: {config.providers[roleCfg.provider]?.hasKey ? 'Present' : 'Missing'}
+                                            {t('llm.active_key', 'Active Key')}: {config.providers[roleCfg.provider]?.hasKey ? t('llm.present', 'Present') : t('llm.missing', 'Missing')}
                                         </p>
                                     </div>
 
                                     <div>
-                                        <Label>Model</Label>
+                                        <Label>{t('llm.model', 'Model')}</Label>
                                         <Combobox
                                             value={roleCfg.model}
                                             options={availableModels}
                                             onChange={(val) => handleRoleUpdate(roleKey, { model: val })}
-                                            placeholder="Select or type model..."
+                                            placeholder={t('llm.select_model', 'Select or type model...')}
                                         />
 
                                         <div className="mt-4">
@@ -232,7 +234,7 @@ export function LLMSettings() {
                     </svg>
                 </div>
                 <span className="text-sm font-medium text-zinc-200">
-                    Changes saved
+                    {t('llm.changes_saved', 'Changes saved')}
                 </span>
             </div>
         </div>
@@ -278,6 +280,7 @@ function Combobox({ value, options, onChange, placeholder }: { value: string, op
 }
 
 function ConfigEditor() {
+    const { t } = useTranslation();
     const [content, setContent] = useState('');
     const [status, setStatus] = useState('');
 
@@ -337,10 +340,10 @@ function ConfigEditor() {
         <div className="flex flex-col h-[600px] bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden">
             <div className="flex items-center gap-2 p-3 border-b border-zinc-800 bg-zinc-900/50">
                 <Button onClick={handleSave} variant="primary" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20">
-                    <Save size={14} /> Save
+                    <Save size={14} /> {t('llm.save', 'Save')}
                 </Button>
                 <Button onClick={load} variant="outline">
-                    <RotateCcw size={14} /> Reset
+                    <RotateCcw size={14} /> {t('llm.reset', 'Reset')}
                 </Button>
                 <div className="flex-1"></div>
 
@@ -354,10 +357,10 @@ function ConfigEditor() {
                 )}
 
                 <Button onClick={handleImport} variant="outline">
-                    <Upload size={14} /> Import
+                    <Upload size={14} /> {t('llm.import', 'Import')}
                 </Button>
                 <Button onClick={handleExport} variant="outline">
-                    <Download size={14} /> Export
+                    <Download size={14} /> {t('llm.export', 'Export')}
                 </Button>
             </div>
 
@@ -372,6 +375,7 @@ function ConfigEditor() {
 }
 
 function TestButton({ providerName, config, hasKey, modelName, onSuccess }: { providerName: string, config: { apiKey: string, apiBaseUrl: string }, hasKey: boolean, modelName?: string, onSuccess?: () => void }) {
+    const { t } = useTranslation();
     const [status, setStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
     const [msg, setMsg] = useState('');
 
@@ -416,10 +420,10 @@ function TestButton({ providerName, config, hasKey, modelName, onSuccess }: { pr
                 className={status === 'testing' ? 'cursor-not-allowed text-zinc-500 bg-zinc-800' : ''}
             >
                 {status === 'testing' ? <Loader2 size={12} className="animate-spin" /> : <Terminal size={12} />}
-                {status === 'testing' ? 'Testing...' : `Test ${modelName ? 'Model' : 'Connection'}`}
+                {status === 'testing' ? t('llm.testing', 'Testing...') : `${t(modelName ? 'llm.test_model' : 'llm.test_connection', modelName ? 'Test Model' : 'Test Connection')}`}
             </Button>
 
-            {status === 'success' && <span className="text-emerald-400 text-xs font-medium flex items-center gap-1"><Check size={12} /> {msg}</span>}
+            {status === 'success' && <span className="text-emerald-400 text-xs font-medium flex items-center gap-1"><Check size={12} /> {msg || t('llm.connected', 'Connected')}</span>}
             {status === 'error' && <span className="text-red-400 text-xs font-medium flex items-center gap-1"><AlertCircle size={12} /> {msg}</span>}
         </div>
     );

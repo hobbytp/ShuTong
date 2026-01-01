@@ -1,4 +1,5 @@
 import { Activity, Clock, FileText, Home, PlayCircle, Settings, Sparkles } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { Tooltip } from '../ui/tooltip-simple';
@@ -9,13 +10,14 @@ interface SidebarProps {
 }
 
 export function Sidebar({ activePage, onNavigate }: SidebarProps) {
+    const { t } = useTranslation();
     const navItems = [
-        { id: 'home', icon: Home, label: 'Home' },
-        { id: 'timeline', icon: Clock, label: 'Timeline' },
-        { id: 'pulse', icon: Sparkles, label: 'Pulse' },
-        { id: 'analytics', icon: Activity, label: 'Analytics' },
-        { id: 'journal', icon: FileText, label: 'Journal' },
-        { id: 'timelapse', icon: PlayCircle, label: 'Timelapse' },
+        { id: 'home', icon: Home, label: t('sidebar.home', 'Home') },
+        { id: 'timeline', icon: Clock, label: t('sidebar.timeline', 'Timeline') },
+        { id: 'pulse', icon: Sparkles, label: t('sidebar.pulse', 'Pulse') },
+        { id: 'analytics', icon: Activity, label: t('sidebar.analytics', 'Analytics') },
+        { id: 'journal', icon: FileText, label: t('sidebar.journal', 'Journal') },
+        { id: 'timelapse', icon: PlayCircle, label: t('sidebar.timelapse', 'Timelapse') },
     ];
 
     return (
@@ -50,7 +52,7 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
             </div>
 
             <div className="p-3 border-t border-zinc-800/50 w-full flex justify-center flex-shrink-0 mt-auto">
-                <Tooltip content="Settings" side="right">
+                <Tooltip content={t('sidebar.settings', 'Settings')} side="right">
                     <Button
                         variant={activePage === 'settings' ? "secondary" : "ghost"}
                         className={cn(
@@ -63,7 +65,7 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
                             "text-zinc-400",
                             activePage === 'settings' && "text-indigo-400"
                         )} />
-                        <span className="sr-only">Settings</span>
+                        <span className="sr-only">{t('sidebar.settings', 'Settings')}</span>
                     </Button>
                 </Tooltip>
             </div>

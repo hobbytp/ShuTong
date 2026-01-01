@@ -1,19 +1,42 @@
-import { app, BrowserWindow, dialog, screen as electronScreen, ipcMain, nativeImage, net, protocol, shell } from 'electron'
-import { createLLMProviderFromConfig } from './llm/providers'
+import { app, BrowserWindow, dialog, screen as electronScreen, ipcMain, nativeImage, net, protocol, shell } from 'electron';
+import { createLLMProviderFromConfig } from './llm/providers';
 
-import { autoUpdater } from 'electron-updater'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { cancelMigration, commitMigration, getBootstrapConfig, PendingMigration, resolveUserDataPath, setCustomUserDataPath, setPendingMigration } from './bootstrap'
-import { getMergedLLMConfig, getRawLLMConfig, saveRawLLMConfig, setLLMProviderConfig, setRoleConfig } from './config_manager'
-import { backupService, setupBackupIPC } from './features/backup'
-import { getIsRecording, startRecording, stopRecording } from './features/capture'
-import { setupAnalyticsIPC } from './features/timeline'
-import { createVideoGenerationWindow, setupVideoIPC, setupVideoSubscribers } from './features/video'
-import { eventBus } from './infrastructure/events'
-import { getLLMMetrics } from './llm/metrics'
-import { copyUserData } from './migration-utils'
-import { getIsQuitting, setupTray, updateTrayMenu } from './tray'
+import { autoUpdater } from 'electron-updater';
+import i18next from 'i18next';
+import Backend from 'i18next-fs-backend';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { cancelMigration, commitMigration, getBootstrapConfig, PendingMigration, resolveUserDataPath, setCustomUserDataPath, setPendingMigration } from './bootstrap';
+import { getMergedLLMConfig, getRawLLMConfig, saveRawLLMConfig, setLLMProviderConfig, setRoleConfig } from './config_manager';
+import { backupService, setupBackupIPC } from './features/backup';
+import { getIsRecording, startRecording, stopRecording } from './features/capture';
+import { setupAnalyticsIPC } from './features/timeline';
+import { createVideoGenerationWindow, setupVideoIPC, setupVideoSubscribers } from './features/video';
+import { eventBus } from './infrastructure/events';
+import { getLLMMetrics } from './llm/metrics';
+import { copyUserData } from './migration-utils';
+import { getIsQuitting, setupTray, updateTrayMenu } from './tray';
+
+// Initialize i18next
+async function initI18n() {
+  const currentLang = getSetting('language') || 'en';
+
+  if (!process.env.VITE_PUBLIC) {
+    console.warn('[Main] VITE_PUBLIC not set, skipping i18n init');
+    return;
+  }
+
+  await i18next
+    .use(Backend)
+    .init({
+      lng: currentLang,
+      fallbackLng: 'en',
+      backend: {
+        loadPath: path.join(process.env.VITE_PUBLIC, 'locales/{{lng}}/{{ns}}.json'),
+      }
+    });
+  console.log(`[Main] i18n initialized with language: ${currentLang}`);
+}
 
 // Set App name and User Model ID for Windows taskbar icon
 app.name = 'ShuTong';
@@ -122,11 +145,11 @@ app.on('window-all-closed', () => {
   }
 })
 
-import { setupDeepLinks } from './deeplink'
-import { setupScreenCapture } from './features/capture'
-import { cleanupOldSnapshots, startAnalysisJob } from './features/timeline'
-import { checkReminders, sendNotification } from './scheduler'
-import { closeStorage, exportTimelineMarkdown, getCardDetails, getIsResetting, getPulseCardById, getPulseCards, getReminderSettings, getRetentionSettings, getScreenshotsForCard, getSetting, getTimelineCards, initStorage, savePulseCard } from './storage'
+import { setupDeepLinks } from './deeplink';
+import { setupScreenCapture } from './features/capture';
+import { cleanupOldSnapshots, startAnalysisJob } from './features/timeline';
+import { checkReminders, sendNotification } from './scheduler';
+import { closeStorage, exportTimelineMarkdown, getCardDetails, getIsResetting, getPulseCardById, getPulseCards, getReminderSettings, getRetentionSettings, getScreenshotsForCard, getSetting, getTimelineCards, initStorage, savePulseCard, setSetting } from './storage';
 
 app.on('activate', () => {
   // ...
@@ -464,10 +487,29 @@ async function startApp() {
     ipcMain.handle('open-data-folder', () => shell.openPath(app.getPath('userData')));
     ipcMain.handle('get-app-path', (_, name) => app.getPath(name));
 
+    ipcMain.handle('change-language', async (_, lang: string) => {
+      setSetting('language', lang);
+      await i18next.changeLanguage(lang);
+      updateTrayMenu(() => win, getIsRecording());
+      // Notify all windows
+      BrowserWindow.getAllWindows().forEach(w => {
+        w.webContents.send('language-changed', lang);
+      });
+      return { success: true };
+    });
+
+    ipcMain.handle('get-language', () => {
+      return getSetting('language') || 'en';
+    });
+
     console.log('[Main] IPC handlers registered')
 
     initStorage()
     console.log('[Main] Storage initialized')
+
+    // Initialize I18n AFTER storage is ready
+    await initI18n();
+    console.log('[Main] I18n initialized')
 
     // Register before-quit handler after storage is initialized
     app.on('before-quit', (e) => {
@@ -484,6 +526,49 @@ async function startApp() {
         return;
       }
     });
+
+    // Register protocol handlers BEFORE creating window to prevent race condition
+    // where page loads media:// URLs before handler is ready
+    protocol.handle('media', (request) => {
+      try {
+        // Robust URL parsing
+        let filePath = request.url.replace(/^media:\/*/, '');
+        filePath = decodeURIComponent(filePath);
+
+        // Fix Windows drive letter issues (e.g. "f/RayTan" -> "f:/RayTan")
+        // If the path starts with a drive letter but no colon (browser normalization artifact)
+        if (process.platform === 'win32' && /^[a-zA-Z]\//.test(filePath)) {
+          filePath = filePath[0] + ':' + filePath.slice(1);
+        }
+
+        // Ensure standard file:// format
+        const targetUrl = 'file:///' + filePath;
+        console.log(`[Main] Media request: ${request.url} -> ${targetUrl}`);
+        return net.fetch(targetUrl);
+      } catch (err) {
+        console.error('[Main] Media protocol error:', err);
+        return new Response('Error loading media', { status: 500 });
+      }
+    });
+
+    protocol.handle('local-file', (request) => {
+      try {
+        let filePath = request.url.replace(/^local-file:\/*/, '');
+        filePath = decodeURIComponent(filePath);
+
+        if (process.platform === 'win32' && /^[a-zA-Z]\//.test(filePath)) {
+          filePath = filePath[0] + ':' + filePath.slice(1);
+        }
+
+        const targetUrl = 'file:///' + filePath;
+        return net.fetch(targetUrl);
+      } catch (err) {
+        console.error('[Main] Local-file protocol error:', err);
+        return new Response('Error loading file', { status: 500 });
+      }
+    });
+
+    console.log('[Main] Protocol handlers registered');
 
     createWindow()
     console.log('[Main] Window created')
@@ -571,44 +656,6 @@ async function startApp() {
       win?.webContents.send('capture-error', { title, message });
 
       dialog.showErrorBox(title, message);
-    });
-    protocol.handle('media', (request) => {
-      try {
-        // Robust URL parsing
-        let filePath = request.url.replace(/^media:\/*/, '');
-        filePath = decodeURIComponent(filePath);
-
-        // Fix Windows drive letter issues (e.g. "f/RayTan" -> "f:/RayTan")
-        // If the path starts with a drive letter but no colon (browser normalization artifact)
-        if (process.platform === 'win32' && /^[a-zA-Z]\//.test(filePath)) {
-          filePath = filePath[0] + ':' + filePath.slice(1);
-        }
-
-        // Ensure standard file:// format
-        const targetUrl = 'file:///' + filePath;
-        console.log(`[Main] Media request: ${request.url} -> ${targetUrl}`);
-        return net.fetch(targetUrl);
-      } catch (err) {
-        console.error('[Main] Media protocol error:', err);
-        return new Response('Error loading media', { status: 500 });
-      }
-    })
-
-    protocol.handle('local-file', (request) => {
-      try {
-        let filePath = request.url.replace(/^local-file:\/*/, '');
-        filePath = decodeURIComponent(filePath);
-
-        if (process.platform === 'win32' && /^[a-zA-Z]\//.test(filePath)) {
-          filePath = filePath[0] + ':' + filePath.slice(1);
-        }
-
-        const targetUrl = 'file:///' + filePath;
-        return net.fetch(targetUrl);
-      } catch (err) {
-        console.error('[Main] Local-file protocol error:', err);
-        return new Response('Error loading file', { status: 500 });
-      }
     });
 
     createVideoGenerationWindow();

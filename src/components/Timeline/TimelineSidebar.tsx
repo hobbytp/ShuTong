@@ -1,5 +1,6 @@
 import { ChevronRight, Download, Filter, Loader2, Search, Sparkles } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { TimelineCard } from '../../lib/ipc';
 
 interface SemanticResult {
@@ -40,6 +41,7 @@ export function TimelineSidebar({
     selectedCategory,
     onCategorySelect
 }: TimelineSidebarProps) {
+    const { t } = useTranslation();
     const categories = ['All', 'Work', 'Personal', 'Distraction', 'Meeting'];
     const [searchMode, setSearchMode] = useState<'keyword' | 'semantic'>('keyword');
     const [semanticResults, setSemanticResults] = useState<SemanticResult[]>([]);
@@ -123,12 +125,12 @@ export function TimelineSidebar({
             {/* Header with Search and Filter */}
             <div className="p-5 border-b border-zinc-900 space-y-4 sticky top-0 bg-zinc-950/95 backdrop-blur-xl z-10">
                 <div className="flex items-center justify-between">
-                    <h2 className="text-xs font-black text-zinc-400 uppercase tracking-widest">Timeline</h2>
+                    <h2 className="text-xs font-black text-zinc-400 uppercase tracking-widest">{t('timeline.title', 'Timeline')}</h2>
                     <div className="flex items-center gap-1">
                         <div
                             onClick={handleExport}
                             className="p-1.5 rounded-md hover:bg-zinc-900 transition-colors cursor-pointer group"
-                            title="Export to Markdown"
+                            title={t('timeline.export', 'Export to Markdown')}
                         >
                             <Download size={14} className="text-zinc-600 group-hover:text-zinc-300 transition-colors" />
                         </div>
@@ -143,7 +145,7 @@ export function TimelineSidebar({
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 group-focus-within:text-zinc-300 transition-colors" size={14} />
                     <input
                         type="text"
-                        placeholder={searchMode === 'semantic' ? "Ask anything..." : "Search..."}
+                        placeholder={searchMode === 'semantic' ? t('timeline.semantic_placeholder', "Ask anything...") : t('timeline.search_placeholder', "Search...")}
                         value={searchQuery}
                         onChange={(e) => handleSearchChange(e.target.value)}
                         className="w-full bg-zinc-900/50 border border-zinc-800 rounded-lg pl-9 pr-9 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/50 transition-all shadow-sm"
@@ -163,7 +165,7 @@ export function TimelineSidebar({
                             }`}
                     >
                         <Search size={12} />
-                        Keyword
+                        {t('timeline.keyword_search', 'Keyword')}
                     </button>
                     <button
                         onClick={() => handleModeChange('semantic')}
@@ -173,7 +175,7 @@ export function TimelineSidebar({
                             }`}
                     >
                         <Sparkles size={12} />
-                        AI Search
+                        {t('timeline.ai_search', 'AI Search')}
                     </button>
                 </div>
 
@@ -203,7 +205,7 @@ export function TimelineSidebar({
                     <div className="flex flex-col items-center justify-center p-8 text-center h-48 opacity-50">
                         <Search size={24} className="text-zinc-700 mb-2" />
                         <p className="text-zinc-600 text-xs italic">
-                            {searchQuery ? 'No matching activities.' : 'No activities yet.'}
+                            {searchQuery ? t('timeline.no_matches', 'No matching activities.') : t('timeline.no_activities', 'No activities yet.')}
                         </p>
                     </div>
                 )}

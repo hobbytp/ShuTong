@@ -1,5 +1,6 @@
 import { Activity, Camera, Clock, Eye, EyeOff, FileText, Gauge, HardDrive, Layers, Monitor, Play, Shield } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Input } from './Shared';
 
 interface RecordingConfig {
@@ -55,6 +56,7 @@ const CAPTURE_MODE_OPTIONS = [
 
 
 export function RecordingSettings() {
+    const { t } = useTranslation();
     const [config, setConfig] = useState<RecordingConfig>({
         capture_interval_ms: 1000,
         capture_resolution: '1920x1080',
@@ -220,7 +222,7 @@ export function RecordingSettings() {
             <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
                 <h3 className="text-lg font-bold text-zinc-100 mb-6 flex items-center gap-2">
                     <Camera size={20} className="text-indigo-400" />
-                    Capture Settings
+                    {t('recording.capture_settings', 'Capture Settings')}
                 </h3>
 
                 <div className="space-y-6">
@@ -231,8 +233,8 @@ export function RecordingSettings() {
                                 <Clock size={18} className="text-indigo-400" />
                             </div>
                             <div>
-                                <div className="text-sm font-medium text-zinc-200">Capture Interval</div>
-                                <div className="text-xs text-zinc-500">How often to take screenshots</div>
+                                <div className="text-sm font-medium text-zinc-200">{t('recording.capture_interval', 'Capture Interval')}</div>
+                                <div className="text-xs text-zinc-500">{t('recording.capture_interval_desc', 'How often to take screenshots')}</div>
                             </div>
                         </div>
                         <div className="flex items-center gap-3 w-1/2 justify-end">
@@ -260,8 +262,8 @@ export function RecordingSettings() {
                                 <Layers size={18} className="text-violet-400" />
                             </div>
                             <div>
-                                <div className="text-sm font-medium text-zinc-200">Capture Mode</div>
-                                <div className="text-xs text-zinc-500">Choose what to capture</div>
+                                <div className="text-sm font-medium text-zinc-200">{t('recording.capture_mode', 'Capture Mode')}</div>
+                                <div className="text-xs text-zinc-500">{t('recording.capture_mode_desc', 'Choose what to capture')}</div>
                             </div>
                         </div>
                         <div className="w-48">
@@ -285,8 +287,8 @@ export function RecordingSettings() {
                                     <Monitor size={18} className="text-emerald-400" />
                                 </div>
                                 <div>
-                                    <div className="text-sm font-medium text-zinc-200">Screen to Capture</div>
-                                    <div className="text-xs text-zinc-500">Select which display to record</div>
+                                    <div className="text-sm font-medium text-zinc-200">{t('recording.screen_to_capture', 'Screen to Capture')}</div>
+                                    <div className="text-xs text-zinc-500">{t('recording.screen_desc', 'Select which display to record')}</div>
                                 </div>
                             </div>
                             <div className="w-48">
@@ -359,8 +361,8 @@ export function RecordingSettings() {
                                 <Play size={18} className="text-cyan-400" />
                             </div>
                             <div>
-                                <div className="text-sm font-medium text-zinc-200">Auto-Start Recording</div>
-                                <div className="text-xs text-zinc-500">Start recording when app launches</div>
+                                <div className="text-sm font-medium text-zinc-200">{t('recording.auto_start', 'Auto-Start Recording')}</div>
+                                <div className="text-xs text-zinc-500">{t('recording.auto_start_desc', 'Start recording when app launches')}</div>
                             </div>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">
@@ -405,7 +407,7 @@ export function RecordingSettings() {
             <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
                 <h3 className="text-lg font-bold text-zinc-100 mb-6 flex items-center gap-2">
                     <Shield size={20} className="text-blue-400" />
-                    Smart Capture Guard
+                    {t('recording.smart_guard', 'Smart Capture Guard')}
                 </h3>
 
                 <div className="space-y-6">
@@ -576,7 +578,7 @@ export function RecordingSettings() {
             <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
                 <h3 className="text-lg font-bold text-zinc-100 mb-6 flex items-center gap-2">
                     <EyeOff size={20} className="text-emerald-400" />
-                    Privacy & Scope
+                    {t('recording.privacy_scope', 'Privacy & Scope')}
                 </h3>
 
                 <div className="space-y-6">
@@ -690,16 +692,16 @@ export function RecordingSettings() {
             <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
                 <h3 className="text-lg font-bold text-zinc-100 mb-6 flex items-center gap-2">
                     <Activity size={20} className="text-rose-400" />
-                    Guard Statistics
+                    {t('recording.guard_stats', 'Guard Statistics')}
                 </h3>
 
                 <div className="grid grid-cols-2 gap-4 mb-6">
                     <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
-                        <div className="text-sm text-zinc-500 mb-1">Total Captures</div>
+                        <div className="text-sm text-zinc-500 mb-1">{t('recording.total_captures', 'Total Captures')}</div>
                         <div className="text-2xl font-bold text-zinc-100">{guardStats?.totalCaptures || 0}</div>
                     </div>
                     <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
-                        <div className="text-sm text-zinc-500 mb-1">Skipped Frames</div>
+                        <div className="text-sm text-zinc-500 mb-1">{t('recording.skipped_frames', 'Skipped Frames')}</div>
                         <div className="text-2xl font-bold text-amber-500">{guardStats?.totalSkips || 0}</div>
                     </div>
                 </div>
@@ -756,7 +758,7 @@ export function RecordingSettings() {
                     </div>
                 )}
                 <span className="text-sm font-medium text-zinc-200">
-                    {saveState === 'saving' ? 'Saving changes...' : 'Changes saved'}
+                    {saveState === 'saving' ? t('recording.saving', 'Saving changes...') : t('recording.saved', 'Changes saved')}
                 </span>
             </div>
         </div>

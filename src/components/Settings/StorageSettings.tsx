@@ -1,6 +1,7 @@
 
 import { AlertTriangle, Archive, Clock, Database, Download, FolderOpen, HardDrive, MapPin, Trash2, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useBackup } from '../../hooks/useBackup';
 import { BackupProgressModal } from './BackupProgressModal';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -19,6 +20,7 @@ const StatCard = ({ label, value, icon: Icon }: any) => (
 );
 
 export function StorageSettings() {
+    const { t } = useTranslation();
     const [clearing, setClearing] = useState(false);
     const [retentionDays, setRetentionDays] = useState('30');
     const [dataPath, setDataPath] = useState('Loading...');
@@ -133,12 +135,12 @@ export function StorageSettings() {
     return (
         <div className="space-y-8 animate-in fade-in duration-500">
             <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
-                <h3 className="text-lg font-bold text-zinc-100 mb-6">Storage Overview</h3>
+                <h3 className="text-lg font-bold text-zinc-100 mb-6">{t('storage.overview', 'Storage Overview')}</h3>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                    <StatCard label="Database Size" value="24.5 MB" icon={Database} />
-                    <StatCard label="Screenshots" value="1.2 GB" icon={HardDrive} />
-                    <StatCard label="Total Items" value="15,420" icon={FolderOpen} />
+                    <StatCard label={t('storage.database_size', 'Database Size')} value="24.5 MB" icon={Database} />
+                    <StatCard label={t('storage.screenshots', 'Screenshots')} value="1.2 GB" icon={HardDrive} />
+                    <StatCard label={t('storage.total_items', 'Total Items')} value="15,420" icon={FolderOpen} />
                 </div>
 
                 <div className="flex items-center justify-between p-4 bg-zinc-950 border border-zinc-800 rounded-lg mb-6">
@@ -147,7 +149,7 @@ export function StorageSettings() {
                             <MapPin size={20} className="text-indigo-400" />
                         </div>
                         <div className="min-w-0">
-                            <div className="text-zinc-200 font-medium text-sm">Storage Location</div>
+                            <div className="text-zinc-200 font-medium text-sm">{t('storage.location', 'Storage Location')}</div>
                             <div className="text-zinc-500 text-xs font-mono mt-0.5 truncate" title={dataPath}>
                                 {dataPath}
                             </div>
@@ -155,10 +157,10 @@ export function StorageSettings() {
                     </div>
                     <div className="flex items-center gap-2">
                         <Button variant="outline" onClick={handleOpenFolder}>
-                            Open Folder
+                            {t('storage.open_folder', 'Open Folder')}
                         </Button>
                         <Button variant="outline" onClick={handleChangeLocation}>
-                            Change Location
+                            {t('storage.change_location', 'Change Location')}
                         </Button>
                     </div>
                 </div>
@@ -166,7 +168,7 @@ export function StorageSettings() {
                 <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
                     <div className="flex items-center gap-2 mb-4">
                         <Clock size={16} className="text-zinc-400" />
-                        <span className="text-sm font-medium text-zinc-200">Retention Policy</span>
+                        <span className="text-sm font-medium text-zinc-200">{t('storage.retention_policy', 'Retention Policy')}</span>
                     </div>
                     <div className="flex items-center gap-4">
                         <div className="max-w-[120px]">
@@ -177,10 +179,10 @@ export function StorageSettings() {
                                 min="1"
                             />
                         </div>
-                        <span className="text-sm text-zinc-500">days of history to keep</span>
+                        <span className="text-sm text-zinc-500">{t('storage.retention_desc', 'days of history to keep')}</span>
                     </div>
                     <p className="text-xs text-zinc-500 mt-2">
-                        Data older than this limit will be automatically deleted on startup.
+                        {t('storage.retention_note', 'Data older than this limit will be automatically deleted on startup.')}
                     </p>
                 </div>
             </div>
@@ -188,13 +190,13 @@ export function StorageSettings() {
             <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
                 <div className="flex items-center gap-2 mb-4">
                     <Archive size={20} className="text-indigo-400" />
-                    <h3 className="text-lg font-bold text-zinc-100">Data Management</h3>
+                    <h3 className="text-lg font-bold text-zinc-100">{t('storage.data_management', 'Data Management')}</h3>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="p-4 bg-zinc-950 border border-zinc-900 rounded-lg">
-                        <h4 className="text-sm font-medium text-zinc-200 mb-2">Export Backup</h4>
-                        <p className="text-xs text-zinc-500 mb-4">Save all your data (database, vectors, screenshots) to a portable zip file.</p>
+                        <h4 className="text-sm font-medium text-zinc-200 mb-2">{t('storage.export_backup', 'Export Backup')}</h4>
+                        <p className="text-xs text-zinc-500 mb-4">{t('storage.export_desc', 'Save all your data (database, vectors, screenshots) to a portable zip file.')}</p>
                         <Button variant="outline" onClick={async () => {
                             const path = await selectSavePath();
                             if (path) {
@@ -207,13 +209,13 @@ export function StorageSettings() {
                                 }
                             }
                         }} disabled={isBackingUp || isRestoring}>
-                            <Download size={14} /> Export Backup
+                            <Download size={14} /> {t('storage.export_backup', 'Export Backup')}
                         </Button>
                     </div>
 
                     <div className="p-4 bg-zinc-950 border border-zinc-900 rounded-lg">
-                        <h4 className="text-sm font-medium text-zinc-200 mb-2">Import Backup</h4>
-                        <p className="text-xs text-zinc-500 mb-4">Restore data from a previous backup. Current data will be replaced.</p>
+                        <h4 className="text-sm font-medium text-zinc-200 mb-2">{t('storage.import_backup', 'Import Backup')}</h4>
+                        <p className="text-xs text-zinc-500 mb-4">{t('storage.import_desc', 'Restore data from a previous backup. Current data will be replaced.')}</p>
                         <Button variant="outline" onClick={async () => {
                             if (!confirm('This will overwrite your current data. Are you sure?')) return;
                             const path = await selectOpenPath();
@@ -227,7 +229,7 @@ export function StorageSettings() {
                                 }
                             }
                         }} disabled={isBackingUp || isRestoring}>
-                            <Upload size={14} /> Import Backup
+                            <Upload size={14} /> {t('storage.import_backup', 'Import Backup')}
                         </Button>
                     </div>
                 </div>
@@ -255,9 +257,9 @@ export function StorageSettings() {
                         <AlertTriangle size={20} className="text-red-500" />
                     </div>
                     <div className="flex-1">
-                        <h3 className="text-base font-bold text-red-500 mb-2">Danger Zone</h3>
+                        <h3 className="text-base font-bold text-red-500 mb-2">{t('storage.danger_zone', 'Danger Zone')}</h3>
                         <p className="text-sm text-red-400/80 mb-6 max-w-lg">
-                            Resetting the database will remove all timeline entries, journal logs, and analyzed data. This action cannot be undone.
+                            {t('storage.danger_desc', 'Resetting the database will remove all timeline entries, journal logs, and analyzed data. This action cannot be undone.')}
                         </p>
 
                         <div className="mb-4">
@@ -268,7 +270,7 @@ export function StorageSettings() {
                                     onChange={e => setBackupBeforeReset(e.target.checked)}
                                     className="rounded border-zinc-700 bg-zinc-900 text-indigo-500 focus:ring-indigo-500/20"
                                 />
-                                Create a backup before resetting
+                                {t('storage.backup_before_reset', 'Create a backup before resetting')}
                             </label>
                         </div>
 
@@ -279,7 +281,7 @@ export function StorageSettings() {
                             className="bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/20 border-transparent"
                         >
                             <Trash2 size={16} />
-                            {clearing ? 'Clearing Data...' : 'Reset Database'}
+                            {clearing ? t('storage.clearing_data', 'Clearing Data...') : t('storage.reset_database', 'Reset Database')}
                         </Button>
                     </div>
                 </div>

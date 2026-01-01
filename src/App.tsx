@@ -36,6 +36,20 @@ function App() {
       }
     }
     checkState()
+    // Subscribe to language changes
+    // @ts-ignore
+    const cleanupLang = window.electron?.on('language-changed', (lang: string) => {
+      import('./i18n').then(({ default: i18n }) => {
+        if (i18n.language !== lang) {
+          i18n.changeLanguage(lang);
+        }
+      });
+    });
+
+    return () => {
+      // @ts-ignore
+      if (cleanupLang) cleanupLang();
+    }
   }, [])
 
 

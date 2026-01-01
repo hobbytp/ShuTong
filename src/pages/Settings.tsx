@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { LLMSettings } from '../components/Settings/LLMSettings';
 import { Sidebar } from '../components/Settings/Sidebar';
 
@@ -8,6 +9,7 @@ import { RecordingSettings } from '../components/Settings/RecordingSettings';
 import { StorageSettings } from '../components/Settings/StorageSettings';
 
 export function Settings({ onBack }: { onBack: () => void }) {
+    const { t } = useTranslation();
     const [activeTab, setActiveTab] = useState('llm'); // specific default could be passed in props
 
     const renderContent = () => {
@@ -28,10 +30,10 @@ export function Settings({ onBack }: { onBack: () => void }) {
                 <div className="max-w-4xl mx-auto p-8 md:p-12">
                     <header className="mb-8">
                         <h1 className="text-3xl font-bold tracking-tight text-white mb-2 capitalize">
-                            {activeTab === 'llm' ? 'AI Models & Providers' : activeTab + ' Settings'}
+                            {activeTab === 'llm' ? t('settings.ai_models_providers', 'AI Models & Providers') : t(`settings.${activeTab}`, activeTab) + ' ' + t('settings.title', 'Settings')}
                         </h1>
                         <p className="text-zinc-400 text-sm">
-                            Manage your application preferences and configurations.
+                            {t('settings.manage_prefs', 'Manage your application preferences and configurations.')}
                         </p>
                     </header>
 
