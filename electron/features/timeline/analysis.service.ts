@@ -1,6 +1,7 @@
 import path from 'path';
 import { getMergedLLMConfig } from '../../config_manager';
 import { eventBus } from '../../infrastructure/events';
+import { measure, metrics } from '../../infrastructure/monitoring/metrics.service';
 import { LLMService } from '../../llm/service';
 import {
     fetchUnprocessedScreenshots,
@@ -22,7 +23,19 @@ const llmService = new LLMService();
 // FOR TESTING: Disable dynamic imports in test environment to avoid module loading issues
 const isTest = process.env.NODE_ENV === 'test';
 
-// ... existing start/stop ...
+let isProcessing = false;
+
+// Extended Screenshot type for analysis (adds test-compatibility fields)
+type AnalysisScreenshot = {
+    id: number;
+    file_path: string;
+    captured_at: number;
+    app_name?: string | null;
+    window_title?: string | null;
+    ocr_text?: string;
+    timestamp?: number;  // For test compatibility
+    file_size?: number;
+};
 
 export async function processRecordings() {
     if (isProcessing) return;
@@ -54,7 +67,7 @@ export async function processRecordings() {
             );
 
             if (batchId) {
-                console.log(`[Analysis] Created Batch #${batchId} (${batch.screenshots.length} shots, ${formatDuration(batch.end - batch.start)})`);
+                console.log(`[Analysis] Created Batch #${batchId} (${batch.screenshots.length} shots, ${Math.round(batch.end - batch.start)}s)`);
 
                 // Mark initial status
                 updateBatchStatus(Number(batchId), 'pending');
@@ -73,7 +86,7 @@ export async function processRecordings() {
 
 // FOR TESTING: screenshotsOverride allows tests to bypass storage lookup and inject screenshots directly
 // This avoids the need to mock the entire storage layer for each test
-async function processBatch(batchId: number, screenshotsOverride?: Screenshot[]) {
+async function processBatch(batchId: number, screenshotsOverride?: AnalysisScreenshot[]) {
     try {
         console.log(`[Analysis] Processing Batch #${batchId}...`);
         updateBatchStatus(batchId, 'processing');
@@ -93,19 +106,24 @@ async function processBatch(batchId: number, screenshotsOverride?: Screenshot[])
         if (ocrService.isEnabled() && !isTest) {
             try {
                 console.log(`[Analysis] Running OCR on sample screenshots for Batch #${batchId}...`);
-                // Sample up to 3 screenshots for OCR (first, middle, last)
-                const sampleIndices = getSampleIndices(screenshots.length, 3);
-                const samplePaths = sampleIndices
-                    .map(i => screenshots[i]?.file_path)
-                    .filter((p): p is string => !!p);
+                // Advanced Sampling Strategy (Phase 3)
+                // 1. Prioritize the LAST frame (capture intent before context switch)
+                // 2. Avoid Desktop/Empty windows
+                // 3. For long duration batches, capture intermediate states
+                const samplePaths = selectKeyframesForOCR(screenshots);
 
-                const ocrResults = await ocrService.extractTextBatch(samplePaths);
-                for (const [path, result] of ocrResults) {
-                    if (result?.text) {
-                        ocrTexts.set(path, result.text);
+                if (samplePaths.length === 0) {
+                    console.log('[Analysis] No suitable keyframes found for OCR (e.g. Desktop skipped)');
+                } else {
+                    const ocrResults = await ocrService.extractTextBatch(samplePaths);
+
+                    for (const [path, result] of ocrResults) {
+                        if (result?.text) {
+                            ocrTexts.set(path, result.text);
+                        }
                     }
+                    console.log(`[Analysis] OCR extracted text from ${ocrTexts.size}/${samplePaths.length} samples`);
                 }
-                console.log(`[Analysis] OCR extracted text from ${ocrTexts.size}/${samplePaths.length} samples`);
             } catch (ocrError) {
                 console.warn('[Analysis] OCR extraction failed, continuing without:', ocrError);
             }
@@ -149,7 +167,13 @@ async function processBatch(batchId: number, screenshotsOverride?: Screenshot[])
 
         // 2. Generate Cards
         console.log(`[Analysis] Generating cards for Batch #${batchId}...`);
-        const cards = await llmService.generateActivityCards(observations);
+
+        const cards = await measure('analysis.generate_cards', () => llmService.generateActivityCards(observations), {
+            batchId,
+            observationCount: observations.length
+        });
+
+        metrics.gauge('analysis.cards.generated_count', cards.length, { batchId });
 
         // Save cards
         for (const card of cards) {
@@ -202,18 +226,10 @@ async function processBatch(batchId: number, screenshotsOverride?: Screenshot[])
 
 // ... createScreenshotBatches and formatDuration ...
 
-interface Screenshot {
-    id: number;
-    captured_at?: number;
-    // FOR TESTING: timestamp field supports test data that doesn't match production schema
-    // Production uses captured_at, tests may use timestamp for convenience
-    timestamp?: number;
-    file_path?: string;
-    file_size?: number;
-}
+
 
 interface ScreenshotBatch {
-    screenshots: Screenshot[];
+    screenshots: AnalysisScreenshot[];
     start: number;
     end: number;
 }
@@ -255,7 +271,6 @@ export function getBatchingConfig(): BatchingConfig {
 }
 
 let analysisTimer: NodeJS.Timeout | null = null;
-let isProcessing = false;
 
 export function startAnalysisJob() {
     console.log('[Analysis] Starting background analysis job...');
@@ -275,7 +290,7 @@ export function stopAnalysisJob() {
 }
 
 
-export function createScreenshotBatches(screenshots: Screenshot[]): ScreenshotBatch[] {
+export function createScreenshotBatches(screenshots: AnalysisScreenshot[]): ScreenshotBatch[] {
     if (screenshots.length === 0) return [];
 
     const config = getBatchingConfig();
@@ -289,7 +304,7 @@ export function createScreenshotBatches(screenshots: Screenshot[]): ScreenshotBa
     if (ordered.length === 0) return [];
 
     const batches: ScreenshotBatch[] = [];
-    let bucket: Screenshot[] = [];
+    let bucket: AnalysisScreenshot[] = [];
 
     for (const screenshot of ordered) {
         if (bucket.length === 0) {
@@ -349,35 +364,13 @@ export function createScreenshotBatches(screenshots: Screenshot[]): ScreenshotBa
     return batches;
 }
 
-function getScreenshotCapturedAt(screenshot: Screenshot): number {
+function getScreenshotCapturedAt(screenshot: AnalysisScreenshot): number {
     const ts = screenshot.captured_at ?? screenshot.timestamp;
     const asNumber = typeof ts === 'number' ? ts : Number(ts);
     return Number.isFinite(asNumber) ? asNumber : NaN;
 }
 
-/**
- * Get evenly distributed sample indices for OCR processing
- * @param length Total array length
- * @param count Number of samples desired
- * @returns Array of indices (first, middle, last pattern)
- */
-function getSampleIndices(length: number, count: number): number[] {
-    if (length <= 0) return [];
-    if (length <= count) return Array.from({ length }, (_, i) => i);
 
-    const indices: number[] = [];
-    for (let i = 0; i < count; i++) {
-        const idx = Math.floor((i / (count - 1)) * (length - 1));
-        indices.push(idx);
-    }
-    return [...new Set(indices)]; // Remove duplicates
-}
-
-function formatDuration(seconds: number): string {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}m ${s}s`;
-}
 
 /**
  * Extended batch interface with activity context
@@ -396,7 +389,8 @@ interface EventBatch extends ScreenshotBatch {
  * 3. Create a new batch when context changes (different app or project)
  * 4. Cap batch duration at 15 minutes to prevent excessively long segments
  */
-export function createEventBatches(screenshots: Screenshot[]): EventBatch[] {
+export function createEventBatches(screenshots: AnalysisScreenshot[]): EventBatch[] {
+    metrics.incrementCounter('analysis.batches.process_triggered', 1, { screenshots: screenshots.length });
     if (screenshots.length === 0) return [];
 
     const config = getBatchingConfig();
@@ -446,7 +440,7 @@ export function createEventBatches(screenshots: Screenshot[]): EventBatch[] {
     // P1 Fix: Optimized context lookup using index pointer (O(n) instead of O(n²))
     // Build event-based batches
     const batches: EventBatch[] = [];
-    let bucket: Screenshot[] = [];
+    let bucket: AnalysisScreenshot[] = [];
     let currentContext: ActivityContext | null = null;
     let contextIndex = 0; // Track position in contextTimeline
 
@@ -534,4 +528,67 @@ export function useEventBasedBatching(): boolean {
     // TODO: Make this configurable via settings
     // For now, default to true (enable new feature)
     return true;
+}
+
+// Phase 3: Advanced Keyframe Selection
+function selectKeyframesForOCR(screenshots: AnalysisScreenshot[]): string[] {
+    if (!screenshots || screenshots.length === 0) return [];
+
+    // Helper to check if a screenshot is "Desktop"
+    const isDesktop = (s: AnalysisScreenshot) => {
+        const app = (s.app_name || '').toLowerCase();
+        const title = (s.window_title || '').trim();
+        // Check for common desktop identifiers
+        // "Program Manager" is the title of the desktop window in Windows
+        // Explorer process usually owns it
+        return (app.includes('explorer') && (title === 'Program Manager' || title === ''));
+    };
+
+    // Filter out desktop frames if possible
+    // (Unless the whole batch is desktop? In that case we might skip everything)
+    const validScreenshots = screenshots.filter(s => !isDesktop(s));
+
+    // If all were desktop, return empty (skips OCR)
+    // This avoidance is requested by user
+    if (validScreenshots.length === 0) {
+        return [];
+    }
+
+    const count = validScreenshots.length;
+    const last = validScreenshots[count - 1]; // Priority 1: Screen before switch
+    const first = validScreenshots[0];
+
+    const selected: AnalysisScreenshot[] = [];
+
+    // strategy: Always take the LAST frame (most recent state before switch)
+    selected.push(last);
+
+    // If we have more than 1 frame...
+    if (count > 1) {
+        const duration = (last.captured_at - first.captured_at);
+
+        // If duration is significant (> 1 min) or we have many frames, take more context
+        if (duration > 60 || count > 10) {
+            // Add First frame
+            selected.unshift(first);
+
+            // Add Middle frame if gap is large
+            if (count > 2) {
+                const midIdx = Math.floor(count / 2);
+                const mid = validScreenshots[midIdx];
+                // Insert in middle if distinct
+                if (mid !== first && mid !== last) {
+                    selected.splice(1, 0, mid);
+                }
+            }
+        }
+    }
+
+    // Dedup by path and return
+    const uniquePaths = new Set<string>();
+    selected.forEach(s => {
+        if (s && s.file_path) uniquePaths.add(s.file_path);
+    });
+
+    return Array.from(uniquePaths).filter(p => p && typeof p === 'string');
 }

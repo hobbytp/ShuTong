@@ -5,6 +5,8 @@ import { eventBus } from '../../infrastructure/events';
 import { getSetting, saveScreenshot, saveWindowSwitch } from '../../storage';
 import {
     clearPendingWindowCapture,
+    getGuardSettings,
+    getIdleTime,
     getIntervalMultiplier,
     initCaptureGuard,
     notifyWindowChange,
@@ -16,7 +18,7 @@ import {
     updateGuardSettings
 } from './capture-guard';
 import {
-    isFrameSimilar,
+    checkFrameSimilarity,
     resetLastFrame,
     updateDedupSettings
 } from './frame-dedup';
@@ -25,6 +27,24 @@ let captureInterval: NodeJS.Timeout | null = null;
 let isRecording = false;
 let currentIntervalMs = 1000; // Track current interval for dynamic updates
 let lastCapturedWindowApp: string | null = null;
+
+// --- Smart Keyframe State ---
+interface PendingFrame {
+    buffer: Buffer;
+    timestamp: number;
+    appName: string | null;
+    captureType: 'screen' | 'window';
+    windowId?: number;
+    thumbnail: Electron.NativeImage;
+}
+
+let pendingFrame: PendingFrame | null = null;
+let lastWindowId: number | null = null;
+let windowEnterTime: number = 0;
+let lastCheckpointTime: number = 0; // Timestamp of last checkpoint save
+const MIN_DWELL_TIME_MS = 1000; // Minimum 1 second dwell before saving Exit frame
+const CHECKPOINT_INTERVAL_MS = 30000; // 30 seconds between checkpoints
+// ----------------------------
 
 interface CaptureConfig {
     interval: number;
@@ -376,8 +396,58 @@ export function stopRecording() {
     }
     // Clear any pending debounced window captures
     clearPendingWindowCapture();
+
+    // Commit any pending buffer as we stop
+    if (pendingFrame) {
+        savePendingFrame(pendingFrame, 'exit').catch(console.error);
+        pendingFrame = null;
+    }
+
     lastCapturedWindowApp = null;
     console.log('[ShuTong] Stopped recording');
+}
+
+/**
+ * Helper to save a pending frame (e.g. on exit)
+ */
+async function savePendingFrame(frame: PendingFrame, trigger: 'exit' | 'checkpoint') {
+    try {
+        const config = getCaptureConfig(); // Get current config for quality
+        const jpeg = frame.thumbnail.toJPEG(config.quality);
+
+        const now = new Date(frame.timestamp); // Use frame's original timestamp or now?
+        // Actually, if it's the "exit" frame, we want to know when it was *last seen*.
+        // frame.timestamp is when it was captured (buffered).
+        // Let's use the buffered time, as that represents the state.
+
+        const dateStr = now.toISOString().split('T')[0];
+        const timeStr = now.toISOString().split('T')[1].replace(/:/g, '-').split('.')[0];
+
+        const dayDir = path.join(getRecordingsRoot(), dateStr);
+        if (!fs.existsSync(dayDir)) {
+            fs.mkdirSync(dayDir, { recursive: true });
+        }
+
+        // Add suffix to filename to avoid collision if timestamp is same as onset (unlikely but possible)
+        const filePath = path.join(dayDir, `${timeStr}_${trigger}.jpg`);
+        await fs.promises.writeFile(filePath, jpeg);
+
+        const unixTs = Math.floor(frame.timestamp / 1000);
+        // Note: we don't have 'trigger' field in DB yet, but we can pass it as captureType or similar?
+        // The saveScreenshot signature: (filePath, capturedAt, fileSize, captureType, appName)
+        // We can append trigger to captureType like "window:exit"
+
+        const fullCaptureType = `${frame.captureType}:${trigger}`;
+
+        const screenshotId = saveScreenshot(filePath, unixTs, jpeg.length, fullCaptureType, frame.appName || undefined);
+
+        if (screenshotId) {
+            eventBus.emitEvent('screenshot:captured', { id: screenshotId as number, timestamp: unixTs });
+            console.log(`[ShuTong] Saved PENDING frame [${trigger}]: ${frame.appName}`);
+        }
+    } catch (err) {
+        console.error('[ShuTong] Failed to save pending frame:', err);
+    }
 }
 
 // --- Test Helpers ---
@@ -390,6 +460,11 @@ export function __test__resetCaptureState() {
     isRecording = false;
     currentIntervalMs = 1000;
     lastCapturedWindowApp = null;
+    // Reset smart keyframe state
+    pendingFrame = null;
+    lastWindowId = null;
+    windowEnterTime = 0;
+    lastCheckpointTime = 0;
 }
 
 export function __test__setLastCapturedWindowApp(appName: string | null) {
@@ -492,24 +567,114 @@ async function captureFrame(config: CaptureConfig) {
             }
         }
 
-        if (!thumbnail || thumbnail.isEmpty()) return;
+        if (!thumbnail) return;
+        // In some Electron versions or mocks, isEmpty might not exist or behave differently.
+        // Defensive check:
+        if (typeof thumbnail.isEmpty === 'function' && thumbnail.isEmpty()) return;
 
-        // Frame deduplication check using raw bitmap
-        // Only check if window hasn't changed (window change always captures)
-        if (!windowChanged && config.dedup.enableSimilarityDedup) {
-            const size = thumbnail.getSize();
-            const bitmap = thumbnail.toBitmap();
-            // Estimate JPEG size (typically ~5-10% of raw bitmap for quality 60)
-            const estimatedJpegBytes = Math.round(bitmap.length * 0.07);
-            if (isFrameSimilar(bitmap, size.width, size.height, estimatedJpegBytes)) {
-                // Skip this frame - too similar to last one
-                console.log('[ShuTong] Skipped similar frame (dedup)');
-                recordSkip('similar_frame', appName || undefined);
-                return;
+        // Frame deduplication and Smart Keyframe Logic
+        // -------------------------------------------------------------------------
+
+        const size = thumbnail.getSize();
+        const bitmap = thumbnail.toBitmap();
+        const estimatedJpegBytes = Math.round(bitmap.length * 0.07);
+        let shouldSave = false;
+        let triggerType = 'onset'; // 'onset', 'exit', 'checkpoint'
+
+        // 1. Detect Window Switch or First Capture
+        const currentWindowId = activeWindow?.id;
+        const isFirstCapture = lastWindowId === null;
+        const windowSwitched = !isFirstCapture && currentWindowId !== undefined && currentWindowId !== lastWindowId;
+
+        if (isFirstCapture) {
+            // First frame is always an Onset
+            lastWindowId = currentWindowId ?? null;
+            windowEnterTime = Date.now();
+            shouldSave = true;
+            triggerType = 'onset';
+            console.log(`[ShuTong] First capture - Onset for window ${lastWindowId}`);
+        } else if (windowSwitched) {
+            // COMMIT PENDING FRAME: The user left the previous window.
+            // If we have a pending frame for the OLD window, save it now as 'exit'.
+            const dwellTime = Date.now() - windowEnterTime;
+            if (pendingFrame && pendingFrame.windowId === lastWindowId) {
+                if (dwellTime >= MIN_DWELL_TIME_MS) {
+                    console.log(`[ShuTong] Saving EXIT keyframe for window ${lastWindowId} (dwell: ${dwellTime}ms)`);
+                    await savePendingFrame(pendingFrame, 'exit');
+                } else {
+                    console.log(`[ShuTong] Discarding pending frame (dwell ${dwellTime}ms < ${MIN_DWELL_TIME_MS}ms)`);
+                }
+            }
+            // Clear pending frame as context changed
+            pendingFrame = null;
+            // Force save current frame as new Onset
+            shouldSave = true;
+            triggerType = 'onset';
+            // Update last window tracking
+            lastWindowId = currentWindowId;
+            windowEnterTime = Date.now();
+            resetLastFrame(); // Reset dedup state for new window
+        }
+
+        // 2. Similarity Check
+        if (!shouldSave) {
+            // Only check similarity if we haven't already decided to save (e.g. due to switch)
+            if (config.dedup.enableSimilarityDedup) {
+                // Use checkFrameSimilarity to update state only if we save, 
+                // BUT wait, original logic updated state only if DIFFERENT.
+                // We need to be careful not to update `lastFrameGrid` if we are just buffering.
+
+                // Let's check without updating state first
+                const simResult = checkFrameSimilarity(bitmap, size.width, size.height, estimatedJpegBytes, false);
+
+                if (simResult.isSimilar) {
+                    // SIMILAR FRAME -> Buffer it (Pending)
+                    // Don't save to disk yet. Update pendingFrame to be this newest high-quality frame.
+                    pendingFrame = {
+                        buffer: bitmap, // We might need the JPEG/NativeImage actually for saving later
+                        thumbnail: thumbnail, // Keep ref to thumbnail
+                        timestamp: Date.now(),
+                        appName: appName,
+                        captureType: captureType,
+                        windowId: currentWindowId
+                    };
+
+                    // Checkpoint Logic: If dwelling with active input for > 30s since last save
+                    const now = Date.now();
+                    const timeSinceLastCheckpoint = now - lastCheckpointTime;
+                    const systemIdleSeconds = getIdleTime();
+                    const guardSettings = getGuardSettings();
+                    const isActiveInput = systemIdleSeconds < guardSettings.idleThresholdSeconds;
+
+                    if (timeSinceLastCheckpoint >= CHECKPOINT_INTERVAL_MS && isActiveInput && pendingFrame) {
+                        console.log(`[ShuTong] Saving CHECKPOINT keyframe (active for ${Math.round(timeSinceLastCheckpoint / 1000)}s, idle: ${systemIdleSeconds}s)`);
+                        await savePendingFrame(pendingFrame, 'checkpoint');
+                        lastCheckpointTime = now;
+                        pendingFrame = null; // Clear after commit
+                        return;
+                    }
+
+                    // No checkpoint trigger, just buffer
+                    return;
+                } else {
+                    // DIFFERENT FRAME -> Save (Onset / Progress)
+                    shouldSave = true;
+                    // It's a significant change, so it's an 'onset' of a new state
+                    triggerType = 'onset';
+
+                    // We must update the dedup reference state now
+                    // Re-run with updateState=true or just manually update?
+                    // Let's use the helper to update state properly
+                    checkFrameSimilarity(bitmap, size.width, size.height, estimatedJpegBytes, true);
+                }
+            } else {
+                shouldSave = true;
             }
         }
 
-        // Convert to JPEG for storage
+        if (!shouldSave) return;
+
+        // Save logic
         const jpeg = thumbnail.toJPEG(config.quality);
 
         const now = new Date();
@@ -525,8 +690,9 @@ async function captureFrame(config: CaptureConfig) {
         await fs.promises.writeFile(filePath, jpeg);
 
         const unixTs = Math.floor(now.getTime() / 1000);
-        // Save with metadata
-        const screenshotId = saveScreenshot(filePath, unixTs, jpeg.length, captureType, appName || undefined);
+        // Save with metadata - include trigger type for debugging and analysis
+        const fullCaptureType = `${captureType}:${triggerType}`;
+        const screenshotId = saveScreenshot(filePath, unixTs, jpeg.length, fullCaptureType, appName || undefined);
 
         // Notify UI about new screenshot for real-time updates
         if (screenshotId) {
@@ -535,7 +701,7 @@ async function captureFrame(config: CaptureConfig) {
 
         // Log capture info in window mode
         if (config.captureMode === 'window' && appName) {
-            console.log(`[ShuTong] Captured[${captureType}]: ${appName} `);
+            console.log(`[ShuTong] Captured[${captureType}/${triggerType}]: ${appName} `);
         }
 
         // Record successful capture for statistics

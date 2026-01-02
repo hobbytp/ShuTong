@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>ShuTong OCR Worker</title>
+    <!-- 
+      Strict CSP for security in this renderer process:
+      - default-src 'self': Only allow resources from the same origin.
+      - script-src 'self': Only allow scripts from the same origin (no unsafe-inline/eval).
+      - style-src 'self' 'unsafe-inline': Allow inline styles (e.g. status div color).
+      - img-src 'self' file: blob: data: https://paddle-model-ecology.bj.bcebos.com: Allow loading images from local file system, blobs, and Paddle public models if testing.
+      - connect-src 'self' https://paddle-model-ecology.bj.bcebos.com: Allow fetching model files from Paddle's CDN if not local.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: blob: data: https://paddle-model-ecology.bj.bcebos.com; connect-src 'self' https://paddle-model-ecology.bj.bcebos.com;">
+</head>
+<body style="background: #1e1e1e; color: #ccc; font-family: monospace; padding: 20px;">
+    <h2>OCR Worker (Hidden)</h2>
+    <div id="status">Idle</div>
+    <div id="logs" style="margin-top: 10px; font-size: 12px; color: #666;"></div>
+    
+    <!-- Image element for loading the target file for OCR -->
+    <img id="target-image" style="max-width: 100%; margin-top: 20px; display: none;" />
+
+    <!-- 
+      Load the renderer script. 
+      In a production Electron app without a bundler for this specific file, we usually need to referencing the compiled .js file.
+      Assuming 'tsc' outputs to 'dist-electron' or similar, we need to know where it lands.
+      However, for now, I will assume we can load the built 'paddle-window/renderer.js'.
+      If this is development mode with Vite, `renderer.ts` might not be directly loadable without Vite serving it.
+      
+      Wait - Electron Main process files usually run in Node.
+      This is a PRELOADED renderer.
+      
+      If I use `nodeIntegration: false, contextIsolation: true`, I must use the Preload script to bridge.
+      The actual logic using `@paddlejs-models/ocr` (which is a frontend library) should live in the RENDERER process (this file).
+      
+      If I write `renderer.ts`, it needs to be compiled to `renderer.js` and loaded here.
+      Or I can write `renderer.js` directly if I don't want to mess with build config.
+      Given we are in `f:\AI\src\ShuTong\electron`, this is part of the "Main/Backend" source tree effectively.
+      
+      Let's look at `package.json` build script: `"build": "tsc && vite build ..."`
+      `tsc` usually compiles `electron/` files.
+      Let's check `tsconfig.json` output dir. It says `"noEmit": true`.
+      Ah, `vite-plugin-electron` usually handles the build.
+      
+      If I cannot easily get `renderer.ts` compiled and injected here without configuring Vite, 
+      I might need to put the renderer logic in `preload.ts` (which has Node access but runs before page) 
+      OR ensures `renderer.js` is treated as a static asset.
+      
+      Actually, the safest bet for a robust "hidden window" in Electron that needs to use NPM modules (`@paddlejs-models/ocr`) 
+      is to bundle it effectively.
+      
+      But wait, `@paddlejs-models/ocr` is an ESM module usually.
+      
+      Let's stick to a simple plan:
+      1. Write `renderer.js` (JavaScript) directly to avoid TS compilation issues for this specific isolated window, 
+         OR rely on the fact that we might be able to use `require` if we enable `nodeIntegration` for this hidden window 
+         (since it's internal and not loading remote content, it is relatively safe if we control the HTML).
+      
+      DECISION: I will use `nodeIntegration: true` for this hidden window to simplify loading `@paddlejs-models/ocr` via `require`,
+      just like in the prototype. This avoids complex bundling steps.
+    -->
+    <script>
+      // Simple bootstrap logging
+      console.log('PaddleOCR Worker HTML loaded');
+      // The actual logic will be in renderer.js which we will require() or load via script tag if nodeIntegration is on.
+      // Let's rely on `require` in the script tag for simplicity and robustness.
+      require('./renderer.js');
+    </script>
+</body>
+</html>

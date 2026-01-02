@@ -11,6 +11,7 @@ import { getMergedLLMConfig, getRawLLMConfig, saveRawLLMConfig, setLLMProviderCo
 import { backupService, setupBackupIPC } from './features/backup';
 import { getIsRecording, startRecording, stopRecording } from './features/capture';
 import { setupAnalyticsIPC } from './features/timeline';
+import { ocrService } from './features/timeline/ocr.service';
 import { createVideoGenerationWindow, setupVideoIPC, setupVideoSubscribers } from './features/video';
 import { eventBus } from './infrastructure/events';
 import { getLLMMetrics } from './llm/metrics';
@@ -138,6 +139,11 @@ function createWindow() {
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
+app.on('will-quit', async () => {
+  // Ensure OCR worker is terminated
+  await ocrService.shutdown();
+});
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()

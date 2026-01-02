@@ -10,7 +10,9 @@
  */
 
 import { existsSync } from 'fs';
+import { createWorker, Worker } from 'tesseract.js';
 import { getMergedLLMConfig } from '../../config_manager';
+import { measure, metrics } from '../../infrastructure/monitoring/metrics.service';
 import { consumeStreamWithIdleTimeout, getLLMProvider } from '../../llm/providers';
 import { getSetting, setSetting } from '../../storage';
 
@@ -33,6 +35,8 @@ export interface OCROptions {
     /** Force a specific provider instead of using configured one */
     forceProvider?: 'cloud' | 'tesseract' | 'paddle';
 }
+
+export type OCREngine = 'cloud' | 'tesseract' | 'paddle';
 
 // --- OCR Provider Interface (Strategy Pattern) ---
 
@@ -114,60 +118,215 @@ class CloudLLMOCRProvider implements IOCRProvider {
     }
 }
 
-// --- Tesseract.js Provider (Placeholder for future implementation) ---
+// --- Tesseract.js Provider ---
+
 
 class TesseractOCRProvider implements IOCRProvider {
     name = 'Tesseract';
+    private worker: Worker | null = null;
+    private isInitializing = false;
 
-    async extract(_imagePath: string, _options?: OCROptions): Promise<OCRResult> {
-        // TODO: Implement tesseract.js integration
-        // const Tesseract = require('tesseract.js');
-        // const result = await Tesseract.recognize(imagePath, 'chi_sim+eng');
-        throw new Error('Tesseract OCR not yet implemented. Please use Cloud LLM provider.');
+    private async getWorker(): Promise<Worker> {
+        // Reuse existing worker
+        if (this.worker) return this.worker;
+
+        // Prevent race conditions during async initialization
+        if (this.isInitializing) {
+            while (this.isInitializing) {
+                await new Promise(r => setTimeout(r, 100));
+            }
+            if (this.worker) return this.worker;
+        }
+
+        this.isInitializing = true;
+        try {
+            console.log('[OCRService] Initializing Tesseract worker...');
+            // Initialize with Chinese (Simplified) and English
+            // Note: This will download language data on first run (~30MB)
+            // Data is cached in default cache folder
+            const worker = await createWorker(['chi_sim', 'eng']);
+            this.worker = worker;
+            console.log('[OCRService] Tesseract worker ready');
+            return worker;
+        } catch (err) {
+            console.error('[OCRService] Failed to initialize Tesseract:', err);
+            // If initialization fails, ensure clean state
+            this.worker = null;
+            throw err;
+        } finally {
+            this.isInitializing = false;
+        }
+    }
+
+    async extract(imagePath: string, _options?: OCROptions): Promise<OCRResult> {
+        const startTime = Date.now();
+        const TIMEOUT_MS = 15000; // 15s hard timeout for local OCR
+
+        try {
+            if (!existsSync(imagePath)) {
+                throw new Error(`[OCRService] Image file not found: ${imagePath}`);
+            }
+
+            // Wrap worker task in a promise for racing
+            const workerTask = async () => {
+                const worker = await this.getWorker();
+                return worker.recognize(imagePath);
+            };
+
+            // Race against timeout
+            const ret = await Promise.race([
+                workerTask(),
+                new Promise<any>((_, reject) =>
+                    setTimeout(() => reject(new Error('OCR Timeout')), TIMEOUT_MS)
+                )
+            ]);
+
+            const text = ret.data.text.trim();
+            const confidence = ret.data.confidence / 100; // Tesseract returns 0-100
+
+            return {
+                text,
+                confidence,
+                processingTimeMs: Date.now() - startTime,
+                provider: this.name
+            };
+        } catch (err) {
+            // Check for timeout to kill stuck worker
+            if (err instanceof Error && err.message === 'OCR Timeout') {
+                console.warn('[OCRService] Tesseract timed out, terminating worker...');
+                await this.terminate().catch(e => console.error('Failed to terminate worker:', e));
+            }
+            console.error('[OCRService] Tesseract extraction failed:', err);
+            throw err;
+        }
+    }
+
+    async terminate() {
+        if (this.worker) {
+            await this.worker.terminate();
+            this.worker = null;
+        }
     }
 }
 
-// --- PaddleOCR Provider (Placeholder for future implementation) ---
+// --- PaddleOCR Local Provider ---
+import { PaddleOCRWindow } from './paddle-window/window';
 
 class PaddleOCRProvider implements IOCRProvider {
     name = 'PaddleOCR';
 
-    async extract(_imagePath: string, _options?: OCROptions): Promise<OCRResult> {
-        // TODO: Implement PaddleOCR via ONNX Runtime
-        // Requires: onnxruntime-node, paddle-ocr models
-        throw new Error('PaddleOCR not yet implemented. Please use Cloud LLM provider.');
+    async extract(imagePath: string, _options?: OCROptions): Promise<OCRResult> {
+        const startTime = Date.now();
+        const TIMEOUT_MS = 20000; // 20s timeout (Model load might be slow)
+
+        if (!existsSync(imagePath)) {
+            throw new Error(`[OCRService] Image file not found: ${imagePath}`);
+        }
+
+        // Create timeout with proper cleanup
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+        const timeoutTask = new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('OCR Timeout')), TIMEOUT_MS);
+        });
+
+        try {
+            const paddleWindow = PaddleOCRWindow.getInstance();
+            const extractTask = paddleWindow.extract(imagePath);
+
+            const result = await Promise.race([extractTask, timeoutTask]);
+
+            // Clean up timer on success
+            if (timeoutId) clearTimeout(timeoutId);
+
+            const text = result.text.join('\n');
+            const processingTimeMs = Date.now() - startTime;
+
+            return {
+                text,
+                confidence: result.confidence || 0.9,
+                processingTimeMs,
+                provider: this.name
+            };
+        } catch (error: any) {
+            // Clean up timer on failure
+            if (timeoutId) clearTimeout(timeoutId);
+
+            console.error('[PaddleOCRProvider] Extraction failed:', error);
+
+            if (error.message === 'OCR Timeout') {
+                console.warn('[PaddleOCRProvider] Timeout - Terminating window');
+                await this.terminate().catch(e => console.error('Failed to terminate:', e));
+            }
+
+            throw error;
+        }
+    }
+
+    async terminate() {
+        await PaddleOCRWindow.getInstance().terminate();
     }
 }
 
-// --- OCR Service (Facade) ---
+// --- OCR Service ---
 
-class OCRService {
-    private providers: Map<string, IOCRProvider> = new Map();
+export class OCRService {
+    private providers: Map<OCREngine, IOCRProvider>;
     private enabled: boolean = true;
+    private currentEngine: OCREngine = 'cloud';
+
+    // Circuit breaker state
+    private consecutiveFailures = 0;
+    private readonly MAX_FAILURES = 3;
+    private circuitOpenTs = 0;
+    private readonly CIRCUIT_RESET_MS = 5 * 60 * 1000; // 5 min
 
     constructor() {
-        // Register providers
+        this.providers = new Map();
         this.providers.set('cloud', new CloudLLMOCRProvider());
         this.providers.set('tesseract', new TesseractOCRProvider());
         this.providers.set('paddle', new PaddleOCRProvider());
 
-        // Load enabled state from settings
-        this.loadSettings();
+        // Initial load of settings
+        this.checkSettings();
     }
 
-    private loadSettings() {
+    private checkSettings() {
         const enabledSetting = getSetting('ocr_enabled');
-        // Default to true if not set
         this.enabled = enabledSetting === null || enabledSetting === 'true';
+
+        const engineSetting = getSetting('ocr_engine');
+        if (engineSetting && ['cloud', 'tesseract', 'paddle'].includes(engineSetting)) {
+            this.currentEngine = engineSetting as OCREngine;
+        }
+    }
+
+    private isCircuitOpen(): boolean {
+        return (Date.now() - this.circuitOpenTs) < this.CIRCUIT_RESET_MS;
+    }
+
+    private getActiveProvider(options?: OCROptions): IOCRProvider {
+        // 1. Force override
+        if (options?.forceProvider) {
+            const provider = this.providers.get(options.forceProvider);
+            if (provider) return provider;
+        }
+
+        // 2. Circuit Breaker for Local
+        // If current engine is local AND circuit is open, force Cloud
+        if (this.currentEngine !== 'cloud' && this.isCircuitOpen()) {
+            console.warn('[OCRService] Circuit open, forcing Cloud fallback.');
+            return this.providers.get('cloud')!;
+        }
+
+        // 3. Normal Selection
+        return this.providers.get(this.currentEngine) || this.providers.get('cloud')!;
     }
 
     /**
      * Check if OCR is enabled (checks latest setting from storage)
      */
     isEnabled(): boolean {
-        const val = getSetting('ocr_enabled');
-        // Update local cache while we're at it
-        this.enabled = val === null || val === 'true';
+        this.checkSettings();
         return this.enabled;
     }
 
@@ -180,63 +339,65 @@ class OCRService {
     }
 
     /**
-     * Get the currently active provider based on OCR_SCANNER role configuration
-     */
-    private getActiveProvider(): IOCRProvider {
-        const config = getMergedLLMConfig();
-        const roleConfig = config.roleConfigs?.['OCR_SCANNER'];
-
-        if (!roleConfig) {
-            console.warn('[OCRService] OCR_SCANNER role not configured, using CloudLLM');
-            return this.providers.get('cloud')!;
-        }
-
-        const model = roleConfig.model?.toLowerCase() || '';
-
-        // Check if model indicates local OCR
-        if (model.includes('paddle') || model.includes('local-paddle')) {
-            const paddleProvider = this.providers.get('paddle');
-            if (paddleProvider) return paddleProvider;
-        }
-
-        if (model.includes('tesseract') || model.includes('local-tesseract')) {
-            const tesseractProvider = this.providers.get('tesseract');
-            if (tesseractProvider) return tesseractProvider;
-        }
-
-        // Default to cloud LLM
-        return this.providers.get('cloud')!;
-    }
-
-    /**
      * Extract text from a screenshot image
      * @param imagePath Absolute path to the image file
      * @param options OCR options
      * @returns Extracted text and metadata
      */
     async extractText(imagePath: string, options?: OCROptions): Promise<OCRResult | null> {
-        if (!this.enabled) {
+        if (!this.isEnabled()) {
             console.log('[OCRService] OCR is disabled, skipping extraction');
             return null;
         }
 
-        // Get provider (forced or auto-selected)
-        let provider: IOCRProvider;
-        if (options?.forceProvider) {
-            provider = this.providers.get(options.forceProvider) || this.getActiveProvider();
-        } else {
-            provider = this.getActiveProvider();
-        }
+        // Get provider
+        const provider = this.getActiveProvider(options);
 
         console.log(`[OCRService] Extracting text using ${provider.name} from: ${imagePath}`);
 
         try {
-            const result = await provider.extract(imagePath, options);
+            const result = await measure('ocr.extract', () => provider.extract(imagePath, options), {
+                provider: provider.name,
+                image: imagePath
+            });
             console.log(`[OCRService] Extracted ${result.text.length} chars in ${result.processingTimeMs}ms`);
+
+            // Record detailed stats
+            metrics.recordDuration('ocr.provider.latency', result.processingTimeMs, { provider: provider.name });
+            metrics.gauge('ocr.text.length', result.text.length, { provider: provider.name });
+
+            // Success reset
+            if (this.currentEngine !== 'cloud' && provider.name !== 'CloudLLM') {
+                this.consecutiveFailures = 0;
+            }
+
             return result;
         } catch (err) {
             console.error('[OCRService] Extraction failed:', err);
-            return null;
+            metrics.incrementCounter('ocr.failure', 1, { provider: provider.name, error: (err as Error).message });
+
+            // Handle Failure & Circuit Breaker
+            if (this.currentEngine !== 'cloud' && provider.name !== 'CloudLLM') {
+                this.consecutiveFailures++;
+                console.warn(`[OCRService] Local OCR failure ${this.consecutiveFailures}/${this.MAX_FAILURES}`);
+
+                if (this.consecutiveFailures >= this.MAX_FAILURES) {
+                    console.error('[OCRService] Too many failures. Opening circuit breaker (fallback to Cloud).');
+                    metrics.incrementCounter('ocr.circuit_breaker.open', 1, { engine: this.currentEngine });
+                    this.circuitOpenTs = Date.now();
+                    this.consecutiveFailures = 0;
+
+                    // Try to clean up local resources
+                    if (provider.name === 'Tesseract') {
+                        (provider as TesseractOCRProvider).terminate().catch(() => { });
+                    }
+                    if (provider.name === 'PaddleOCR') {
+                        (provider as PaddleOCRProvider).terminate().catch(() => { });
+                    }
+                }
+            }
+
+            return null; // Swallow error for single image
         }
     }
 
@@ -263,6 +424,21 @@ class OCRService {
         }
 
         return results;
+    }
+
+    /**
+     * Gracefully shutdown services (terminate workers)
+     */
+    async shutdown() {
+        console.log('[OCRService] Shutting down...');
+        const tesseract = this.providers.get('tesseract') as TesseractOCRProvider;
+        if (tesseract) {
+            await tesseract.terminate();
+        }
+        const paddle = this.providers.get('paddle') as PaddleOCRProvider;
+        if (paddle) {
+            await paddle.terminate();
+        }
     }
 }
 

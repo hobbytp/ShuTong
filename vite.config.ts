@@ -31,7 +31,13 @@ export default defineConfig({
         vite: {
           build: {
             rollupOptions: {
-              external: ['electron', 'better-sqlite3', '@lancedb/lancedb', 'get-windows'],
+              external: [
+                'electron',
+                'better-sqlite3',
+                '@lancedb/lancedb',
+                'get-windows',
+                'tesseract.js'
+              ],
             },
           },
           resolve: {

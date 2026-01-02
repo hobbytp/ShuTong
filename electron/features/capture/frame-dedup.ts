@@ -152,7 +152,56 @@ export function calculateGridDistance(grid1: FrameGrid, grid2: FrameGrid): numbe
  * @param width - Image width
  * @param height - Image height
  * @param estimatedBytes - Estimated size of the frame in bytes (for stats)
- * @returns true if frame is similar (should skip), false if different (should store)
+ * @param updateState - Whether to update the internal lastFrameGrid state (default: true)
+ * @returns Object containing isSimilar boolean and distance metric
+ */
+export function checkFrameSimilarity(
+    buffer: Buffer,
+    width: number,
+    height: number,
+    estimatedBytes: number = 0,
+    updateState: boolean = true
+): { isSimilar: boolean, distance: number } {
+    if (!dedupSettings.enableSimilarityDedup) {
+        return { isSimilar: false, distance: 1.0 };
+    }
+
+    const currentGrid = sampleFrameGrid(buffer, width, height, dedupSettings.gridSize);
+
+    if (updateState) {
+        dedupStats.totalCaptures++;
+    }
+
+    if (lastFrameGrid === null) {
+        // First frame - store and don't skip
+        if (updateState) {
+            lastFrameGrid = currentGrid;
+        }
+        return { isSimilar: false, distance: 1.0 };
+    }
+
+    const distance = calculateGridDistance(lastFrameGrid, currentGrid);
+    const isSimilar = distance < dedupSettings.similarityThreshold;
+
+    if (isSimilar) {
+        // Similar frame
+        if (updateState) {
+            dedupStats.dedupSkips++;
+            dedupStats.estimatedBytesSaved += estimatedBytes;
+        }
+    } else {
+        // Different frame
+        if (updateState) {
+            lastFrameGrid = currentGrid;
+        }
+    }
+
+    return { isSimilar, distance };
+}
+
+/**
+ * Legacy wrapper for backward compatibility.
+ * @deprecated Use checkFrameSimilarity instead for more control.
  */
 export function isFrameSimilar(
     buffer: Buffer,
@@ -160,32 +209,7 @@ export function isFrameSimilar(
     height: number,
     estimatedBytes: number = 0
 ): boolean {
-    if (!dedupSettings.enableSimilarityDedup) {
-        return false;
-    }
-
-    const currentGrid = sampleFrameGrid(buffer, width, height, dedupSettings.gridSize);
-
-    dedupStats.totalCaptures++;
-
-    if (lastFrameGrid === null) {
-        // First frame - store and don't skip
-        lastFrameGrid = currentGrid;
-        return false;
-    }
-
-    const distance = calculateGridDistance(lastFrameGrid, currentGrid);
-
-    if (distance < dedupSettings.similarityThreshold) {
-        // Similar frame - skip
-        dedupStats.dedupSkips++;
-        dedupStats.estimatedBytesSaved += estimatedBytes;
-        return true;
-    }
-
-    // Different frame - update and don't skip
-    lastFrameGrid = currentGrid;
-    return false;
+    return checkFrameSimilarity(buffer, width, height, estimatedBytes, true).isSimilar;
 }
 
 /**

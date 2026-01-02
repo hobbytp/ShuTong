@@ -23,6 +23,7 @@ export interface Screenshot {
     is_deleted: number;        // 0 or 1
     capture_type: string | null;
     app_bundle_id: string | null;
+    app_name: string | null;   // Human-readable app name for context parsing
     window_title: string | null;
 }
 

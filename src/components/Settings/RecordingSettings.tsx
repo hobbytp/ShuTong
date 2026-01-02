@@ -27,6 +27,9 @@ interface RecordingConfig {
     // Whitelist Mode (v2)
     guard_enable_whitelist_mode: boolean;
     whitelisted_apps: string[];
+    // Timeline Analysis
+    ocr_enabled: boolean;
+    ocr_engine: 'cloud' | 'tesseract' | 'paddle';
 }
 
 interface SkipLogEntry {
@@ -77,6 +80,8 @@ export function RecordingSettings() {
         guard_critical_battery: 20,
         guard_enable_whitelist_mode: false,
         whitelisted_apps: [],
+        ocr_enabled: true,
+        ocr_engine: 'cloud',
     });
     const [screens, setScreens] = useState<{ id: number; name: string }[]>([]);
     const [excludedAppsText, setExcludedAppsText] = useState('');
@@ -161,6 +166,8 @@ export function RecordingSettings() {
                 // Whitelist Mode (v2)
                 guard_enable_whitelist_mode: settings.guard_enable_whitelist_mode === 'true',
                 whitelisted_apps: safeParse(settings.whitelisted_apps, []),
+                ocr_enabled: settings.ocr_enabled !== 'false', // Default to true
+                ocr_engine: (settings.ocr_engine as any) || 'cloud',
             });
 
             setExcludedAppsText(safeParse(settings.excluded_apps, []).join('\n'));
@@ -576,6 +583,59 @@ export function RecordingSettings() {
                 </div>
             </div>
 
+            {/* Timeline Analysis Section */}
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
+                <h3 className="text-lg font-bold text-zinc-100 mb-6 flex items-center gap-2">
+                    <FileText size={20} className="text-purple-400" />
+                    {t('recording.timeline_analysis', 'Timeline Analysis')}
+                </h3>
+
+                <div className="space-y-6">
+                    {/* OCR Toggle & Engine */}
+                    <div className="flex flex-col gap-4 p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                                <div className="p-2 bg-purple-500/10 rounded-lg">
+                                    <FileText size={18} className="text-purple-400" />
+                                </div>
+                                <div>
+                                    <div className="text-sm font-medium text-zinc-200">{t('recording.enable_ocr', 'Enable OCR Analysis')}</div>
+                                    <div className="text-xs text-zinc-500">{t('recording.enable_ocr_desc', 'Extract text from screenshots to improve timeline accuracy')}</div>
+                                </div>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={config.ocr_enabled}
+                                    onChange={(e) => updateSetting('ocr_enabled', e.target.checked)}
+                                    className="sr-only peer"
+                                />
+                                <div className="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                            </label>
+                        </div>
+
+                        {config.ocr_enabled && (
+                            <div className="flex items-center justify-between pt-4 border-t border-zinc-900">
+                                <div className="text-sm text-zinc-400 pl-14">
+                                    {t('recording.ocr_engine', 'OCR Engine')}
+                                </div>
+                                <div className="w-48">
+                                    <select
+                                        value={config.ocr_engine}
+                                        onChange={(e) => updateSetting('ocr_engine', e.target.value)}
+                                        className="w-full appearance-none bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-purple-500/20 cursor-pointer"
+                                    >
+                                        <option value="cloud">{t('recording.ocr_engine_cloud', 'Cloud LLM (Default)')}</option>
+                                        <option value="tesseract">{t('recording.ocr_engine_tesseract', 'Local (Tesseract) - Experimental')}</option>
+                                        <option value="paddle">{t('recording.ocr_engine_paddle', 'Local (Paddle) - Experimental')}</option>
+                                    </select>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
             {/* Privacy & Scope */}
             <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
                 <h3 className="text-lg font-bold text-zinc-100 mb-6 flex items-center gap-2">
@@ -689,9 +749,9 @@ export function RecordingSettings() {
                         </div>
                     )}
                 </div>
-            </div>
+            </div >
             {/* Guard Statistics & Log */}
-            <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
+            < div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6" >
                 <h3 className="text-lg font-bold text-zinc-100 mb-6 flex items-center gap-2">
                     <Activity size={20} className="text-rose-400" />
                     {t('recording.guard_stats', 'Guard Statistics')}
@@ -709,19 +769,21 @@ export function RecordingSettings() {
                 </div>
 
                 {/* Skip Reason Breakdown */}
-                {guardStats?.skipsByReason && Object.keys(guardStats.skipsByReason).length > 0 && (
-                    <div className="mb-6 space-y-2">
-                        <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">{t('recording.skip_reasons', 'Skip Reasons')}</div>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                            {Object.entries(guardStats.skipsByReason).map(([reason, count]) => (
-                                <div key={reason} className="flex px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-md justify-between items-center text-xs">
-                                    <span className="text-zinc-400 truncate mr-2 capitalize">{t(`recording.reasons.${reason}`, reason.replace(/_/g, ' '))}</span>
-                                    <span className="font-mono font-bold text-zinc-200">{count}</span>
-                                </div>
-                            ))}
+                {
+                    guardStats?.skipsByReason && Object.keys(guardStats.skipsByReason).length > 0 && (
+                        <div className="mb-6 space-y-2">
+                            <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">{t('recording.skip_reasons', 'Skip Reasons')}</div>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                {Object.entries(guardStats.skipsByReason).map(([reason, count]) => (
+                                    <div key={reason} className="flex px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-md justify-between items-center text-xs">
+                                        <span className="text-zinc-400 truncate mr-2 capitalize">{t(`recording.reasons.${reason}`, reason.replace(/_/g, ' '))}</span>
+                                        <span className="font-mono font-bold text-zinc-200">{count}</span>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                )}
+                    )
+                }
 
                 {/* Live Log */}
                 <div className="space-y-3">
@@ -746,10 +808,11 @@ export function RecordingSettings() {
                         )}
                     </div>
                 </div>
-            </div>
+            </div >
 
             {/* Save Toast */}
-            <div className={`fixed bottom-8 right-8 flex items-center gap-2 px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-full shadow-lg transition-all duration-300 ${saveState === 'idle' ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'}`}>
+            < div className={`fixed bottom-8 right-8 flex items-center gap-2 px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-full shadow-lg transition-all duration-300 ${saveState === 'idle' ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'}`
+            }>
                 {saveState === 'saving' ? (
                     <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
                 ) : (
@@ -762,7 +825,7 @@ export function RecordingSettings() {
                 <span className="text-sm font-medium text-zinc-200">
                     {saveState === 'saving' ? t('recording.saving', 'Saving changes...') : t('recording.saved', 'Changes saved')}
                 </span>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 }
