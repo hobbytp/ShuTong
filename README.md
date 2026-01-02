@@ -9,6 +9,9 @@ This project is still under development.
 ## Features
 
 - **AI-Powered Analysis**: Automatically categorizes your activities and generates summaries using LLMs (OpenAI-compatible providers, Gemini, etc.).
+- **Smart Timeline (Timeline 2.0)**:
+    - **Semantic Segmentation**: Replaces time-based chunks with event-based smart batching. Segments activity by actual context (App/Project/File).
+    - **OCR Context**: "Reads" the text on your screen (code, logs, docs) to give the AI visual + textual understanding.
 - **Pulse Agent**: A LangGraph-powered reasoning engine that provides:
     - **Briefing**: Daily summaries of your activities.
     - **Action**: Proactive suggestions based on your current context.
@@ -16,10 +19,14 @@ This project is still under development.
     - **Challenge**: Reflective questions to help you grow.
 - **Semantic Search**: Powered by vector database **LanceDB**, allowing you to search your history using natural language.
 - **Screen Recording & Timelapse**: Captures your day in the background and lets you review it with a high-performance timelapse player.
-- **Dynamic Batching**: Intelligently groups screenshots into meaningful activity segments based on visual and contextual similarity.
+- **Global i18n**: Full support for multiple languages (English & Chinese).
 - **MCP Support(TBD)**: Built-in support for the Model Context Protocol (MCP) to extend capabilities with external tools. 
 - **Privacy First**: All data, including screenshots and vector embeddings, is stored locally on your device.
 - **Automation Ready**: Control recording via deep links (`shutong://`), perfect for integration with Raycast, Alfred, or Shortcuts.
+
+> 📚 **Detailed Documentation**:
+> - [Architecture Design](docs/designs/enhance-timeline-insights.md)
+> - [Timeline Functions](docs/functions/timeline_enh.md)
 
 ## Getting Started
 
