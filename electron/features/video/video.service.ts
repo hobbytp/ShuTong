@@ -8,6 +8,8 @@ const __dirname = path.dirname(__filename);
 
 let videoWindow: BrowserWindow | null = null;
 let videoIpcConfigured = false;
+let idleDestructionTimer: NodeJS.Timeout | null = null;
+const IDLE_TIMEOUT_MS = 30 * 1000; // 30 seconds idle timeout
 
 export function setupVideoIPC() {
     if (videoIpcConfigured) return;
@@ -25,7 +27,10 @@ export function setupVideoIPC() {
 }
 
 export function createVideoGenerationWindow() {
-    if (videoWindow && !videoWindow.isDestroyed()) return;
+    if (videoWindow && !videoWindow.isDestroyed()) {
+        cancelIdleDestruction();
+        return;
+    }
 
     const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
     const APP_ROOT = process.env.APP_ROOT || path.join(__dirname, '..');
@@ -95,9 +100,31 @@ export function createVideoGenerationWindow() {
 }
 
 export function resetVideoServiceState() {
+    if (videoWindow && !videoWindow.isDestroyed()) {
+        videoWindow.destroy();
+    }
     videoWindow = null;
     requestQueue.length = 0;
     activeTasks = 0;
+    cancelIdleDestruction();
+}
+
+function cancelIdleDestruction() {
+    if (idleDestructionTimer) {
+        clearTimeout(idleDestructionTimer);
+        idleDestructionTimer = null;
+    }
+}
+
+function scheduleIdleDestruction() {
+    cancelIdleDestruction();
+    idleDestructionTimer = setTimeout(() => {
+        if (videoWindow && !videoWindow.isDestroyed()) {
+            console.log('[VideoService] Idle timeout reached, destroying video window');
+            videoWindow.destroy();
+            videoWindow = null;
+        }
+    }, IDLE_TIMEOUT_MS);
 }
 
 function replaceExtension(filePath: string, newExtension: string) {
@@ -256,22 +283,8 @@ function executeVideoGeneration(
             ipcMain.removeListener('video-error', onError);
             ipcMain.removeListener('video-progress', onProgress);
 
-            // Delay window destruction slightly to allow any pending IPC to complete,
-            // then reclaim renderer/GPU resources. Next request will recreate the window.
-            const windowToDestroy = videoWindow;
-            videoWindow = null;
-
-            if (windowToDestroy && !windowToDestroy.isDestroyed()) {
-                setTimeout(() => {
-                    try {
-                        if (!windowToDestroy.isDestroyed()) {
-                            windowToDestroy.destroy();
-                        }
-                    } catch {
-                        // ignore - window may already be destroyed
-                    }
-                }, 100);
-            }
+            // Instead of destroying immediately, schedule idle destruction
+            scheduleIdleDestruction();
         };
 
         ipcMain.on('video-generated', onComplete);
