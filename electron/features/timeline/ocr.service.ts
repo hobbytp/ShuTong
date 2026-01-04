@@ -217,7 +217,8 @@ class PaddleOCRProvider implements IOCRProvider {
 
     async extract(imagePath: string, _options?: OCROptions): Promise<OCRResult> {
         const startTime = Date.now();
-        const TIMEOUT_MS = 20000; // 20s timeout (Model load might be slow)
+        // P1 Fix: Increase timeout for initial model download (was 20s)
+        const TIMEOUT_MS = 60000;
 
         if (!existsSync(imagePath)) {
             throw new Error(`[OCRService] Image file not found: ${imagePath}`);
@@ -381,6 +382,10 @@ export class OCRService {
                 this.consecutiveFailures++;
                 console.warn(`[OCRService] Local OCR failure ${this.consecutiveFailures}/${this.MAX_FAILURES}`);
 
+                // Log memory usage on failure to detect OOM patterns
+                const mem = process.memoryUsage();
+                console.warn(`[OCRService] Memory at failure: Heap: ${Math.round(mem.heapUsed / 1024 / 1024)}MB / ${Math.round(mem.heapTotal / 1024 / 1024)}MB, RSS: ${Math.round(mem.rss / 1024 / 1024)}MB`);
+
                 if (this.consecutiveFailures >= this.MAX_FAILURES) {
                     console.error('[OCRService] Too many failures. Opening circuit breaker (fallback to Cloud).');
                     metrics.incrementCounter('ocr.circuit_breaker.open', 1, { engine: this.currentEngine });
@@ -427,6 +432,45 @@ export class OCRService {
     }
 
     /**
+     * Warmup local OCR (preload model). Call at app startup.
+     * Only warms up if local OCR is enabled.
+     * This is a background operation - failures are non-fatal.
+     */
+    async warmup(): Promise<void> {
+        this.checkSettings();
+        if (!this.enabled) {
+            console.log('[OCRService] OCR disabled, skipping warmup');
+            return;
+        }
+
+        if (this.currentEngine === 'paddle') {
+            console.log('[OCRService] Warming up PaddleOCR...');
+            try {
+                await PaddleOCRWindow.getInstance().init();
+                console.log('[OCRService] PaddleOCR warmup complete');
+            } catch (err) {
+                console.warn('[OCRService] PaddleOCR warmup failed:', err);
+                // Non-fatal: first request will retry
+            }
+        } else if (this.currentEngine === 'tesseract') {
+            console.log('[OCRService] Warming up Tesseract...');
+            try {
+                const tesseract = this.providers.get('tesseract') as TesseractOCRProvider;
+                // Trigger worker initialization by calling private method
+                // @ts-ignore - accessing private for warmup
+                if (tesseract['getWorker']) {
+                    await tesseract['getWorker']();
+                }
+                console.log('[OCRService] Tesseract warmup complete');
+            } catch (err) {
+                console.warn('[OCRService] Tesseract warmup failed:', err);
+            }
+        } else {
+            console.log('[OCRService] Cloud OCR selected, no warmup needed');
+        }
+    }
+
+    /**
      * Gracefully shutdown services (terminate workers)
      */
     async shutdown() {
@@ -440,7 +484,62 @@ export class OCRService {
             await paddle.terminate();
         }
     }
+
+    /**
+     * Get current OCR status for UI display
+     */
+    getStatus(): OCRStatusInfo {
+        const recentMetrics = metrics.getRecent('ocr.extract', 10);
+        const successCount = recentMetrics.filter(m => !m.tags?.error).length;
+        const avgDuration = recentMetrics.length > 0
+            ? recentMetrics.reduce((sum, m) => sum + (m.value || 0), 0) / recentMetrics.length
+            : 0;
+
+        // Determine provider readiness
+        let isReady = true;
+        let isLoading = false;
+        let initDurationMs = 0;
+
+        if (this.currentEngine === 'paddle') {
+            const paddleWindow = PaddleOCRWindow.getInstance();
+            // @ts-ignore - accessing private for status
+            isReady = paddleWindow['isReady'] || false;
+            // @ts-ignore
+            isLoading = !!paddleWindow['initPromise'] && !isReady;
+
+            const startTs = paddleWindow.getInitStartTime();
+            if (startTs) {
+                initDurationMs = Date.now() - startTs;
+            }
+        }
+
+        return {
+            engine: this.currentEngine,
+            isEnabled: this.enabled,
+            isReady,
+            isLoading,
+            initDurationMs,
+            isCircuitOpen: this.isCircuitOpen(),
+            consecutiveFailures: this.consecutiveFailures,
+            recentSuccessRate: recentMetrics.length > 0 ? successCount / recentMetrics.length : 1,
+            avgInferenceMs: Math.round(avgDuration)
+        };
+    }
+}
+
+// Status info for UI
+export interface OCRStatusInfo {
+    engine: OCREngine;
+    isEnabled: boolean;
+    isReady: boolean;
+    isLoading: boolean;
+    initDurationMs?: number;
+    isCircuitOpen: boolean;
+    consecutiveFailures: number;
+    recentSuccessRate: number;
+    avgInferenceMs: number;
 }
 
 // Singleton instance
 export const ocrService = new OCRService();
+

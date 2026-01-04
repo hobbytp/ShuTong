@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html>
+
 <head>
-    <meta charset="UTF-8">
-    <title>ShuTong OCR Worker</title>
-    <!-- 
+  <meta charset="UTF-8">
+  <title>ShuTong OCR Worker</title>
+  <!-- 
       Strict CSP for security in this renderer process:
       - default-src 'self': Only allow resources from the same origin.
       - script-src 'self': Only allow scripts from the same origin (no unsafe-inline/eval).
@@ -11,17 +12,19 @@
       - img-src 'self' file: blob: data: https://paddle-model-ecology.bj.bcebos.com: Allow loading images from local file system, blobs, and Paddle public models if testing.
       - connect-src 'self' https://paddle-model-ecology.bj.bcebos.com: Allow fetching model files from Paddle's CDN if not local.
     -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: blob: data: https://paddle-model-ecology.bj.bcebos.com; connect-src 'self' https://paddle-model-ecology.bj.bcebos.com;">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' file: blob: data: https://paddle-model-ecology.bj.bcebos.com https://paddlejs.bj.bcebos.com; connect-src 'self' data: blob: https://paddle-model-ecology.bj.bcebos.com https://paddlejs.bj.bcebos.com;">
 </head>
-<body style="background: #1e1e1e; color: #ccc; font-family: monospace; padding: 20px;">
-    <h2>OCR Worker (Hidden)</h2>
-    <div id="status">Idle</div>
-    <div id="logs" style="margin-top: 10px; font-size: 12px; color: #666;"></div>
-    
-    <!-- Image element for loading the target file for OCR -->
-    <img id="target-image" style="max-width: 100%; margin-top: 20px; display: none;" />
 
-    <!-- 
+<body style="background: #1e1e1e; color: #ccc; font-family: monospace; padding: 20px;">
+  <h2>OCR Worker (Hidden)</h2>
+  <div id="status">Idle</div>
+  <div id="logs" style="margin-top: 10px; font-size: 12px; color: #666;"></div>
+
+  <!-- Image element for loading the target file for OCR -->
+  <img id="target-image" style="max-width: 100%; margin-top: 20px; display: none;" />
+
+  <!-- 
       Load the renderer script. 
       In a production Electron app without a bundler for this specific file, we usually need to referencing the compiled .js file.
       Assuming 'tsc' outputs to 'dist-electron' or similar, we need to know where it lands.
@@ -60,12 +63,18 @@
       DECISION: I will use `nodeIntegration: true` for this hidden window to simplify loading `@paddlejs-models/ocr` via `require`,
       just like in the prototype. This avoids complex bundling steps.
     -->
-    <script>
-      // Simple bootstrap logging
-      console.log('PaddleOCR Worker HTML loaded');
-      // The actual logic will be in renderer.js which we will require() or load via script tag if nodeIntegration is on.
-      // Let's rely on `require` in the script tag for simplicity and robustness.
+  <script>
+    // Simple bootstrap logging
+    console.log('[PaddleRunner] HTML loaded, starting script execution...');
+    try {
+      console.log('[PaddleRunner] Requiring renderer.js...');
       require('./renderer.js');
-    </script>
+      console.log('[PaddleRunner] renderer.js required successfully.');
+    } catch (e) {
+      console.error('[PaddleRunner] Failed to require renderer.js:', e);
+      document.getElementById('logs').innerText = 'Error loading renderer.js: ' + e.message;
+    }
+  </script>
 </body>
+
 </html>

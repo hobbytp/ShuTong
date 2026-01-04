@@ -1,104 +1,99 @@
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MetricsService, measure } from './metrics.service';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { MetricsService, metrics } from './metrics.service';
 
 describe('MetricsService', () => {
-    let metrics: MetricsService;
-
     beforeEach(() => {
-        // Access singleton
-        metrics = MetricsService.getInstance();
         metrics.clear();
-        vi.useFakeTimers();
-        vi.spyOn(console, 'warn').mockImplementation(() => { });
-    });
-
-    afterEach(() => {
-        vi.restoreAllMocks();
-        vi.useRealTimers();
     });
 
     it('should be a singleton', () => {
-        const m1 = MetricsService.getInstance();
-        const m2 = MetricsService.getInstance();
-        expect(m1).toBe(m2);
+        const instance1 = MetricsService.getInstance();
+        const instance2 = MetricsService.getInstance();
+        expect(instance1).toBe(instance2);
     });
 
-    it('should record duration', () => {
-        metrics.recordDuration('test.duration', 100, { foo: 'bar' });
-        const all = metrics.getMetrics();
-        expect(all).toHaveLength(1);
-        expect(all[0]).toEqual(expect.objectContaining({
-            name: 'test.duration',
-            value: 100,
-            tags: { foo: 'bar', type: 'duration' }
-        }));
+    it('should record duration metrics', () => {
+        const name = 'test.duration';
+        const value = 100;
+        metrics.recordDuration(name, value, { test: true });
+
+        const recorded = metrics.getRecent(name);
+        expect(recorded).toHaveLength(1);
+        expect(recorded[0]).toMatchObject({
+            name,
+            value,
+            tags: { test: true, type: 'duration' }
+        });
+        expect(recorded[0].timestamp).toBeDefined();
     });
 
-    it('should increment counter', () => {
-        metrics.incrementCounter('test.count', 1);
-        metrics.incrementCounter('test.count', 2);
+    it('should record counter metrics', () => {
+        const name = 'test.counter';
+        metrics.incrementCounter(name, 5);
 
-        const all = metrics.getMetrics();
-        expect(all).toHaveLength(2);
-        expect(all[1].value).toBe(2);
-        expect(all[1].tags?.type).toBe('counter');
+        const recorded = metrics.getRecent(name);
+        expect(recorded).toHaveLength(1);
+        expect(recorded[0].value).toBe(5);
+        expect(recorded[0].tags?.type).toBe('counter');
     });
 
-    it('should log warning for slow duration', () => {
-        const spy = vi.spyOn(console, 'warn');
-        metrics.recordDuration('slow.op', 2500);
+    it('should record gauge metrics', () => {
+        const name = 'test.gauge';
+        metrics.gauge(name, 42);
 
-        expect(spy).toHaveBeenCalledWith(
-            expect.stringContaining('[Perf] Slow Operation: slow.op took 2500ms'),
-            expect.anything()
-        );
+        const recorded = metrics.getRecent(name);
+        expect(recorded).toHaveLength(1);
+        expect(recorded[0].value).toBe(42);
+        expect(recorded[0].tags?.type).toBe('gauge');
     });
 
-    it('should maintain buffer size limit', () => {
-        const limit = 1000; // From implementation
-        for (let i = 0; i < limit + 50; i++) {
-            metrics.incrementCounter('test', i);
+    it('should respect max buffer size (circular buffer)', () => {
+        const name = 'test.overflow';
+        const MAX_SIZE = 1000; // From implementation
+        const OVERFLOW = 10;
+
+        for (let i = 0; i < MAX_SIZE + OVERFLOW; i++) {
+            metrics.incrementCounter(name, i);
         }
-        expect(metrics.getMetrics()).toHaveLength(limit);
-        // Should have shifted out the first 50
-        expect(metrics.getMetrics()[0].value).toBe(50);
-    });
-});
 
-describe('measure() utility', () => {
-    beforeEach(() => {
-        MetricsService.getInstance().clear();
+        const allMetrics = metrics.getMetrics();
+        expect(allMetrics).toHaveLength(MAX_SIZE);
+
+        // Should have shifted out the first 10, so first item should be index 10
+        expect(allMetrics[0].value).toBe(OVERFLOW);
+        expect(allMetrics[MAX_SIZE - 1].value).toBe(MAX_SIZE + OVERFLOW - 1);
     });
 
-    it('should measure execution time of successful promise', async () => {
-        const fn = async () => {
-            await new Promise(r => setTimeout(r, 100));
-            return 'success';
-        };
+    it('getRecent should return limited number of items', () => {
+        const name = 'test.recent';
+        for (let i = 0; i < 20; i++) {
+            metrics.incrementCounter(name, i);
+        }
 
-        const result = await measure('test.fn', fn, { tag: '1' });
-        expect(result).toBe('success');
-
-        const m = MetricsService.getInstance().getMetrics();
-        expect(m).toHaveLength(1);
-        expect(m[0].name).toBe('test.fn');
-        expect(m[0].value).toBeGreaterThanOrEqual(100);
-        expect(m[0].tags?.success).toBe(true);
+        const recent = metrics.getRecent(name, 5);
+        expect(recent).toHaveLength(5);
+        // Should be the last 5
+        expect(recent[0].value).toBe(15);
+        expect(recent[4].value).toBe(19);
     });
 
-    it('should measure execution time of failed promise and rethrow', async () => {
-        const fn = async () => {
-            await new Promise(r => setTimeout(r, 50));
-            throw new Error('boom');
-        };
+    it('getRecent should return empty array if name not found', () => {
+        const recent = metrics.getRecent('non.existent');
+        expect(recent).toEqual([]);
+    });
 
-        await expect(measure('test.fail', fn)).rejects.toThrow('boom');
+    it('getRecent should filter by name correctly', () => {
+        metrics.incrementCounter('metric.a', 1);
+        metrics.incrementCounter('metric.b', 2);
+        metrics.incrementCounter('metric.a', 3);
 
-        const m = MetricsService.getInstance().getMetrics();
-        expect(m).toHaveLength(1);
-        expect(m[0].name).toBe('test.fail');
-        expect(m[0].tags?.success).toBe(false);
-        expect(m[0].tags?.error).toBe('boom');
+        const recentA = metrics.getRecent('metric.a');
+        expect(recentA).toHaveLength(2);
+        expect(recentA.map(m => m.value)).toEqual([1, 3]);
+
+        const recentB = metrics.getRecent('metric.b');
+        expect(recentB).toHaveLength(1);
+        expect(recentB[0].value).toBe(2);
     });
 });

@@ -1,6 +1,15 @@
 import { app } from 'electron'; // Import mocked app directly
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('i18next', () => ({
+    default: {
+        t: (_key: string, defaultValueOrOptions: any) => {
+            if (typeof defaultValueOrOptions === 'string') return defaultValueOrOptions
+            return defaultValueOrOptions?.defaultValue ?? _key
+        }
+    }
+}))
+
 // Mock Electron
 const mockSetContextMenu = vi.fn()
 const mockSetToolTip = vi.fn()
@@ -74,7 +83,7 @@ describe('Tray Logic', () => {
         expect(recordItem.label).toBe('Stop Recording')
     })
 
-    it('should quit app when Quit clicked', () => {
+    it('should quit app when Quit clicked', async () => {
         // Reset mocks by clearing
         mockMenuBuild.mockClear()
 
@@ -83,7 +92,7 @@ describe('Tray Logic', () => {
         const template = mockMenuBuild.mock.calls[0][0]
         const quitItem = template.find((item: any) => item.label === 'Quit')
 
-        quitItem.click()
+        await quitItem.click()
         expect(app.quit).toHaveBeenCalled()
     })
 

@@ -153,8 +153,16 @@
             "battery_low": "Battery Low",
             "disk_space_low": "Disk Space Low",
             "active_window_changed": "Window Changed",
-            "debounce": "Capture Debounce"
-        }
+            "debounce": "Capture Debounce",
+            "blacklisted": "Blacklisted"
+        },
+        "timeline_analysis": "Timeline Analysis",
+        "enable_ocr": "Enable OCR Analysis",
+        "enable_ocr_desc": "Extract text from screenshots to improve timeline accuracy",
+        "ocr_engine": "OCR Engine",
+        "ocr_engine_cloud": "Cloud LLM (Default)",
+        "ocr_engine_tesseract": "Local (Tesseract) - Experimental",
+        "ocr_engine_paddle": "Local (Paddle) - Experimental"
     },
     "mcp": {
         "title": "MCP Servers",

@@ -7,8 +7,14 @@
  */
 
 import { typedHandle } from '../../infrastructure/ipc/typed-ipc';
-import { getWindowDwellStats, getWindowSwitches } from '../../storage';
-import { getGuardStats, getSkipLog, resetGuardStats } from '../capture/capture-guard';
+import { defaultAnalyticsRepository, IAnalyticsRepository } from './analytics.repository';
+
+// Initialize with default implementation
+let repository: IAnalyticsRepository = defaultAnalyticsRepository;
+
+export function setRepositoryForTesting(repo: IAnalyticsRepository) {
+    repository = repo;
+}
 
 // --- Types ---
 
@@ -45,7 +51,7 @@ export function getDailyActivitySummary(date: string): DailyActivitySummary {
     const endOfDay = startOfDay + 86400;
 
     // Get dwell stats for the day
-    const dwellStats = getWindowDwellStats(startOfDay, endOfDay);
+    const dwellStats = repository.getWindowDwellStats(startOfDay, endOfDay);
 
     // Calculate total active time
     const totalActiveSeconds = dwellStats.reduce((sum, stat) => sum + stat.total_seconds, 0);
@@ -74,7 +80,7 @@ export function getDailyActivitySummary(date: string): DailyActivitySummary {
  */
 function getHourlyActivityDistribution(startTs: number, endTs: number): number[] {
     const hourlySeconds = new Array(24).fill(0);
-    const switches = getWindowSwitches(startTs, endTs, 10000);
+    const switches = repository.getWindowSwitches(startTs, endTs, 10000);
 
     for (let i = 0; i < switches.length; i++) {
         const current = switches[i];
@@ -114,7 +120,7 @@ export function getActivityTimeline(startTs: number, endTs: number, limit = 100)
     const events: ActivityTimelineEvent[] = [];
 
     // Add window switches
-    const switches = getWindowSwitches(startTs, endTs, limit);
+    const switches = repository.getWindowSwitches(startTs, endTs, limit);
     for (const sw of switches) {
         events.push({
             timestamp: sw.timestamp,
@@ -125,7 +131,7 @@ export function getActivityTimeline(startTs: number, endTs: number, limit = 100)
     }
 
     // Add skip events from guard log
-    const skipLog = getSkipLog(limit);
+    const skipLog = repository.getSkipLog(limit);
     for (const skip of skipLog) {
         if (skip.timestamp >= startTs && skip.timestamp <= endTs) {
             events.push({
@@ -152,7 +158,7 @@ export function getCaptureEfficiency(): {
     efficiency: number;
     skipBreakdown: Record<string, number>;
 } {
-    const stats = getGuardStats();
+    const stats = repository.getGuardStats();
 
     const total = stats.totalCaptures + stats.totalSkips;
     const efficiency = total > 0 ? (stats.totalCaptures / total) * 100 : 100;
@@ -169,7 +175,7 @@ export function getCaptureEfficiency(): {
  * Get top apps by usage time for a date range.
  */
 export function getTopApps(startTs: number, endTs: number, limit = 10): AppUsageEntry[] {
-    const dwellStats = getWindowDwellStats(startTs, endTs);
+    const dwellStats = repository.getWindowDwellStats(startTs, endTs);
     const totalSeconds = dwellStats.reduce((sum, stat) => sum + stat.total_seconds, 0);
 
     return dwellStats
@@ -216,17 +222,17 @@ export function setupAnalyticsIPC(): void {
 
     // Get guard statistics
     typedHandle('guard:getStats', () => {
-        return getGuardStats();
+        return repository.getGuardStats();
     });
 
     // Get skip log
     typedHandle('guard:getSkipLog', (_event, limit?: number) => {
-        return getSkipLog(limit);
+        return repository.getSkipLog(limit);
     });
 
     // Reset guard statistics
     typedHandle('guard:resetStats', () => {
-        resetGuardStats();
+        repository.resetGuardStats();
     });
 
     console.log('[Analytics] IPC handlers registered');

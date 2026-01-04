@@ -1,13 +1,24 @@
-
+console.log('[PaddleWorker] renderer.js executing...');
 const { ipcRenderer } = require('electron');
-const ocr = require('@paddlejs-models/ocr');
+
+// Declare ocr at module scope so it's accessible to all functions
+let ocr;
+try {
+    console.log('[PaddleWorker] Requiring @paddlejs-models/ocr...');
+    ocr = require('@paddlejs-models/ocr');
+    console.log('[PaddleWorker] @paddlejs-models/ocr loaded.');
+} catch (e) {
+    console.error('[PaddleWorker] Failed to load dependencies:', e);
+    throw e;
+}
 
 console.log('[PaddleWorker] Renderer process started.');
 
 const STATE = {
     isInit: false,
     initPromise: null,
-    lastActivity: Date.now()
+    lastActivity: Date.now(),
+    hasSignaledReady: false  // P0 Fix: Track if ready signal was sent
 };
 
 const statusDiv = document.getElementById('status');
@@ -30,9 +41,25 @@ async function initialize() {
     log('Initializing PaddleOCR model...');
     STATE.initPromise = (async () => {
         try {
+            // P1: Check WebGL availability before model load
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+            if (!gl) {
+                throw new Error('WebGL not available - PaddleOCR requires GPU acceleration');
+            }
+            log('WebGL available, starting model load...');
+            const initStart = performance.now();
             await ocr.init();
+            const initDuration = Math.round(performance.now() - initStart);
             STATE.isInit = true;
-            log('PaddleOCR Initialized (WebGL)');
+            log(`PaddleOCR Initialized (WebGL) in ${initDuration}ms`);
+
+            // P0 Fix: Send ready signal AFTER model is loaded
+            if (!STATE.hasSignaledReady) {
+                ipcRenderer.send('paddle-ready');
+                STATE.hasSignaledReady = true;
+                log('Ready signal sent to main process (model loaded).');
+            }
         } catch (err) {
             log('Failed to initialize PaddleOCR: ' + err.message);
             STATE.initPromise = null; // Allow retry
@@ -64,6 +91,7 @@ ipcRenderer.on('ocr-request', async (event, { imagePath, requestId }) => {
         const res = await ocr.recognize(imgElement);
         const inferenceDuration = Math.round(performance.now() - inferenceStart);
 
+        // Detailed logging for debugging OCR quality
         log(`Success. Text: ${res.text?.length || 0} chars, Inference: ${inferenceDuration}ms`);
 
         const resultPayload = {
@@ -87,6 +115,12 @@ ipcRenderer.on('ocr-request', async (event, { imagePath, requestId }) => {
 
 log('PaddleWorker listeners registered.');
 
-// Signal to main process that renderer is ready
-ipcRenderer.send('paddle-ready');
-log('Ready signal sent to main process.');
+// P0 Fix: Removed premature paddle-ready signal.
+// Ready signal is now sent AFTER ocr.init() completes in initialize().
+// This ensures main process waits for model to load before sending requests.
+
+// Trigger early initialization to start model download in background
+initialize().catch(err => {
+    log('Background init failed (will retry on first request): ' + err.message);
+});
+

@@ -25,6 +25,11 @@ export interface Screenshot {
     app_bundle_id: string | null;
     app_name: string | null;   // Human-readable app name for context parsing
     window_title: string | null;
+    monitor_id?: string | null;
+    roi_x?: number | null;
+    roi_y?: number | null;
+    roi_w?: number | null;
+    roi_h?: number | null;
 }
 
 export interface AnalysisBatch {

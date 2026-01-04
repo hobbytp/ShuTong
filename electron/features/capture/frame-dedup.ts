@@ -30,7 +30,7 @@ type FrameGrid = RGBColor[];
 
 // --- State ---
 
-let lastFrameGrid: FrameGrid | null = null;
+const lastFrameGrids = new Map<string, FrameGrid>();
 let dedupStats: DedupStats = {
     totalCaptures: 0,
     dedupSkips: 0,
@@ -114,18 +114,43 @@ export function sampleFrameGrid(
 /**
  * Calculate the normalized distance between two frame grids.
  * Uses mean Euclidean distance of RGB values, normalized to 0-1.
+ * Supports ROI (Region of Interest) weighting.
  * 
  * @param grid1 - First frame grid
  * @param grid2 - Second frame grid
+ * @param width - Image width (required for ROI calc)
+ * @param height - Image height (required for ROI calc)
+ * @param gridSize - Grid size (default 32)
+ * @param roi - Optional ROI to prioritize (pixels inside will have higher weight)
  * @returns Normalized distance (0 = identical, 1 = completely different)
  */
-export function calculateGridDistance(grid1: FrameGrid, grid2: FrameGrid): number {
+export function calculateGridDistance(
+    grid1: FrameGrid,
+    grid2: FrameGrid,
+    width?: number,
+    height?: number,
+    gridSize: number = 32,
+    roi?: { x: number, y: number, w: number, h: number }
+): number {
     if (grid1.length !== grid2.length || grid1.length === 0) {
         return 1; // Maximum distance if grids don't match
     }
 
     let totalDistance = 0;
+    let totalWeight = 0;
     const maxDistance = Math.sqrt(255 * 255 * 3); // Max RGB Euclidean distance
+
+    // ROI Weight Multiplier (3x more importance for ROI changes)
+    const ROI_WEIGHT = 3.0;
+    const BG_WEIGHT = 0.5; // Lower importance for background
+
+    // Grid calculations if ROI is present
+    let stepX = 0;
+    let stepY = 0;
+    if (roi && width && height) {
+        stepX = Math.floor(width / gridSize);
+        stepY = Math.floor(height / gridSize);
+    }
 
     for (let i = 0; i < grid1.length; i++) {
         const [r1, g1, b1] = grid1[i];
@@ -136,12 +161,30 @@ export function calculateGridDistance(grid1: FrameGrid, grid2: FrameGrid): numbe
         const dg = g1 - g2;
         const db = b1 - b2;
         const pixelDistance = Math.sqrt(dr * dr + dg * dg + db * db);
+        const normalizedPixelDist = pixelDistance / maxDistance;
 
-        totalDistance += pixelDistance / maxDistance;
+        let weight = 1.0;
+        if (roi && width && height) {
+            // Determine if this grid point is inside ROI
+            const gy = Math.floor(i / gridSize);
+            const gx = i % gridSize;
+
+            // Map grid coord to pixel coord (approximate center of grid cell)
+            const px = Math.min(gx * stepX + (stepX / 2), width - 1);
+            const py = Math.min(gy * stepY + (stepY / 2), height - 1);
+
+            const inRoi = px >= roi.x && px < roi.x + roi.w &&
+                py >= roi.y && py < roi.y + roi.h;
+
+            weight = inRoi ? ROI_WEIGHT : BG_WEIGHT;
+        }
+
+        totalDistance += normalizedPixelDist * weight;
+        totalWeight += weight;
     }
 
-    // Return mean normalized distance
-    return totalDistance / grid1.length;
+    // Return weighted mean normalized distance
+    return totalWeight > 0 ? totalDistance / totalWeight : 0;
 }
 
 /**
@@ -153,6 +196,7 @@ export function calculateGridDistance(grid1: FrameGrid, grid2: FrameGrid): numbe
  * @param height - Image height
  * @param estimatedBytes - Estimated size of the frame in bytes (for stats)
  * @param updateState - Whether to update the internal lastFrameGrid state (default: true)
+ * @param contextId - Unique identifier for the context (e.g. monitor ID) (default: 'default')
  * @returns Object containing isSimilar boolean and distance metric
  */
 export function checkFrameSimilarity(
@@ -160,7 +204,9 @@ export function checkFrameSimilarity(
     width: number,
     height: number,
     estimatedBytes: number = 0,
-    updateState: boolean = true
+    updateState: boolean = true,
+    contextId: string = 'default',
+    roi?: { x: number, y: number, w: number, h: number }
 ): { isSimilar: boolean, distance: number } {
     if (!dedupSettings.enableSimilarityDedup) {
         return { isSimilar: false, distance: 1.0 };
@@ -172,15 +218,24 @@ export function checkFrameSimilarity(
         dedupStats.totalCaptures++;
     }
 
-    if (lastFrameGrid === null) {
+    const lastGrid = lastFrameGrids.get(contextId);
+
+    if (!lastGrid) {
         // First frame - store and don't skip
         if (updateState) {
-            lastFrameGrid = currentGrid;
+            lastFrameGrids.set(contextId, currentGrid);
         }
         return { isSimilar: false, distance: 1.0 };
     }
 
-    const distance = calculateGridDistance(lastFrameGrid, currentGrid);
+    const distance = calculateGridDistance(
+        lastGrid,
+        currentGrid,
+        width,
+        height,
+        dedupSettings.gridSize,
+        roi
+    );
     const isSimilar = distance < dedupSettings.similarityThreshold;
 
     if (isSimilar) {
@@ -192,7 +247,7 @@ export function checkFrameSimilarity(
     } else {
         // Different frame
         if (updateState) {
-            lastFrameGrid = currentGrid;
+            lastFrameGrids.set(contextId, currentGrid);
         }
     }
 
@@ -215,15 +270,20 @@ export function isFrameSimilar(
 /**
  * Force update the last frame grid (e.g., after window switch).
  * Call this when you want to ensure the next frame is stored regardless of similarity.
+ * @param contextId - Optional context ID to reset. If not provided, resets all.
  */
-export function resetLastFrame() {
-    lastFrameGrid = null;
+export function resetLastFrame(contextId?: string) {
+    if (contextId) {
+        lastFrameGrids.delete(contextId);
+    } else {
+        lastFrameGrids.clear();
+    }
 }
 
 /**
  * Clear all dedup state.
  */
 export function clearDedupState() {
-    lastFrameGrid = null;
+    lastFrameGrids.clear();
     dedupStats = { totalCaptures: 0, dedupSkips: 0, estimatedBytesSaved: 0 };
 }

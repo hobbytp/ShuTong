@@ -30,6 +30,17 @@ vi.mock('electron', () => ({
     }
 }));
 
+vi.mock('jimp', () => ({
+    Jimp: {
+        read: vi.fn().mockResolvedValue({
+            width: 1920,
+            height: 1080,
+            scaleToFit: vi.fn(),
+            getBuffer: vi.fn().mockResolvedValue(Buffer.from('mock-image-data'))
+        })
+    }
+}));
+
 describe('LLM Robustness Integration', () => {
     let service: LLMService;
     let mockProvider: any;

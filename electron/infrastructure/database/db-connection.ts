@@ -90,7 +90,12 @@ function createTables(database: Database.Database): void {
             is_deleted INTEGER DEFAULT 0,
             capture_type TEXT,
             app_bundle_id TEXT,
-            window_title TEXT
+            window_title TEXT,
+            monitor_id TEXT,
+            roi_x INTEGER,
+            roi_y INTEGER,
+            roi_w INTEGER,
+            roi_h INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_screenshots_captured_at ON screenshots(captured_at);
 
@@ -157,4 +162,43 @@ function createTables(database: Database.Database): void {
         );
         CREATE INDEX IF NOT EXISTS idx_window_switches_timestamp ON window_switches(timestamp);
     `);
+
+    // Migrations
+    try {
+        database.prepare('ALTER TABLE screenshots ADD COLUMN monitor_id TEXT').run();
+    } catch (e) {
+        // Ignore error if column already exists
+    }
+
+    try {
+        database.prepare('ALTER TABLE screenshots ADD COLUMN roi_x INTEGER').run();
+    } catch (e: any) {
+        if (!e.message.includes('duplicate column name')) {
+            console.error('[Database] Migration failed for roi_x:', e);
+        }
+    }
+
+    try {
+        database.prepare('ALTER TABLE screenshots ADD COLUMN roi_y INTEGER').run();
+    } catch (e: any) {
+        if (!e.message.includes('duplicate column name')) {
+            console.error('[Database] Migration failed for roi_y:', e);
+        }
+    }
+
+    try {
+        database.prepare('ALTER TABLE screenshots ADD COLUMN roi_w INTEGER').run();
+    } catch (e: any) {
+        if (!e.message.includes('duplicate column name')) {
+            console.error('[Database] Migration failed for roi_w:', e);
+        }
+    }
+
+    try {
+        database.prepare('ALTER TABLE screenshots ADD COLUMN roi_h INTEGER').run();
+    } catch (e: any) {
+        if (!e.message.includes('duplicate column name')) {
+            console.error('[Database] Migration failed for roi_h:', e);
+        }
+    }
 }

@@ -97,7 +97,7 @@ export function createVideoGenerationWindow() {
 export function resetVideoServiceState() {
     videoWindow = null;
     requestQueue.length = 0;
-    isProcessing = false;
+    activeTasks = 0;
 }
 
 function replaceExtension(filePath: string, newExtension: string) {
@@ -106,7 +106,9 @@ function replaceExtension(filePath: string, newExtension: string) {
 }
 
 const requestQueue: Array<() => Promise<void>> = [];
-let isProcessing = false;
+
+let activeTasks = 0;
+const MAX_CONCURRENT_TASKS = 3;
 
 export function generateVideo(
     images: string[],
@@ -130,8 +132,8 @@ export function generateVideo(
 }
 
 async function processNextTask() {
-    if (isProcessing || requestQueue.length === 0) return;
-    isProcessing = true;
+    if (activeTasks >= MAX_CONCURRENT_TASKS || requestQueue.length === 0) return;
+    activeTasks++;
 
     const task = requestQueue.shift();
     if (task) {
@@ -140,12 +142,10 @@ async function processNextTask() {
         } catch (err) {
             console.error('[VideoService] Task failed:', err);
         } finally {
-            isProcessing = false;
+            activeTasks--;
             // Add a small delay to allow cleanup/GC if needed
             setTimeout(processNextTask, 100);
         }
-    } else {
-        isProcessing = false;
     }
 }
 

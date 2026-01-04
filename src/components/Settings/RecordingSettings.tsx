@@ -1,4 +1,4 @@
-import { Activity, Camera, Clock, Eye, EyeOff, FileText, Gauge, HardDrive, Layers, Monitor, Play, Shield } from 'lucide-react';
+import { Activity, AlertTriangle, Camera, CheckCircle, Clock, Eye, EyeOff, FileText, Gauge, HardDrive, Layers, Loader2, Monitor, Play, Shield } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Input } from './Shared';
@@ -90,6 +90,15 @@ export function RecordingSettings() {
     const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
     const [guardStats, setGuardStats] = useState<GuardStatistics | null>(null);
     const [skipLog, setSkipLog] = useState<SkipLogEntry[]>([]);
+    const [ocrStatus, setOcrStatus] = useState<{
+        engine: string;
+        isReady: boolean;
+        isLoading: boolean;
+        initDurationMs?: number;
+        isCircuitOpen: boolean;
+        avgInferenceMs: number;
+        recentSuccessRate: number;
+    } | null>(null);
 
     useEffect(() => {
         loadConfig();
@@ -101,6 +110,30 @@ export function RecordingSettings() {
             return () => clearTimeout(timer);
         }
     }, [saveState]);
+
+    // Fetch OCR status
+    useEffect(() => {
+        if (!config.ocr_enabled || config.ocr_engine === 'cloud') return;
+
+        let mounted = true;
+        const fetchOcrStatus = async () => {
+            if (!window.ipcRenderer) return;
+            try {
+                const status = await window.ipcRenderer.invoke('ocr:getStatus');
+                if (mounted) setOcrStatus(status);
+            } catch (err) {
+                console.error('Failed to fetch OCR status:', err);
+            }
+        };
+
+        fetchOcrStatus();
+        const interval = setInterval(fetchOcrStatus, 3000);
+
+        return () => {
+            mounted = false;
+            clearInterval(interval);
+        };
+    }, [config.ocr_enabled, config.ocr_engine]);
 
     useEffect(() => {
         let mounted = true;
@@ -583,58 +616,7 @@ export function RecordingSettings() {
                 </div>
             </div>
 
-            {/* Timeline Analysis Section */}
-            <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
-                <h3 className="text-lg font-bold text-zinc-100 mb-6 flex items-center gap-2">
-                    <FileText size={20} className="text-purple-400" />
-                    {t('recording.timeline_analysis', 'Timeline Analysis')}
-                </h3>
 
-                <div className="space-y-6">
-                    {/* OCR Toggle & Engine */}
-                    <div className="flex flex-col gap-4 p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                                <div className="p-2 bg-purple-500/10 rounded-lg">
-                                    <FileText size={18} className="text-purple-400" />
-                                </div>
-                                <div>
-                                    <div className="text-sm font-medium text-zinc-200">{t('recording.enable_ocr', 'Enable OCR Analysis')}</div>
-                                    <div className="text-xs text-zinc-500">{t('recording.enable_ocr_desc', 'Extract text from screenshots to improve timeline accuracy')}</div>
-                                </div>
-                            </div>
-                            <label className="relative inline-flex items-center cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={config.ocr_enabled}
-                                    onChange={(e) => updateSetting('ocr_enabled', e.target.checked)}
-                                    className="sr-only peer"
-                                />
-                                <div className="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                            </label>
-                        </div>
-
-                        {config.ocr_enabled && (
-                            <div className="flex items-center justify-between pt-4 border-t border-zinc-900">
-                                <div className="text-sm text-zinc-400 pl-14">
-                                    {t('recording.ocr_engine', 'OCR Engine')}
-                                </div>
-                                <div className="w-48">
-                                    <select
-                                        value={config.ocr_engine}
-                                        onChange={(e) => updateSetting('ocr_engine', e.target.value)}
-                                        className="w-full appearance-none bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-purple-500/20 cursor-pointer"
-                                    >
-                                        <option value="cloud">{t('recording.ocr_engine_cloud', 'Cloud LLM (Default)')}</option>
-                                        <option value="tesseract">{t('recording.ocr_engine_tesseract', 'Local (Tesseract) - Experimental')}</option>
-                                        <option value="paddle">{t('recording.ocr_engine_paddle', 'Local (Paddle) - Experimental')}</option>
-                                    </select>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
 
             {/* Privacy & Scope */}
             <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
@@ -750,6 +732,111 @@ export function RecordingSettings() {
                     )}
                 </div>
             </div >
+            {/* Timeline Analysis Section */}
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
+                <h3 className="text-lg font-bold text-zinc-100 mb-6 flex items-center gap-2">
+                    <FileText size={20} className="text-purple-400" />
+                    {t('recording.timeline_analysis', 'Timeline Analysis')}
+                </h3>
+
+                <div className="space-y-6">
+                    {/* OCR Toggle & Engine */}
+                    <div className="flex flex-col gap-4 p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                                <div className="p-2 bg-purple-500/10 rounded-lg">
+                                    <FileText size={18} className="text-purple-400" />
+                                </div>
+                                <div>
+                                    <div className="text-sm font-medium text-zinc-200">{t('recording.enable_ocr', 'Enable OCR Analysis')}</div>
+                                    <div className="text-xs text-zinc-500">{t('recording.enable_ocr_desc', 'Extract text from screenshots to improve timeline accuracy')}</div>
+                                </div>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={config.ocr_enabled}
+                                    onChange={(e) => updateSetting('ocr_enabled', e.target.checked)}
+                                    className="sr-only peer"
+                                />
+                                <div className="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                            </label>
+                        </div>
+
+                        {config.ocr_enabled && (
+                            <div className="flex items-center justify-between pt-4 border-t border-zinc-900">
+                                <div className="text-sm text-zinc-400 pl-14">
+                                    {t('recording.ocr_engine', 'OCR Engine')}
+                                </div>
+                                <div className="w-48">
+                                    <select
+                                        value={config.ocr_engine}
+                                        onChange={(e) => updateSetting('ocr_engine', e.target.value)}
+                                        className="w-full appearance-none bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-purple-500/20 cursor-pointer"
+                                    >
+                                        <option value="cloud">{t('recording.ocr_engine_cloud', 'Cloud LLM (Default)')}</option>
+                                        <option value="tesseract">{t('recording.ocr_engine_tesseract', 'Local (Tesseract) - Experimental')}</option>
+                                        <option value="paddle">{t('recording.ocr_engine_paddle', 'Local (Paddle) - Experimental')}</option>
+                                    </select>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* OCR Status Display for Local Engines */}
+                        {config.ocr_enabled && config.ocr_engine !== 'cloud' && ocrStatus && (
+                            <div className="flex items-center justify-between pt-4 border-t border-zinc-900 pl-14">
+                                <div className="flex items-center gap-3">
+                                    {/* Status Badge */}
+                                    {ocrStatus.isLoading ? (
+                                        <div className="flex items-center gap-2 text-amber-400">
+                                            <Loader2 size={14} className="animate-spin" />
+                                            <span className="text-xs flex items-center gap-1">
+                                                {t('recording.ocr_initializing', 'Initializing model...')}
+                                                {ocrStatus.initDurationMs && ocrStatus.initDurationMs > 2000 && (
+                                                    <span className="text-amber-500/80">
+                                                        ({Math.round(ocrStatus.initDurationMs / 1000)}s)
+                                                        {ocrStatus.initDurationMs > 5000 && t('recording.ocr_downloading', ' - downloading resources...')}
+                                                    </span>
+                                                )}
+                                            </span>
+                                        </div>
+                                    ) : ocrStatus.isCircuitOpen ? (
+                                        <div className="flex items-center gap-2 text-red-400">
+                                            <AlertTriangle size={14} />
+                                            <span className="text-xs">{t('recording.ocr_circuit_open', 'Fallback to Cloud (errors detected)')}</span>
+                                        </div>
+                                    ) : ocrStatus.isReady ? (
+                                        <div className="flex items-center gap-2 text-emerald-400">
+                                            <CheckCircle size={14} />
+                                            <span className="text-xs">{t('recording.ocr_ready', 'Ready')}</span>
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center gap-2 text-zinc-500">
+                                            <Clock size={14} />
+                                            <span className="text-xs">{t('recording.ocr_idle', 'Idle (will initialize on first use)')}</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Performance Stats */}
+                                {ocrStatus.avgInferenceMs > 0 && (
+                                    <div className="text-xs text-zinc-500">
+                                        ~{ocrStatus.avgInferenceMs}ms • {Math.round(ocrStatus.recentSuccessRate * 100)}% success
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* First-time warning for local engines */}
+                        {config.ocr_enabled && config.ocr_engine !== 'cloud' && (
+                            <div className="mt-3 pl-14 text-xs text-zinc-500">
+                                {t('recording.ocr_local_warning', 'First time initialization may take 1-2 minutes to download models.')}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
             {/* Guard Statistics & Log */}
             < div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6" >
                 <h3 className="text-lg font-bold text-zinc-100 mb-6 flex items-center gap-2">

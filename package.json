@@ -6,7 +6,7 @@
   "author": "RayTan",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "cross-env NODE_OPTIONS=--max-old-space-size=4096 vite",
     "build": "tsc && vite build && electron-builder -c.publish.provider=generic -c.publish.url=https://example.com/downloads",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
@@ -70,6 +70,7 @@
     "@typescript-eslint/eslint-plugin": "^7.1.1",
     "@typescript-eslint/parser": "^7.1.1",
     "@vitejs/plugin-react": "^4.2.1",
+    "cross-env": "^10.1.0",
     "electron": "^39.2.7",
     "electron-builder": "^24.13.3",
     "eslint": "^8.57.0",
@@ -80,6 +81,7 @@
     "vite": "^7.3.0",
     "vite-plugin-electron": "^0.28.6",
     "vite-plugin-electron-renderer": "^0.14.5",
+    "vite-plugin-static-copy": "^3.1.4",
     "vitest": "^4.0.16"
   },
   "main": "dist-electron/main.js"

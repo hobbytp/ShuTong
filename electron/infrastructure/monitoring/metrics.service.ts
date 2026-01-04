@@ -49,6 +49,15 @@ export class MetricsService {
         }
     }
 
+    /**
+     * Get recent metrics by name for UI display
+     */
+    public getRecent(name: string, count: number = 10): IMetric[] {
+        return this.metricsBuffer
+            .filter(m => m.name === name)
+            .slice(-count);
+    }
+
     public getMetrics(): IMetric[] {
         return [...this.metricsBuffer];
     }

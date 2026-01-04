@@ -21,6 +21,12 @@ vi.mock('electron', () => ({
     ipcMain: {
         handle: vi.fn(),
     },
+    screen: {
+        getPrimaryDisplay: vi.fn().mockReturnValue({ size: { width: 1920, height: 1080 } }),
+        getAllDisplays: vi.fn().mockReturnValue([
+            { id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 } }
+        ])
+    }
 }))
 
 const mockShouldSkipCapture = vi.fn(() => null)
@@ -35,13 +41,17 @@ vi.mock('../../electron/features/capture/capture-guard', () => ({
     onWindowSwitch: vi.fn(),
     shouldSkipCapture: (...args: any[]) => mockShouldSkipCapture(...args),
     updateGuardSettings: vi.fn(),
+    recordSkip: vi.fn(),
+    recordCapture: vi.fn(),
+    getIdleTime: vi.fn(() => 0),
+    getGuardSettings: vi.fn(() => ({ idleThresholdSeconds: 30 }))
 }))
 
 const mockIsFrameSimilar = vi.fn()
 const mockResetLastFrame = vi.fn()
 
 vi.mock('../../electron/features/capture/frame-dedup', () => ({
-    isFrameSimilar: (...args: any[]) => mockIsFrameSimilar(...args),
+    checkFrameSimilarity: (...args: any[]) => mockIsFrameSimilar(...args),
     resetLastFrame: (...args: any[]) => mockResetLastFrame(...args),
     updateDedupSettings: vi.fn(),
 }))
@@ -135,14 +145,20 @@ describe('Capture + Frame Dedup integration', () => {
             getSize: () => ({ width: 100, height: 100 }),
             toBitmap: () => Buffer.alloc(100 * 100 * 4, 1),
             toJPEG: vi.fn(() => Buffer.from([1, 2, 3])),
+            toPNG: vi.fn(() => Buffer.from([1, 2, 3])),
         }
 
-        mockDesktopCapturerGetSources.mockResolvedValue([{ thumbnail }])
-        mockIsFrameSimilar.mockReturnValue(true)
+        mockDesktopCapturerGetSources.mockResolvedValue([{
+            id: 'screen:1:0',
+            name: 'Screen 1',
+            thumbnail
+        }])
+        mockIsFrameSimilar.mockReturnValue({ isSimilar: true, distance: 0 })
 
         const capture = await import('../../electron/features/capture/capture.service')
         capture.__test__resetCaptureState()
         capture.__test__setLastCapturedWindowApp('App')
+        capture.__test__setLastWindowId(1)
 
         await capture.__test__captureFrame(makeConfig())
 
@@ -169,27 +185,48 @@ describe('Capture + Frame Dedup integration', () => {
             getSize: () => ({ width: 100, height: 100 }),
             toBitmap: () => Buffer.alloc(100 * 100 * 4, 2),
             toJPEG: vi.fn(() => Buffer.from([1, 2, 3, 4])),
+            toPNG: vi.fn(() => Buffer.from([1, 2, 3, 4])),
         }
 
-        mockDesktopCapturerGetSources.mockResolvedValue([{ thumbnail }])
-        mockIsFrameSimilar.mockReturnValue(true)
+        mockDesktopCapturerGetSources.mockResolvedValue([{
+            id: 'screen:1:0',
+            name: 'Screen 1',
+            thumbnail
+        }])
+        mockIsFrameSimilar.mockReturnValue({ isSimilar: true, distance: 0 })
 
         const capture = await import('../../electron/features/capture/capture.service')
         capture.__test__resetCaptureState()
         capture.__test__setLastCapturedWindowApp('OldApp')
+        capture.__test__setLastWindowId(1)
+        mockIsFrameSimilar.mockReturnValue({ isSimilar: false, distance: 1 })
 
         await capture.__test__captureFrame(makeConfig())
 
         expect(mockNotifyWindowChange).toHaveBeenCalledTimes(1)
-        expect(mockResetLastFrame).toHaveBeenCalledTimes(1)
-        expect(mockIsFrameSimilar).not.toHaveBeenCalled()
+        // With multi-context dedup, we no longer call resetLastFrame globally on window change.
+        // Instead, we just handle it via checkFrameSimilarity or pendingFrames logic.
+        // Actually, on window change (onset), we just save the frame.
+        // And we update dedup state by calling checkFrameSimilarity(..., true).
+        // So mockResetLastFrame expectation should be removed or changed.
+        // And mockIsFrameSimilar SHOULD be called (to update state).
+        
+        // UPDATE: logic now calls resetLastFrame on window switch
+        expect(mockResetLastFrame).toHaveBeenCalled()
 
-        expect(thumbnail.toJPEG).toHaveBeenCalledTimes(1)
+        // Let's verify capture.service.ts logic:
+        // if (isDifferentWindow) { ... triggerType = 'onset'; shouldSave = true; ... }
+        // if (shouldSave) { ... checkFrameSimilarity(..., true); ... }
+
+        // So mockIsFrameSimilar SHOULD be called.
+        expect(mockIsFrameSimilar).toHaveBeenCalledTimes(2)
+
+        expect(thumbnail.toPNG).toHaveBeenCalledTimes(1)
         expect(mockWriteFile).toHaveBeenCalledTimes(1)
         expect(mockSaveScreenshot).toHaveBeenCalledTimes(1)
 
         const saveCall = mockSaveScreenshot.mock.calls[0]
-        expect(saveCall[3]).toBe('screen')
+        expect(saveCall[3]).toBe('screen:onset')
         expect(saveCall[4]).toBe('NewApp')
 
         vi.useRealTimers()

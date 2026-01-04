@@ -22,20 +22,26 @@ export interface ActivityContext {
 
 // --- Parsing Rules ---
 
-interface ParserRule {
+export interface ContextRule {
     /** App name pattern (case-insensitive substring match) */
     appPattern: string;
+    /** Default activity type if matched */
+    activityType?: ActivityContext['activityType'];
     /** Function to parse the window title for this app */
-    parse: (title: string, app: string) => Partial<ActivityContext>;
+    parse?: (title: string, app: string) => Partial<ActivityContext>;
 }
 
 // VS Code window title format: "filename — project — Visual Studio Code"
 // or "filename - project - Visual Studio Code"
-const VSCODE_TITLE_REGEX = /^(.+?)\s*[-—]\s*(.+?)\s*[-—]\s*Visual Studio Code/i;
+// Updated to require spaces around separators to avoid matching hyphens in filenames
+const VSCODE_TITLE_REGEX = /^(.+?)\s+[-—]\s+(.+?)\s+[-—]\s+(?:Visual Studio Code|Cursor)/i;
+// For 'Code' app name on some platforms - matches "filename - project - Code"
+const VSCODE_SHORT_TITLE_REGEX = /^(.+?)\s+[-—]\s+(.+?)\s+[-—]\s+(?:Visual Studio )?Code/i;
 
 // Generic browser domain extraction from title (often "Page Title - Domain - Browser Name")
 // This is a heuristic; not all titles follow this format
-const BROWSER_DOMAIN_REGEX = /[-—]\s*([a-zA-Z0-9][-a-zA-Z0-9]*(?:\.[a-zA-Z0-9][-a-zA-Z0-9]*)+)\s*[-—]/;
+// Fixed regex to capture full domain
+const BROWSER_DOMAIN_REGEX = /[-—]\s*([a-zA-Z0-9][-a-zA-Z0-9]*(?:\.[a-zA-Z0-9][-a-zA-Z0-9]*)+)/;
 
 // Domain categories for classification
 const DOMAIN_CATEGORIES: Record<string, ActivityContext['activityType']> = {
@@ -57,12 +63,13 @@ const DOMAIN_CATEGORIES: Record<string, ActivityContext['activityType']> = {
     'outlook.live.com': 'communication',
 };
 
-const PARSER_RULES: ParserRule[] = [
+const DEFAULT_RULES: ContextRule[] = [
+    // Dynamic rule injection point (priority over defaults)
     // VS Code / Cursor / Similar Editors
     {
         appPattern: 'code',
         parse: (title) => {
-            const match = title.match(VSCODE_TITLE_REGEX);
+            const match = title.match(VSCODE_TITLE_REGEX) || title.match(VSCODE_SHORT_TITLE_REGEX);
             if (match) {
                 return {
                     file: match[1].trim(),
@@ -105,50 +112,69 @@ const PARSER_RULES: ParserRule[] = [
         appPattern: 'brave',
         parse: (title) => parseBrowserTitle(title)
     },
+    {
+        // Fallback for "Google Chrome" full name
+        appPattern: 'google chrome',
+        parse: (title) => parseBrowserTitle(title)
+    },
     // Communication Apps
-    {
-        appPattern: 'slack',
-        parse: () => ({ activityType: 'communication' as const })
-    },
-    {
-        appPattern: 'discord',
-        parse: () => ({ activityType: 'communication' as const })
-    },
-    {
-        appPattern: 'teams',
-        parse: () => ({ activityType: 'communication' as const })
-    },
-    {
-        appPattern: 'wechat',
-        parse: () => ({ activityType: 'communication' as const })
-    },
+    { appPattern: 'slack', activityType: 'communication' },
+    { appPattern: 'discord', activityType: 'communication' },
+    { appPattern: 'teams', activityType: 'communication' },
+    { appPattern: 'wechat', activityType: 'communication' },
     // Productivity Apps
-    {
-        appPattern: 'notion',
-        parse: () => ({ activityType: 'productivity' as const })
-    },
-    {
-        appPattern: 'obsidian',
-        parse: () => ({ activityType: 'productivity' as const })
-    },
+    { appPattern: 'notion', activityType: 'productivity' },
+    { appPattern: 'obsidian', activityType: 'productivity' },
     // Media Apps
-    {
-        appPattern: 'spotify',
-        parse: () => ({ activityType: 'media' as const })
-    },
-    {
-        appPattern: 'vlc',
-        parse: () => ({ activityType: 'media' as const })
-    }
+    { appPattern: 'spotify', activityType: 'media' },
+    { appPattern: 'vlc', activityType: 'media' }
 ];
+
+// Active rules (can be updated dynamically)
+let activeRules: ContextRule[] = [...DEFAULT_RULES];
+
+/**
+ * Update the context parsing rules dynamically.
+ * Useful for loading from config/DB.
+ */
+export function setContextRules(rules: ContextRule[]) {
+    // Prepend custom rules to defaults so they take precedence
+    activeRules = [...rules, ...DEFAULT_RULES];
+}
+
+export function getContextRules(): ContextRule[] {
+    return activeRules;
+}
+
+// Heuristic to extract the main domain from a subdomain string
+// e.g., "docs.google.com" -> "google.com", "github.com" -> "github.com"
+function getMainDomain(hostname: string): string {
+    const parts = hostname.split('.');
+    if (parts.length > 2) {
+        // Very basic handling: take last two parts
+        // This is not perfect (e.g. co.uk) but works for the hardcoded list above
+        return parts.slice(-2).join('.');
+    }
+    return hostname;
+}
 
 function parseBrowserTitle(title: string): Partial<ActivityContext> {
     // Try to extract domain from title
     const domainMatch = title.match(BROWSER_DOMAIN_REGEX);
     if (domainMatch) {
-        const domain = domainMatch[1].toLowerCase();
-        const activityType = DOMAIN_CATEGORIES[domain] || 'research';
-        return { domain, activityType };
+        // The regex captures the full hostname (e.g. "github.com" or "docs.google.com")
+        const fullDomain = domainMatch[1].toLowerCase();
+        
+        // Check exact match first
+        let activityType = DOMAIN_CATEGORIES[fullDomain];
+        
+        // If no exact match, try checking the main domain
+        if (!activityType) {
+            const mainDomain = getMainDomain(fullDomain);
+             activityType = DOMAIN_CATEGORIES[mainDomain];
+        }
+        
+        return { domain: fullDomain, activityType: activityType || 'research' };
     }
     // Default browser activity
     return { activityType: 'research' };
@@ -164,12 +190,22 @@ export function parseWindowContext(app: string, title: string): ActivityContext 
     const appLower = app.toLowerCase();
 
     // Find matching parser rule
-    for (const rule of PARSER_RULES) {
-        if (appLower.includes(rule.appPattern)) {
-            const parsed = rule.parse(title, app);
+    for (const rule of activeRules) {
+        if (appLower.includes(rule.appPattern.toLowerCase())) {
+            let parsed: Partial<ActivityContext> = {};
+            
+            if (rule.parse) {
+                parsed = rule.parse(title, app);
+            } 
+            
+            // Apply default activity type if not returned by parse
+            if (!parsed.activityType && rule.activityType) {
+                parsed.activityType = rule.activityType;
+            }
+
             return {
                 app,
-                activityType: 'other', // Default, overridden by parsed result
+                activityType: parsed.activityType || 'other',
                 ...parsed
             };
         }

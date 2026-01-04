@@ -17,11 +17,17 @@ export class SQLiteScreenshotRepository implements IScreenshotRepository {
         captureType?: string;
         appBundleId?: string;
         windowTitle?: string;
+        monitorId?: string;
+        roi?: { x: number; y: number; w: number; h: number };
     }): number | null {
         try {
             const stmt = this.db.prepare(`
-                INSERT INTO screenshots (file_path, captured_at, file_size, capture_type, app_bundle_id, window_title)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO screenshots (
+                    file_path, captured_at, file_size, capture_type, 
+                    app_bundle_id, window_title, monitor_id, 
+                    roi_x, roi_y, roi_w, roi_h
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
             const result = stmt.run(
                 data.filePath,
@@ -29,7 +35,12 @@ export class SQLiteScreenshotRepository implements IScreenshotRepository {
                 data.fileSize ?? null,
                 data.captureType ?? null,
                 data.appBundleId ?? null,
-                data.windowTitle ?? null
+                data.windowTitle ?? null,
+                data.monitorId ?? null,
+                data.roi?.x ?? null,
+                data.roi?.y ?? null,
+                data.roi?.w ?? null,
+                data.roi?.h ?? null
             );
             return result.lastInsertRowid as number;
         } catch (err) {

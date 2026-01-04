@@ -302,15 +302,30 @@ export function saveScreenshot(
     capturedAt: number,
     fileSize?: number,
     captureType?: string,
-    appName?: string
+    appName?: string,
+    windowTitle?: string,
+    monitorId?: string,
+    roi?: { x: number, y: number, w: number, h: number }
 ) {
     if (!db) return;
     try {
         const stmt = db.prepare(`
-            INSERT INTO screenshots(captured_at, file_path, file_size, capture_type, app_bundle_id)
-            VALUES(?, ?, ?, ?, ?)
+            INSERT INTO screenshots(captured_at, file_path, file_size, capture_type, app_bundle_id, window_title, monitor_id, roi_x, roi_y, roi_w, roi_h)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
-        const info = stmt.run(capturedAt, filePath, fileSize || null, captureType || null, appName || null);
+        const info = stmt.run(
+            capturedAt, 
+            filePath, 
+            fileSize || null, 
+            captureType || null, 
+            appName || null,
+            windowTitle || null,
+            monitorId || null,
+            roi?.x || null,
+            roi?.y || null,
+            roi?.w || null,
+            roi?.h || null
+        );
         return info.lastInsertRowid;
     } catch (err) {
         console.error('[ShuTong] Failed to save screenshot:', err);
@@ -322,7 +337,7 @@ export function saveScreenshot(
  * Fetches screenshots that have NOT been assigned to any batch yet.
  * Filter by 'since' timestamp to limit lookback (e.g. last 24h).
  */
-export function fetchUnprocessedScreenshots(sinceTimestamp: number) {
+export function fetchUnprocessedScreenshots(sinceTimestamp: number, limit: number = 1000) {
     if (!db) return [];
     try {
         const stmt = db.prepare(`
@@ -331,8 +346,9 @@ export function fetchUnprocessedScreenshots(sinceTimestamp: number) {
             AND is_deleted = 0
               AND id NOT IN(SELECT screenshot_id FROM batch_screenshots)
             ORDER BY captured_at ASC
+            LIMIT ?
             `);
-        return stmt.all(sinceTimestamp) as any[];
+        return stmt.all(sinceTimestamp, limit) as any[];
     } catch (err) {
         console.error('[ShuTong] Failed to fetch unprocessed screenshots:', err);
         return [];

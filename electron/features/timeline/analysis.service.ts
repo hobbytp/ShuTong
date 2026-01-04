@@ -2,19 +2,15 @@ import path from 'path';
 import { getMergedLLMConfig } from '../../config_manager';
 import { eventBus } from '../../infrastructure/events';
 import { measure, metrics } from '../../infrastructure/monitoring/metrics.service';
+import { Screenshot } from '../../infrastructure/repositories/interfaces';
 import { LLMService } from '../../llm/service';
 import {
-    fetchUnprocessedScreenshots,
-    getRepositories,
-    getSetting,
-    saveBatchWithScreenshots,
-    saveObservation,
-    saveTimelineCard,
-    screenshotsForBatch,
-    updateBatchStatus
-} from '../../storage';
+    defaultRepository,
+    type IAnalysisRepository
+} from './analysis.repository';
 import { isContextChange, parseWindowContext, type ActivityContext } from './context-parser';
 import { ocrService } from './ocr.service';
+import { getPromptForContext } from './prompts';
 
 // ... existing interfaces ...
 
@@ -25,16 +21,17 @@ const isTest = process.env.NODE_ENV === 'test';
 
 let isProcessing = false;
 
+// Initialize with default implementation
+let repository: IAnalysisRepository = defaultRepository;
+
+export function setRepositoryForTesting(repo: IAnalysisRepository) {
+    repository = repo;
+}
+
 // Extended Screenshot type for analysis (adds test-compatibility fields)
-type AnalysisScreenshot = {
-    id: number;
-    file_path: string;
-    captured_at: number;
-    app_name?: string | null;
-    window_title?: string | null;
+export type AnalysisScreenshot = Screenshot & {
     ocr_text?: string;
     timestamp?: number;  // For test compatibility
-    file_size?: number;
 };
 
 export async function processRecordings() {
@@ -44,7 +41,9 @@ export async function processRecordings() {
     try {
         // 1. Fetch unprocessed screenshots (last 7 days)
         const sevenDaysAgo = Math.floor(Date.now() / 1000) - (7 * 24 * 60 * 60);
-        const screenshots = fetchUnprocessedScreenshots(sevenDaysAgo);
+        // P0 Fix: Add limit to prevent OOM
+        const BATCH_LIMIT = 500;
+        const screenshots = repository.fetchUnprocessedScreenshots(sevenDaysAgo, BATCH_LIMIT);
 
         if (screenshots.length === 0) {
             isProcessing = false;
@@ -60,7 +59,7 @@ export async function processRecordings() {
 
         // 3. Persist batches
         for (const batch of batches) {
-            const batchId = saveBatchWithScreenshots(
+            const batchId = repository.saveBatchWithScreenshots(
                 batch.start,
                 batch.end,
                 batch.screenshots.map(s => s.id)
@@ -70,10 +69,10 @@ export async function processRecordings() {
                 console.log(`[Analysis] Created Batch #${batchId} (${batch.screenshots.length} shots, ${Math.round(batch.end - batch.start)}s)`);
 
                 // Mark initial status
-                updateBatchStatus(Number(batchId), 'pending');
+                repository.updateBatchStatus(Number(batchId), 'pending');
 
                 // Trigger LLM Processing
-                await processBatch(Number(batchId), batch.screenshots);
+                await processBatch(Number(batchId), batch.screenshots, (batch as any).context);
             }
         }
 
@@ -86,18 +85,18 @@ export async function processRecordings() {
 
 // FOR TESTING: screenshotsOverride allows tests to bypass storage lookup and inject screenshots directly
 // This avoids the need to mock the entire storage layer for each test
-async function processBatch(batchId: number, screenshotsOverride?: AnalysisScreenshot[]) {
+async function processBatch(batchId: number, screenshotsOverride?: AnalysisScreenshot[], context?: ActivityContext | null) {
     try {
         console.log(`[Analysis] Processing Batch #${batchId}...`);
-        updateBatchStatus(batchId, 'processing');
+        repository.updateBatchStatus(batchId, 'processing');
 
         // Use injected screenshots for testing, otherwise fetch from storage
         const screenshots = (screenshotsOverride && screenshotsOverride.length > 0)
             ? screenshotsOverride
-            : screenshotsForBatch(batchId);
+            : repository.screenshotsForBatch(batchId);
         if (screenshots.length === 0) {
             console.log(`[Analysis] Batch #${batchId} has no screenshots.`);
-            updateBatchStatus(batchId, 'failed', 'No screenshots');
+            repository.updateBatchStatus(batchId, 'failed', 'No screenshots');
             return;
         }
 
@@ -131,10 +130,13 @@ async function processBatch(batchId: number, screenshotsOverride?: AnalysisScree
 
         // 2. Transcribe (with OCR context if available)
         console.log(`[Analysis] Transcribing Batch #${batchId} (${screenshots.length} shots)...`);
+
+        // Dynamic Prompt Injection based on Activity Context
+        const prompt = getPromptForContext(context || undefined);
+        console.log(`[Analysis] Using prompt for context: ${context ? context.activityType : 'default'}`);
+
         // We now use chunking internal to LLMService to process all screenshots without sampling loss
-        // Type assertion needed because LLMService expects required fields (captured_at, file_path)
-        // but our local Screenshot interface has optional fields for test compatibility
-        const observations = await llmService.transcribeBatch(screenshots as any);
+        const observations = await llmService.transcribeBatch(screenshots, prompt);
 
         // P0 Fix: Enhance observations with OCR text if available
         // This provides richer context for card generation
@@ -162,7 +164,7 @@ async function processBatch(batchId: number, screenshotsOverride?: AnalysisScree
 
         // Save observations
         for (const obs of observations) {
-            saveObservation(batchId, obs.start, obs.end, obs.text, observationModelLabel);
+            repository.saveObservation(batchId, obs.start, obs.end, obs.text, observationModelLabel);
         }
 
         // 2. Generate Cards
@@ -182,7 +184,7 @@ async function processBatch(batchId: number, screenshotsOverride?: AnalysisScree
             const startObs = observations[card.start_index] || observations[0];
             const endObs = observations[card.end_index] || observations[observations.length - 1];
 
-            const cardId = saveTimelineCard({
+            const cardId = repository.saveTimelineCard({
                 batchId,
                 startTs: startObs.start,
                 endTs: endObs.end,
@@ -215,12 +217,12 @@ async function processBatch(batchId: number, screenshotsOverride?: AnalysisScree
             }
         }
 
-        updateBatchStatus(batchId, 'analyzed');
+        repository.updateBatchStatus(batchId, 'analyzed');
         console.log(`[Analysis] Batch #${batchId} complete. ${cards.length} cards generated.`);
 
     } catch (err) {
         console.error(`[Analysis] Failed to process batch #${batchId}:`, err);
-        updateBatchStatus(batchId, 'failed', String(err));
+        repository.updateBatchStatus(batchId, 'failed', String(err));
     }
 }
 
@@ -255,7 +257,7 @@ export function getBatchingConfig(): BatchingConfig {
         };
     }
 
-    const intervalMsStr = getSetting('capture_interval_ms');
+    const intervalMsStr = repository.getSetting('capture_interval_ms');
     const intervalMs = Math.max(1000, parseInt(intervalMsStr || '1000', 10) || 1000);
     const intervalSeconds = Math.max(1, Math.ceil(intervalMs / 1000));
 
@@ -409,7 +411,7 @@ export function createEventBatches(screenshots: AnalysisScreenshot[]): EventBatc
     const endTs = ordered[ordered.length - 1].captured_at as number;
 
     // P0 Fix: Defensive null check for repositories
-    const repos = getRepositories();
+    const repos = repository.getRepositories();
     if (!repos) {
         console.warn('[Analysis] Repositories not ready, falling back to time-based batching');
         return createScreenshotBatches(screenshots) as EventBatch[];

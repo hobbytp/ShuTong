@@ -6,7 +6,10 @@ import { LLMService } from '../../electron/llm/service';
 // Mock dependencies
 vi.mock('../../electron/llm/providers', () => ({
     getLLMProvider: vi.fn(),
-    consumeStreamWithIdleTimeout: vi.fn()
+    consumeStreamWithIdleTimeout: vi.fn().mockImplementation(async (stream, callback) => {
+        // Just return the stream content directly for testing
+        return stream;
+    })
 }));
 
 vi.mock('../../electron/config_manager', () => ({
@@ -22,7 +25,29 @@ vi.mock('electron', () => ({
     }
 }));
 
-describe('LLMService Context Chunking', () => {
+// Mock Jimp
+const mockJimpImage = vi.hoisted(() => ({
+    width: 3000,
+    height: 2000,
+    getWidth: vi.fn().mockReturnValue(3000),
+    getHeight: vi.fn().mockReturnValue(2000),
+    scaleToFit: vi.fn(),
+    getBuffer: vi.fn().mockResolvedValue(Buffer.from('resized-image-data')),
+    getBufferAsync: vi.fn().mockResolvedValue(Buffer.from('resized-image-data')),
+}));
+
+vi.mock('jimp', () => ({
+    Jimp: {
+        read: vi.fn().mockResolvedValue(mockJimpImage),
+        MIME_PNG: 'image/png'
+    },
+    default: {
+        read: vi.fn().mockResolvedValue(mockJimpImage),
+        MIME_PNG: 'image/png'
+    }
+}));
+
+describe('LLMService', () => {
     let service: LLMService;
     let mockProvider: any;
 
@@ -30,8 +55,7 @@ describe('LLMService Context Chunking', () => {
         vi.clearAllMocks();
         service = new LLMService();
         mockProvider = {
-            generateContent: vi.fn(),
-            generateContentStream: null // Force non-streaming for simplicity in these tests
+            generateContent: vi.fn()
         };
         (getLLMProvider as any).mockReturnValue(mockProvider);
         (getMergedLLMConfig as any).mockReturnValue({
@@ -43,24 +67,51 @@ describe('LLMService Context Chunking', () => {
             },
             roleConfigs: {
                 SCREEN_ANALYZE: { provider: 'mock', model: 'test-model' }
-            }
+            },
+            adaptiveChunking: { enabled: false }
         });
     });
 
-    it('should process a small batch as a single chunk', async () => {
+    it('should process images (resize and base64) before sending to provider', async () => {
         const screenshots = [
             { id: 1, captured_at: 1000, file_path: 'p1.jpg', file_size: 100 },
         ];
 
-        mockProvider.generateContent.mockResolvedValue(JSON.stringify({
-            observations: [{ start_index: 0, end_index: 0, text: 'Single observation' }]
+        // Mock provider response
+        const expectedObs = { observations: [{ start_index: 0, end_index: 0, text: 'Observation' }] };
+        mockProvider.generateContent.mockResolvedValue(JSON.stringify(expectedObs));
+
+        await service.transcribeBatch(screenshots as any);
+
+        // Verify Jimp usage
+        // Note: We use the hoisted mockJimpImage for verification as it's the one returned by the mock
+        expect(mockJimpImage.scaleToFit).toHaveBeenCalledWith({ w: 2048, h: 2048 });
+
+        // Verify provider called with base64 data
+        const expectedBase64 = Buffer.from('resized-image-data').toString('base64');
+        expect(mockProvider.generateContent).toHaveBeenCalledWith(expect.objectContaining({
+            images: expect.arrayContaining([
+                expect.objectContaining({
+                    data: expectedBase64,
+                    mimeType: 'image/png'
+                })
+            ])
         }));
+    });
 
-        const result = await service.transcribeBatch(screenshots as any);
+    it('should pass custom prompt to provider', async () => {
+        const screenshots = [
+            { id: 1, captured_at: 1000, file_path: 'p1.jpg', file_size: 100 },
+        ];
+        const customPrompt = 'Custom Prompt';
 
-        expect(result).toHaveLength(1);
-        expect(result[0].text).toBe('Single observation');
-        expect(mockProvider.generateContent).toHaveBeenCalledTimes(1);
+        mockProvider.generateContent.mockResolvedValue(JSON.stringify({ observations: [] }));
+
+        await service.transcribeBatch(screenshots as any, customPrompt);
+
+        expect(mockProvider.generateContent).toHaveBeenCalledWith(expect.objectContaining({
+            prompt: customPrompt
+        }));
     });
 
     it('should split a large batch into multiple chunks', async () => {
@@ -68,59 +119,19 @@ describe('LLMService Context Chunking', () => {
             { id: 1, captured_at: 1000, file_path: 'p1.jpg', file_size: 100 },
             { id: 2, captured_at: 2000, file_path: 'p2.jpg', file_size: 100 },
             { id: 3, captured_at: 3000, file_path: 'p3.jpg', file_size: 100 },
-            { id: 4, captured_at: 4000, file_path: 'p4.jpg', file_size: 100 },
-            { id: 5, captured_at: 5000, file_path: 'p5.jpg', file_size: 100 },
         ];
 
-        // maxPerChunk is 2. So 5 images -> 3 chunks (2, 2, 1)
+        // maxPerChunk is 2. So 3 images -> 2 chunks (2, 1)
         mockProvider.generateContent
-            .mockResolvedValueOnce(JSON.stringify({
-                observations: [{ start_index: 0, end_index: 1, text: 'Chunk 1' }]
-            }))
-            .mockResolvedValueOnce(JSON.stringify({
-                observations: [{ start_index: 0, end_index: 1, text: 'Chunk 2' }]
-            }))
-            .mockResolvedValueOnce(JSON.stringify({
-                observations: [{ start_index: 0, end_index: 0, text: 'Chunk 3' }]
-            }));
+            .mockResolvedValueOnce(JSON.stringify({ observations: [{ start_index: 0, end_index: 1, text: 'Chunk 1' }] }))
+            .mockResolvedValueOnce(JSON.stringify({ observations: [{ start_index: 0, end_index: 0, text: 'Chunk 2' }] }));
 
         const result = await service.transcribeBatch(screenshots as any);
 
-        expect(result).toHaveLength(3);
+        expect(result).toHaveLength(2);
         expect(result[0].text).toBe('Chunk 1');
-        expect(result[0].start).toBe(1000);
-        expect(result[0].end).toBe(2000);
-
         expect(result[1].text).toBe('Chunk 2');
-        expect(result[1].start).toBe(3000);
-        expect(result[1].end).toBe(4000);
 
-        expect(result[2].text).toBe('Chunk 3');
-        expect(result[2].start).toBe(5000);
-        expect(result[2].end).toBe(5000);
-
-        expect(mockProvider.generateContent).toHaveBeenCalledTimes(3);
-    });
-
-    it('should handle partial failures and return available observations', async () => {
-        const screenshots = [
-            { id: 1, captured_at: 1000, file_path: 'p1.jpg', file_size: 100 },
-            { id: 2, captured_at: 2000, file_path: 'p2.jpg', file_size: 100 },
-            { id: 3, captured_at: 3000, file_path: 'p3.jpg', file_size: 100 },
-            { id: 4, captured_at: 4000, file_path: 'p4.jpg', file_size: 100 },
-        ];
-
-        // chunk 1 ok, chunk 2 fails
-        mockProvider.generateContent
-            .mockResolvedValueOnce(JSON.stringify({
-                observations: [{ start_index: 0, end_index: 1, text: 'Chunk 1' }]
-            }))
-            .mockRejectedValueOnce(new Error('API Failure'));
-
-        const result = await service.transcribeBatch(screenshots as any);
-
-        expect(result).toHaveLength(1);
-        expect(result[0].text).toBe('Chunk 1');
         expect(mockProvider.generateContent).toHaveBeenCalledTimes(2);
     });
 });

@@ -55,6 +55,17 @@ vi.mock('../electron/llm/providers', () => ({
     consumeStreamWithIdleTimeout: vi.fn()
 }));
 
+vi.mock('jimp', () => ({
+    Jimp: {
+        read: vi.fn().mockResolvedValue({
+            width: 1920,
+            height: 1080,
+            scaleToFit: vi.fn(),
+            getBuffer: vi.fn().mockResolvedValue(Buffer.from('mock-image-data'))
+        })
+    }
+}));
+
 import { LLMService } from '../electron/llm/service';
 
 describe('LLMService', () => {

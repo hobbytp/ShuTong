@@ -7,7 +7,9 @@ const mockDeleteSnapshotsBefore = vi.fn()
 
 vi.mock('../../electron/storage', () => ({
     getSnapshotsBefore: (ts: number) => mockGetSnapshotsBefore(ts),
-    deleteSnapshotsBefore: (ts: number) => mockDeleteSnapshotsBefore(ts)
+    deleteSnapshotsBefore: (ts: number) => mockDeleteSnapshotsBefore(ts),
+    getSetting: vi.fn(),
+    setSetting: vi.fn()
 }))
 
 // Mock FS

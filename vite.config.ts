@@ -2,6 +2,7 @@ import react from '@vitejs/plugin-react'
 import path from 'node:path'
 import { defineConfig } from 'vite'
 import electron from 'vite-plugin-electron/simple'
+import { viteStaticCopy } from 'vite-plugin-static-copy'
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -69,6 +70,19 @@ export default defineConfig({
         // https://github.com/electron-vite/vite-plugin-electron-renderer/issues/78#issuecomment-2053600808
         ? undefined
         : {},
+    }),
+    // Copy paddle-window assets to dist-electron
+    viteStaticCopy({
+      targets: [
+        {
+          src: 'electron/features/timeline/paddle-window/paddle_runner.html',
+          dest: 'paddle-window'
+        },
+        {
+          src: 'electron/features/timeline/paddle-window/renderer.js',
+          dest: 'paddle-window'
+        }
+      ]
     }),
   ],
 })

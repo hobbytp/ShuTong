@@ -153,8 +153,16 @@
             "battery_low": "低电量",
             "disk_space_low": "磁盘不足",
             "active_window_changed": "窗口变更",
-            "debounce": "捕获防抖"
-        }
+            "debounce": "捕获防抖",
+            "blacklisted": "黑名单拦截"
+        },
+        "timeline_analysis": "时间轴分析",
+        "enable_ocr": "启用 OCR 分析",
+        "enable_ocr_desc": "从截图中提取文字以提高时间轴准确性",
+        "ocr_engine": "OCR 引擎",
+        "ocr_engine_cloud": "云端 LLM（默认）",
+        "ocr_engine_tesseract": "本地 (Tesseract) - 实验性",
+        "ocr_engine_paddle": "本地 (Paddle) - 实验性"
     },
     "mcp": {
         "title": "MCP 服务器",

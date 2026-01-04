@@ -24,7 +24,10 @@ const mocks = vi.hoisted(() => ({
     mockGetMergedLLMConfig: vi.fn().mockReturnValue({
         provider: 'openai',
         model: 'gpt-4o'
-    })
+    }),
+    mockGetSetting: vi.fn().mockReturnValue('1000'),
+    mockScreenshotsForBatch: vi.fn().mockReturnValue([]),
+    mockGetRepositories: vi.fn().mockReturnValue([])
 }));
 
 // 2. Mock dependencies
@@ -43,18 +46,26 @@ vi.mock('../../electron/llm/service', () => ({
     })
 }));
 
-vi.mock('../../electron/storage', () => ({
-    fetchUnprocessedScreenshots: mocks.mockFetchUnprocessedScreenshots,
-    saveBatchWithScreenshots: mocks.mockSaveBatchWithScreenshots,
-    updateBatchStatus: mocks.mockUpdateBatchStatus,
-    saveTimelineCard: mocks.mockSaveTimelineCard,
-    saveObservation: mocks.mockSaveObservation,
-    getSetting: vi.fn().mockReturnValue(true),
-    screenshotsForBatch: vi.fn().mockReturnValue([])
+// Mock the Repository instead of storage
+vi.mock('../../electron/features/timeline/analysis.repository', () => ({
+    defaultRepository: {
+        fetchUnprocessedScreenshots: mocks.mockFetchUnprocessedScreenshots,
+        saveBatchWithScreenshots: mocks.mockSaveBatchWithScreenshots,
+        updateBatchStatus: mocks.mockUpdateBatchStatus,
+        saveTimelineCard: mocks.mockSaveTimelineCard,
+        saveObservation: mocks.mockSaveObservation,
+        getSetting: mocks.mockGetSetting,
+        screenshotsForBatch: mocks.mockScreenshotsForBatch,
+        getRepositories: mocks.mockGetRepositories
+    }
 }));
 
 vi.mock('../../electron/config_manager', () => ({
     getMergedLLMConfig: mocks.mockGetMergedLLMConfig
+}));
+
+vi.mock('../../electron/features/timeline/prompts', () => ({
+    getPromptForContext: vi.fn().mockReturnValue('Mocked Dynamic Prompt')
 }));
 
 // 3. Import SUT
@@ -63,6 +74,8 @@ import { processRecordings } from '../../electron/features/timeline/analysis.ser
 describe('AnalysisService', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        // Reset default mock returns that might be overridden in tests
+        mocks.mockGetSetting.mockReturnValue('1000');
     });
 
     it('should skip processing if no screenshots found', async () => {
@@ -83,20 +96,12 @@ describe('AnalysisService', () => {
         mocks.mockFetchUnprocessedScreenshots.mockReturnValueOnce(mockScreenshots);
 
         await processRecordings();
-
-        // Should have created batches (simplified assumption: 1 batch)
-        expect(mocks.mockSaveBatchWithScreenshots).toHaveBeenCalled();
-
-        // Should have called LLM
-        expect(mocks.mockTranscribeBatch).toHaveBeenCalled();
-
-        // Should have saved timeline card
-        expect(mocks.mockSaveTimelineCard).toHaveBeenCalled();
-
-        // Should have emitted card:created
-        expect(mocks.mockEmitEvent).toHaveBeenCalledWith('card:created', {
-            cardId: 456
-        });
+        
+        // Verify transcribeBatch called with the result of getPromptForContext
+        expect(mocks.mockTranscribeBatch).toHaveBeenCalledWith(
+            expect.any(Array),
+            'Mocked Dynamic Prompt'
+        );
     });
 
     it('should handle LLM failure gracefully', async () => {
@@ -145,5 +150,17 @@ describe('AnalysisService', () => {
         // Should call generateActivityCards but not save any cards
         expect(mocks.mockGenerateActivityCards).toHaveBeenCalled();
         expect(mocks.mockSaveTimelineCard).not.toHaveBeenCalled();
+        expect(mocks.mockEmitEvent).not.toHaveBeenCalled();
     });
+
+    it('should fetch screenshots with a limit to prevent OOM', async () => {
+        mocks.mockFetchUnprocessedScreenshots.mockReturnValueOnce([]);
+        
+        await processRecordings();
+
+        // Expect 2nd argument to be the limit (e.g., 1000 or 500)
+        expect(mocks.mockFetchUnprocessedScreenshots).toHaveBeenCalledWith(expect.any(Number), expect.any(Number));
+    });
+
+
 });

@@ -13,7 +13,8 @@ export interface LLMResponse {
 export interface LLMRequest {
     prompt: string;
     images?: {
-        path: string;
+        path?: string;
+        data?: string;
         mimeType: string;
     }[];
     schema?: any; // Optional JSON schema for structured output
@@ -88,7 +89,7 @@ export function createLLMProviderFromConfig(providerName: string, apiKey: string
  * @returns Array of { data: base64String, mimeType: string }
  */
 async function loadImagesAsBase64(
-    images: { path: string; mimeType: string }[] | undefined,
+    images: { path?: string; data?: string; mimeType: string }[] | undefined,
     logPrefix: string = 'LLM'
 ): Promise<{ data: string; mimeType: string }[]> {
     if (!images || images.length === 0) {
@@ -100,10 +101,14 @@ async function loadImagesAsBase64(
 
     for (const img of images) {
         try {
-            const b64 = await fs.readFile(img.path, { encoding: 'base64' });
-            results.push({ data: b64, mimeType: img.mimeType });
+            if (img.data) {
+                results.push({ data: img.data, mimeType: img.mimeType });
+            } else if (img.path) {
+                const b64 = await fs.readFile(img.path, { encoding: 'base64' });
+                results.push({ data: b64, mimeType: img.mimeType });
+            }
         } catch (e) {
-            console.error(`[${logPrefix}] Failed to read image ${img.path}`, e);
+            console.error(`[${logPrefix}] Failed to read image ${img.path || 'memory'}`, e);
         }
     }
 

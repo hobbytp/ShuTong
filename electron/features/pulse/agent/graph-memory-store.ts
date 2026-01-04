@@ -158,7 +158,8 @@ export class GraphMemoryStore {
 
         const bm25 = new BM25(searchOutputsSequence);
         const tokenizedQuery = query.split(" ");
-        const rerankedResults = bm25.search(tokenizedQuery).slice(0, 5);
+        const safeLimit = Math.max(0, Math.floor(limit));
+        const rerankedResults = bm25.search(tokenizedQuery).slice(0, safeLimit);
 
         const searchResults = rerankedResults.map((item) => ({
             source: item[0],
@@ -251,7 +252,7 @@ export class GraphMemoryStore {
         let entities: any[] = [];
         if (response.tool_calls && response.tool_calls.length > 0) {
             // Usually expects one call but loop just in case
-            const call = response.tool_calls.find(c => c.name === "establish_relationships");
+            const call = response.tool_calls.find((c: any) => c.name === "establish_relationships");
             if (call) {
                 const args = call.args as any;
                 if (args.entities) {

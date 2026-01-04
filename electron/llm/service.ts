@@ -1,13 +1,10 @@
+import { Jimp } from 'jimp';
 import { getMergedLLMConfig } from '../config_manager';
+import { Screenshot } from '../infrastructure/repositories/interfaces';
 import { getLLMMetrics } from './metrics';
 import { consumeStreamWithIdleTimeout, getLLMProvider } from './providers';
 
-interface Screenshot {
-    id: number;
-    captured_at: number;
-    file_path: string;
-    file_size: number;
-}
+
 
 export interface Observation {
     start: number;
@@ -32,7 +29,7 @@ export class LLMService {
 
     // No longer caching provider internally as it depends on the task (role)
 
-    async transcribeBatch(screenshots: Screenshot[]): Promise<Observation[]> {
+    async transcribeBatch(screenshots: Screenshot[], prompt?: string): Promise<Observation[]> {
         if (screenshots.length === 0) return [];
 
         const config = getMergedLLMConfig();
@@ -56,7 +53,7 @@ export class LLMService {
         const delayMs = providerCfg?.chunkDelayMs || 1000;
 
         if (screenshots.length <= maxPerChunk) {
-            return this._transcribeSingleChunk(screenshots);
+            return this._transcribeSingleChunk(screenshots, prompt);
         }
 
         // Multiple chunks
@@ -70,7 +67,7 @@ export class LLMService {
             }
 
             try {
-                const chunkObs = await this._transcribeSingleChunk(chunks[i]);
+                const chunkObs = await this._transcribeSingleChunk(chunks[i], prompt);
                 allObservations.push(...chunkObs);
                 console.log(`[LLMService] Chunk ${i + 1}/${chunks.length} complete: ${chunkObs.length} observations`);
             } catch (err) {
@@ -82,9 +79,9 @@ export class LLMService {
         return allObservations;
     }
 
-    private async _transcribeSingleChunk(screenshots: Screenshot[]): Promise<Observation[]> {
+    private async _transcribeSingleChunk(screenshots: Screenshot[], customPrompt?: string): Promise<Observation[]> {
         // Prepare prompt
-        const prompt = `
+        const prompt = customPrompt || `
 Analyize this sequence of screenshots from a user's computer. 
 Describe what the user is doing in a chronological list of observations.
 For each observation, provide the approximate start and end index (0-based) of the screenshots that match this activity.
@@ -98,9 +95,13 @@ Return JSON format:
         `.trim();
 
         // Prepare format for provider
-        const images = screenshots.map(s => ({
-            path: s.file_path,
-            mimeType: 'image/jpeg' // Assuming jpg from capture.ts
+        // Convert images to base64 using processImage (Jimp resizing)
+        const images = await Promise.all(screenshots.map(async s => {
+            const base64Data = await this.processImage(s);
+            return {
+                data: base64Data,
+                mimeType: 'image/png'
+            };
         }));
 
         try {
@@ -234,5 +235,28 @@ Return JSON:
         } catch (e) {
             return null;
         }
+    }
+
+    private async processImage(screenshot: Screenshot): Promise<string> {
+        // 1. Read Image
+        const image = await Jimp.read(screenshot.file_path);
+
+        // 2. (Optional) Smart ROI Crop
+        // If we have ROI metadata, we *could* crop here.
+        // However, for "context", keeping full screen is often better, 
+        // provided we have resolution.
+        // For now, let's just resize to avoid OOM/Token limits.
+        // Future: If ROI is very small (<20% screen), maybe crop to ROI + Padding?
+        // Current Plan: Just Resize.
+
+        // 3. Resize (MiniContext parity: 2048px)
+        const MAX_DIM = 2048;
+        if (image.width > MAX_DIM || image.height > MAX_DIM) {
+            image.scaleToFit({ w: MAX_DIM, h: MAX_DIM });
+        }
+
+        // 4. Return Base64
+        const buffer = await image.getBuffer('image/png');
+        return buffer.toString('base64');
     }
 }

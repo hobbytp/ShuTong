@@ -45,6 +45,17 @@ if (process.platform === 'win32') {
   app.setAppUserModelId('com.raytan.shutong');
 }
 
+// GPU Optimization: Force high-performance GPU (NVIDIA) for WebGL operations
+// This significantly improves PaddleOCR inference speed on laptops with dual GPUs
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('force_high_performance_gpu');
+// Disable GPU process sandbox to allow GPU switching on some systems
+app.commandLine.appendSwitch('disable-gpu-sandbox');
+// Use hardware acceleration for video decode/encode
+app.commandLine.appendSwitch('enable-accelerated-video-decode');
+console.log('[Main] GPU optimization flags enabled');
+
 // Resolve custom path before anything else
 resolveUserDataPath();
 
@@ -353,6 +364,11 @@ async function startApp() {
       getLLMMetrics().reset();
     });
 
+    // OCR Status handler
+    ipcMain.handle('ocr:getStatus', () => {
+      return ocrService.getStatus();
+    });
+
     ipcMain.handle('set-llm-provider-config', (_, providerName, config) => {
       setLLMProviderConfig(providerName, config);
       import('./storage/vector-storage').then(({ vectorStorage }) => {
@@ -512,6 +528,11 @@ async function startApp() {
 
     initStorage()
     console.log('[Main] Storage initialized')
+
+    // Warmup OCR in background (non-blocking)
+    ocrService.warmup().catch(err =>
+      console.warn('[Main] OCR warmup failed:', err)
+    );
 
     // Initialize I18n AFTER storage is ready
     await initI18n();

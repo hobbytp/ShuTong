@@ -3,16 +3,10 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock storage functions
+// Mock repository instead of direct storage dependencies
 const mockWindowSwitches: any[] = [];
 const mockDwellStats: any[] = [];
-
-vi.mock('../../electron/storage', () => ({
-    getWindowSwitches: vi.fn(() => mockWindowSwitches),
-    getWindowDwellStats: vi.fn(() => mockDwellStats)
-}));
-
-// Mock capture-guard functions
+const mockSkipLog: any[] = [];
 const mockGuardStats = {
     totalCaptures: 0,
     totalSkips: 0,
@@ -20,11 +14,15 @@ const mockGuardStats = {
     lastSkipTime: null,
     lastSkipReason: null
 };
-const mockSkipLog: any[] = [];
 
-vi.mock('../../electron/features/capture/capture-guard', () => ({
-    getGuardStats: vi.fn(() => ({ ...mockGuardStats })),
-    getSkipLog: vi.fn((limit?: number) => limit ? mockSkipLog.slice(-limit) : [...mockSkipLog])
+vi.mock('../../electron/features/timeline/analytics.repository', () => ({
+    defaultAnalyticsRepository: {
+        getWindowSwitches: vi.fn(() => mockWindowSwitches),
+        getWindowDwellStats: vi.fn(() => mockDwellStats),
+        getGuardStats: vi.fn(() => ({ ...mockGuardStats })),
+        getSkipLog: vi.fn((limit?: number) => limit ? mockSkipLog.slice(-limit) : [...mockSkipLog]),
+        resetGuardStats: vi.fn()
+    }
 }));
 
 import {

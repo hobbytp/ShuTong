@@ -65,7 +65,10 @@ const mocks = vi.hoisted(() => {
 vi.mock('electron', () => ({
     BrowserWindow: mocks.MockBrowserWindow,
     ipcMain: mocks.mockIpcMain,
-    powerMonitor: mocks.mockPowerMonitor
+    powerMonitor: mocks.mockPowerMonitor,
+    nativeImage: {
+        createFromPath: vi.fn()
+    }
 }));
 
 describe('Video Service', () => {

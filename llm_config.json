@@ -403,6 +403,10 @@
                     "maxOutputTokens": 32768,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
+                    "ratelimit":{
+                        "rpm": 15000,
+                        "tpm": 1000000
+                    },
                     "pricing": {
                         "inputTokensPrice": 0.15,
                         "outputTokensPrice": 1.5,
@@ -416,6 +420,10 @@
                     "maxOutputTokens": 65536,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
+                    "ratelimit":{
+                        "rpm": 600,
+                        "tpm": 1000000
+                    },
                     "pricing": {
                         "inputTokensPrice": 3.2,
                         "outputTokensPrice": 12,
@@ -430,6 +438,10 @@
                     "maxOutputTokens": 32768,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
+                    "ratelimit":{
+                        "rpm": 15000,
+                        "tpm": 1200000
+                    },
                     "pricing": {
                         "inputTokensPrice": 0.8,
                         "outputTokensPrice": 2,
@@ -437,16 +449,20 @@
                         "per": 1000000
                     }
                 },
-                "deepseek-r1": {
-                    "displayName": "DeepSeek R1",
-                    "contextWindow": 131072,
-                    "maxInputTokens": 98304,
-                    "maxOutputTokens": 65536,
-                    "supportsFunctionCalling": true,
-                    "supportsVision": false,
+                "qwen-vl-ocr": {
+                    "displayName": "Qwen VL OCR",
+                    "contextWindow": 34096,
+                    "maxInputTokens": 30000,
+                    "maxOutputTokens": 4096,
+                    "supportsFunctionCalling": false,
+                    "supportsVision": true,
+                    "ratelimit":{
+                        "rpm": 600,
+                        "tpm": 6000000
+                    },
                     "pricing": {
-                        "inputTokensPrice": 4,
-                        "outputTokensPrice": 16,
+                        "inputTokensPrice": 5,
+                        "outputTokensPrice": 5,
                         "currency": "CNY",
                         "per": 1000000
                     }
@@ -458,6 +474,10 @@
                     "maxOutputTokens": 16384,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
+                    "ratelimit":{
+                        "rpm": 15000,
+                        "tpm": 1200000
+                    },
                     "pricing": {
                         "inputTokensPrice": 2,
                         "outputTokensPrice": 3,
@@ -565,6 +585,23 @@
             "apiKeyEnv": "SILICONFLOW_API_KEY",
             "openaiCompatible": true,
             "models": {
+                "deepseek-ai/DeepSeek-OCR": {
+                    "displayName": "DeepSeek OCR",
+                    "contextWindow": 8000,
+                    "maxOutputTokens": 8000,
+                    "supportsFunctionCalling": false,
+                    "supportsVision": true,
+                    "ratelimit":{
+                        "rpm": 1000,
+                        "tpm": 80000
+                    },
+                    "pricing": {
+                        "inputTokensPrice": 0,
+                        "outputTokensPrice": 0,
+                        "currency": "CNY",
+                        "per": 1000000
+                    }
+                },
                 "zai-org/GLM-4.6V": {
                     "displayName": "GLM-4.6V",
                     "contextWindow": 128000,
@@ -578,12 +615,16 @@
                         "per": 1000000
                     }
                 },
-                "zai-org/GLM-4.6": {
-                    "displayName": "GLM-4.6",
+                "zai-org/GLM-4.7": {
+                    "displayName": "GLM-4.7",
                     "contextWindow": 198000,
                     "maxOutputTokens": 16384,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
+                    "ratelimit":{
+                        "rpm": 500,
+                        "tpm": 2000000
+                    },
                     "pricing": {
                         "inputTokensPrice": 3.5,
                         "outputTokensPrice": 14,
@@ -597,6 +638,10 @@
                     "maxOutputTokens": 160000,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
+                    "ratelimit":{
+                        "rpm": 1000,
+                        "tpm": 100000
+                    },
                     "pricing": {
                         "inputTokensPrice": 2,
                         "outputTokensPrice": 3,
@@ -625,6 +670,10 @@
                     "maxVecDimension": 1024,
                     "supportsFunctionCalling": false,
                     "supportsVision": false,
+                    "ratelimit":{
+                        "rpm": 2000,
+                        "tpm": 500000
+                    },
                     "pricing": {
                         "inputTokensPrice": 0.0,
                         "outputTokensPrice": 0.0,
@@ -640,6 +689,10 @@
                     "maxVecDimension": 4096,
                     "supportsFunctionCalling": false,
                     "supportsVision": false,
+                    "ratelimit":{
+                        "rpm": 2000,
+                        "tpm": 1000000
+                    },
                     "pricing": {
                         "inputTokensPrice": 0.28,
                         "outputTokensPrice": 0,
