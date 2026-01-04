@@ -428,14 +428,15 @@ export function updateBatchStatus(batchId: number, status: string, reason?: stri
     }
 }
 
-export function saveObservation(batchId: number, startTs: number, endTs: number, observation: string, model?: string) {
+export function saveObservation(batchId: number, startTs: number, endTs: number, observation: string, model?: string, contextType?: string, entities?: string): number | bigint | undefined {
     if (!db) return;
     try {
         const stmt = db.prepare(`
-            INSERT INTO observations(batch_id, start_ts, end_ts, observation, llm_model)
-        VALUES(?, ?, ?, ?, ?)
+            INSERT INTO observations(batch_id, start_ts, end_ts, observation, llm_model, context_type, entities)
+        VALUES(?, ?, ?, ?, ?, ?, ?)
             `);
-        stmt.run(batchId, startTs, endTs, observation, model || null);
+        const info = stmt.run(batchId, startTs, endTs, observation, model || null, contextType || null, entities || null);
+        return info.lastInsertRowid;
     } catch (err) {
         console.error('[ShuTong] Failed to save observation:', err);
     }

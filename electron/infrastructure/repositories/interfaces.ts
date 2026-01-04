@@ -62,6 +62,8 @@ export interface Observation {
     end_ts: number;
     observation: string;
     llm_model: string | null;
+    context_type?: string | null;
+    entities?: string | null;
     created_at: string;
 }
 

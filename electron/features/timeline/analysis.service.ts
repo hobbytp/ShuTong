@@ -10,7 +10,7 @@ import {
 } from './analysis.repository';
 import { isContextChange, parseWindowContext, type ActivityContext } from './context-parser';
 import { ocrService } from './ocr.service';
-import { getPromptForContext } from './prompts';
+import { getAnalysisSystemPrompt } from './prompts/index';
 
 // ... existing interfaces ...
 
@@ -35,7 +35,10 @@ export type AnalysisScreenshot = Screenshot & {
 };
 
 export async function processRecordings() {
-    if (isProcessing) return;
+    if (isProcessing) {
+        console.log('[Analysis] The previous processing has not been completed, so this scheduling is skipped.');
+        return;
+    }
     isProcessing = true;
 
     try {
@@ -132,14 +135,14 @@ async function processBatch(batchId: number, screenshotsOverride?: AnalysisScree
         console.log(`[Analysis] Transcribing Batch #${batchId} (${screenshots.length} shots)...`);
 
         // Dynamic Prompt Injection based on Activity Context
-        const prompt = getPromptForContext(context || undefined);
+        const contextInfo = context ? `Current App: ${context.app}\n${context.project ? `Project: ${context.project}` : ''}\n${context.domain ? `Domain: ${context.domain}` : ''}` : undefined;
+        const prompt = getAnalysisSystemPrompt(contextInfo);
         console.log(`[Analysis] Using prompt for context: ${context ? context.activityType : 'default'}`);
 
         // We now use chunking internal to LLMService to process all screenshots without sampling loss
         const observations = await llmService.transcribeBatch(screenshots, prompt);
 
         // P0 Fix: Enhance observations with OCR text if available
-        // This provides richer context for card generation
         if (ocrTexts.size > 0) {
             // New logic: Include filename and truncate per image to preserve diversity
             const summaries: string[] = [];
@@ -164,7 +167,39 @@ async function processBatch(batchId: number, screenshotsOverride?: AnalysisScree
 
         // Save observations
         for (const obs of observations) {
-            repository.saveObservation(batchId, obs.start, obs.end, obs.text, observationModelLabel);
+            const obsId = repository.saveObservation(batchId, obs.start, obs.end, obs.text, observationModelLabel, obs.context_type, obs.entities);
+            
+            // Ingest to Graph Memory if entities exist
+            if (obs.entities) {
+                try {
+                    const entities = JSON.parse(obs.entities);
+                    if (Array.isArray(entities) && entities.length > 0) {
+                         // Use 'local' user ID for now as PulseAgent defaults to it
+                         // Run in background to not block analysis
+                         // Dynamic import to avoid premature instantiation
+                         const { pulseAgent } = await import('../pulse/agent/pulse-agent');
+                         pulseAgent.ingestStructuredEntities('local', obs.text, entities).catch(err => {
+                             console.error('[Analysis] Async Graph Memory ingestion failed:', err);
+                         });
+                    }
+                } catch (e) {
+                    console.error('[Analysis] Failed to parse entities for Graph Memory ingestion:', e);
+                }
+            }
+
+            // Ingest to Vector Storage (Async)
+            if (!isTest && obsId) {
+                 import('../../storage/vector-storage').then(({ vectorStorage }) => {
+                     vectorStorage.addObservation({
+                         id: Number(obsId),
+                         text: obs.text,
+                         start_ts: obs.start,
+                         end_ts: obs.end,
+                         context_type: obs.context_type,
+                         entities: obs.entities
+                     }).catch(err => console.error('[Analysis] Vector indexing failed:', err));
+                 });
+            }
         }
 
         // 2. Generate Cards

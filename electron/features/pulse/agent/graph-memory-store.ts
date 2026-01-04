@@ -91,6 +91,39 @@ export class GraphMemoryStore {
         const filters = { userId };
         const entityTypeMap = await this._retrieveNodesFromData(data, filters);
 
+        return this._processGraphInsertion(userId, data, entityTypeMap, filters);
+    }
+
+    async addStructured(userId: string, data: string, entities: { name: string; type: string }[]): Promise<GraphMemoryResult> {
+        if (!this.isEnabled()) {
+            return { deleted_entities: [], added_entities: [] };
+        }
+
+        const filters = { userId };
+        
+        // Construct entityTypeMap from pre-extracted entities
+        let entityTypeMap: Record<string, string> = {};
+        for (const ent of entities) {
+             entityTypeMap[ent.name] = ent.type;
+        }
+        
+        // Normalize keys
+        entityTypeMap = Object.fromEntries(
+            Object.entries(entityTypeMap).map(([k, v]) => [
+                k.toLowerCase().replace(/ /g, "_"),
+                v.toLowerCase().replace(/ /g, "_"),
+            ])
+        );
+
+        return this._processGraphInsertion(userId, data, entityTypeMap, filters);
+    }
+
+    private async _processGraphInsertion(
+        userId: string,
+        data: string,
+        entityTypeMap: Record<string, string>,
+        filters: Record<string, any>
+    ): Promise<GraphMemoryResult> {
         const toBeAdded = await this._establishNodesRelationsFromData(
             data,
             filters,

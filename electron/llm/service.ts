@@ -1,15 +1,16 @@
 import { Jimp } from 'jimp';
 import { getMergedLLMConfig } from '../config_manager';
 import { Screenshot } from '../infrastructure/repositories/interfaces';
+import { safeParseJSON } from '../utils/json';
 import { getLLMMetrics } from './metrics';
 import { consumeStreamWithIdleTimeout, getLLMProvider } from './providers';
-
-
 
 export interface Observation {
     start: number;
     end: number;
     text: string;
+    context_type?: string;
+    entities?: string;
 }
 
 export interface ActivityCard {
@@ -131,21 +132,54 @@ Return JSON format:
                 responseStr = await provider.generateContent({ prompt, images });
             }
 
-            const response = this.parseJSON(responseStr);
-            if (!response || !response.observations) {
-                throw new Error("Invalid LLM response format for transcription");
+            const response = safeParseJSON(responseStr);
+            
+            // Legacy format
+            if (response && response.observations) {
+                return response.observations.map((obs: any) => {
+                    const startShot = screenshots[obs.start_index] || screenshots[0];
+                    const endShot = screenshots[obs.end_index] || screenshots[screenshots.length - 1];
+                    return {
+                        start: startShot.captured_at,
+                        end: endShot.captured_at,
+                        text: obs.text
+                    };
+                });
             }
 
-            // Map indices to timestamps
-            return response.observations.map((obs: any) => {
-                const startShot = screenshots[obs.start_index] || screenshots[0];
-                const endShot = screenshots[obs.end_index] || screenshots[screenshots.length - 1];
-                return {
-                    start: startShot.captured_at,
-                    end: endShot.captured_at,
-                    text: obs.text
-                };
-            });
+            // New "items" format (MiniContext style)
+            if (response && response.items) {
+                // Default to whole chunk range if no specific indices provided
+                const startShot = screenshots[0];
+                const endShot = screenshots[screenshots.length - 1];
+                
+                return response.items.map((item: any) => {
+                    // Try to map screen_ids if available (1-based index)
+                    let itemStart = startShot.captured_at;
+                    let itemEnd = endShot.captured_at;
+                    
+                    if (item.screen_ids && Array.isArray(item.screen_ids) && item.screen_ids.length > 0) {
+                        const firstIdx = Math.min(...item.screen_ids) - 1;
+                        const lastIdx = Math.max(...item.screen_ids) - 1;
+                        if (screenshots[firstIdx]) itemStart = screenshots[firstIdx].captured_at;
+                        if (screenshots[lastIdx]) itemEnd = screenshots[lastIdx].captured_at;
+                    }
+
+                    return {
+                        start: itemStart,
+                        end: itemEnd,
+                        text: item.summary || item.title || "No summary",
+                        context_type: item.context_type,
+                        entities: item.entities ? JSON.stringify(item.entities) : undefined
+                    };
+                });
+            }
+
+            if (!response) {
+                throw new Error("Invalid LLM response format for transcription");
+            }
+            
+            throw new Error("Unknown LLM response format");
 
         } catch (err) {
             console.error('[LLMService] Single chunk transcription failed:', err);
@@ -214,7 +248,7 @@ Return JSON:
                 responseStr = await provider.generateContent({ prompt });
             }
 
-            const response = this.parseJSON(responseStr);
+            const response = safeParseJSON(responseStr);
 
             if (!response || !response.cards) {
                 throw new Error("Invalid LLM response format for cards");
@@ -224,16 +258,6 @@ Return JSON:
         } catch (err) {
             console.error('[LLMService] Card generation failed:', err);
             throw err;
-        }
-    }
-
-    private parseJSON(str: string): any {
-        try {
-            // Clean markdown code blocks if present
-            const clean = str.replace(/```json/g, '').replace(/```/g, '').trim();
-            return JSON.parse(clean);
-        } catch (e) {
-            return null;
         }
     }
 

@@ -64,8 +64,14 @@ vi.mock('../../electron/config_manager', () => ({
     getMergedLLMConfig: mocks.mockGetMergedLLMConfig
 }));
 
-vi.mock('../../electron/features/timeline/prompts', () => ({
-    getPromptForContext: vi.fn().mockReturnValue('Mocked Dynamic Prompt')
+vi.mock('../../electron/features/timeline/prompts/index', () => ({
+    getAnalysisSystemPrompt: vi.fn().mockReturnValue('Mocked System Prompt')
+}));
+
+vi.mock('../../electron/features/pulse/agent/pulse-agent', () => ({
+    pulseAgent: {
+        ingestStructuredEntities: vi.fn().mockResolvedValue(undefined)
+    }
 }));
 
 // 3. Import SUT
@@ -100,7 +106,7 @@ describe('AnalysisService', () => {
         // Verify transcribeBatch called with the result of getPromptForContext
         expect(mocks.mockTranscribeBatch).toHaveBeenCalledWith(
             expect.any(Array),
-            'Mocked Dynamic Prompt'
+            'Mocked System Prompt'
         );
     });
 
@@ -162,5 +168,25 @@ describe('AnalysisService', () => {
         expect(mocks.mockFetchUnprocessedScreenshots).toHaveBeenCalledWith(expect.any(Number), expect.any(Number));
     });
 
-
+    it('should ingest structured entities to PulseAgent', async () => {
+        mocks.mockFetchUnprocessedScreenshots.mockReturnValueOnce([
+            { id: 1, timestamp: 1000 }
+        ]);
+        mocks.mockTranscribeBatch.mockResolvedValueOnce([
+            { 
+                start: 1000, 
+                end: 1010, 
+                text: 'Coding in VSCode', 
+                context_type: 'activity_context',
+                entities: JSON.stringify([{ name: 'VSCode', type: 'tool' }]) 
+            }
+        ]);
+        
+        await processRecordings();
+        
+        // Use the imported mocked instance
+        const { pulseAgent } = await import('../../electron/features/pulse/agent/pulse-agent');
+        expect(pulseAgent.ingestStructuredEntities)
+            .toHaveBeenCalledWith('local', 'Coding in VSCode', [{ name: 'VSCode', type: 'tool' }]);
+    });
 });

@@ -1,4 +1,5 @@
 import { RunnableConfig } from "@langchain/core/runnables";
+import { safeParseJSON } from '../../../utils/json';
 import { v4 as uuidv4 } from "uuid";
 import { GraphMemoryStore } from "./graph-memory-store";
 import { BaseStore } from "./memory-store";
@@ -29,6 +30,10 @@ export class MemoryProcessor {
         this.graphStore = config.graphStore;
     }
 
+    public setModel(model: LLMModel) {
+        this.model = model;
+    }
+
     public setGraphStore(store: GraphMemoryStore) {
         this.graphStore = store;
     }
@@ -41,6 +46,11 @@ export class MemoryProcessor {
         messages: string,
         config?: RunnableConfig,
     ): Promise<string[]> {
+        if (!this.model) {
+             // console.warn('[MemoryProcessor] Skipping extraction: LLM model not initialized');
+             return [];
+        }
+
         const [systemPrompt, userPrompt] = getFactRetrievalMessages(messages);
 
         try {
@@ -66,14 +76,13 @@ export class MemoryProcessor {
                 );
                 const content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
 
-                // Extract JSON from response (handle code blocks)
-                const jsonMatch = content.match(/\{[\s\S]*"facts"[\s\S]*\}/);
-                if (!jsonMatch) {
+                // Extract JSON from response (handle code blocks) using safeParseJSON
+                const parsed = safeParseJSON(content);
+                if (!parsed || !parsed.facts) {
                     console.warn('[MemoryProcessor] Failed to parse JSON from LLM response');
                     return [];
                 }
 
-                const parsed = JSON.parse(jsonMatch[0]);
                 return parsed.facts || [];
             }
         } catch (error) {
@@ -94,6 +103,8 @@ export class MemoryProcessor {
         facts: string[],
         config?: RunnableConfig,
     ): Promise<void> {
+        if (!this.model) return;
+
         // 1. Retrieve relevant existing memories for these facts.
         // We search for each fact and deduplicate results.
         const relevantMemoriesMap = new Map<string, { id: string; text: string }>();
@@ -148,14 +159,13 @@ export class MemoryProcessor {
                 );
                 const content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
 
-                // Extract JSON from response
-                const jsonMatch = content.match(/\{[\s\S]*"memory"[\s\S]*\}/);
-                if (!jsonMatch) {
+                // Extract JSON from response using safeParseJSON
+                const parsed = safeParseJSON(content);
+                if (!parsed || !parsed.memory) {
                     console.warn('[MemoryProcessor] Failed to parse update instructions from LLM');
                     return;
                 }
 
-                const parsed = JSON.parse(jsonMatch[0]);
                 instructions = parsed.memory as MemoryUpdateAction[];
             }
 

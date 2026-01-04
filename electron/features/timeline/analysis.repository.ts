@@ -14,7 +14,7 @@ export interface IAnalysisRepository {
     saveBatchWithScreenshots(start: number, end: number, screenshotIds: number[]): number | bigint | null;
     updateBatchStatus(batchId: number, status: string, error?: string): void;
     saveTimelineCard(card: any): number | bigint | null;
-    saveObservation(batchId: number, startTs: number, endTs: number, observation: string, model?: string): void;
+    saveObservation(batchId: number, startTs: number, endTs: number, observation: string, model?: string, contextType?: string, entities?: string): number | bigint | undefined;
     screenshotsForBatch(batchId: number): any[];
     getSetting(key: string): string | null;
     getRepositories(): any;
@@ -37,8 +37,8 @@ export class SqliteAnalysisRepository implements IAnalysisRepository {
         return saveTimelineCard(card) ?? null;
     }
 
-    saveObservation(batchId: number, startTs: number, endTs: number, observation: string, model?: string): void {
-        saveObservation(batchId, startTs, endTs, observation, model);
+    saveObservation(batchId: number, startTs: number, endTs: number, observation: string, model?: string, contextType?: string, entities?: string): number | bigint | undefined {
+        return saveObservation(batchId, startTs, endTs, observation, model, contextType, entities);
     }
 
     screenshotsForBatch(batchId: number): any[] {

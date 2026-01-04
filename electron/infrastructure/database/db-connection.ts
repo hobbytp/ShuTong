@@ -122,6 +122,8 @@ function createTables(database: Database.Database): void {
             end_ts INTEGER NOT NULL,
             observation TEXT NOT NULL,
             llm_model TEXT,
+            context_type TEXT,
+            entities TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -199,6 +201,22 @@ function createTables(database: Database.Database): void {
     } catch (e: any) {
         if (!e.message.includes('duplicate column name')) {
             console.error('[Database] Migration failed for roi_h:', e);
+        }
+    }
+
+    try {
+        database.prepare('ALTER TABLE observations ADD COLUMN context_type TEXT').run();
+    } catch (e: any) {
+        if (!e.message.includes('duplicate column name')) {
+            console.error('[Database] Migration failed for context_type:', e);
+        }
+    }
+
+    try {
+        database.prepare('ALTER TABLE observations ADD COLUMN entities TEXT').run();
+    } catch (e: any) {
+        if (!e.message.includes('duplicate column name')) {
+            console.error('[Database] Migration failed for entities:', e);
         }
     }
 }

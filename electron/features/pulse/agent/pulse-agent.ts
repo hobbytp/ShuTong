@@ -32,10 +32,22 @@ export class PulseAgent {
 
     constructor() {
         this.checkpointer = createCheckpointer();
+        
+        let initialModel: any;
+        try {
+            initialModel = this.getLLMClient();
+        } catch (e) {
+            console.warn('[PulseAgent] LLM client not available at startup:', e);
+            // We can initialize MemoryProcessor with a dummy model or handle lazy init
+            // For now, let's allow it to fail gracefully if LLM is missing, 
+            // but we need to ensure memoryProcessor doesn't crash on usage.
+        }
+
         this.memoryProcessor = new MemoryProcessor({
             store: memoryStore,
-            model: this.getLLMClient()
+            model: initialModel // Might be undefined
         });
+        
         this.graph = this.buildGraph();
         this.startBackgroundMemoryExtraction();
     }
@@ -100,6 +112,25 @@ export class PulseAgent {
         const userId = user_id || 'local';
         const store = (config as any)?.store as BaseStore;
 
+        // Lazy load LLM client
+        let llm: any;
+        try {
+            llm = this.getLLMClient();
+            // Update memory processor with valid model if it was missing
+            if (llm && !this.memoryProcessor['model']) {
+                 this.memoryProcessor.setModel(llm);
+            }
+        } catch (e: any) {
+            // If API key is missing, return a helpful message
+            if (e?.message?.includes('LLM_API_KEY_MISSING')) {
+                 return {
+                     messages: [new AIMessage("I can't respond yet because the LLM API key is missing. Please configure it in Settings.")],
+                     recalled_memories: []
+                 };
+            }
+            throw e;
+        }
+
         // Memory Recall Logic
         let recalled_memories: Memory[] = [];
         if (store) {
@@ -137,8 +168,8 @@ export class PulseAgent {
                 const episodicMemories = (episodicItems || []).map(item => item.value as any as EpisodicMemory);
 
                 // 4. Graph Memories
-                const graphStore = await this.ensureGraphStore();
                 let graphMemories: SemanticMemory[] = [];
+                const graphStore = query ? await this.ensureGraphStore() : undefined;
                 if (graphStore && query) {
                     try {
                         const graphResults = await graphStore.search(userId, query);
@@ -178,15 +209,17 @@ export class PulseAgent {
             ];
         }
 
-        const llm = this.getLLMClient();
+        // llm is already loaded above
+
 
         // Build memory context string
         const memoryContext = this.buildMemoryContext(recalled_memories);
 
         // Build activity context string
-        const activityContext = relevant_activities.map(a =>
-            `- [${new Date(a.start_ts * 1000).toLocaleTimeString()}] ${a.title}: ${a.summary}`
-        ).join("\n");
+        const activityContext = relevant_activities.map(a => {
+            const typeLabel = (a as any).context_type ? `[${(a as any).context_type}] ` : '';
+            return `- [${new Date(a.start_ts * 1000).toLocaleTimeString()}] ${typeLabel}${a.title}: ${a.summary}`;
+        }).join("\n");
 
         // BRANCH: Card Generation Mode
         if (target_card_type) {
@@ -303,6 +336,17 @@ If the user expresses preferences or shares personal information, acknowledge it
     private async processMemoryExtractionQueue() {
         if (this.memoryExtractionQueue.length === 0) return;
 
+        // Try to initialize model if missing
+        if (!this.memoryProcessor['model']) {
+            try {
+                const model = this.getLLMClient();
+                this.memoryProcessor.setModel(model);
+            } catch (e) {
+                // Still no key, skip processing
+                return;
+            }
+        }
+
         const item = this.memoryExtractionQueue.shift();
         if (!item) return;
 
@@ -376,10 +420,14 @@ If the user expresses preferences or shares personal information, acknowledge it
 
         const config = getLLMConfigForMain();
         if (config.graphStore?.enabled) {
-            const llm = this.getLLMClient();
-            this.graphMemoryStore = new GraphMemoryStore(config.graphStore, llm as any, embeddings);
-            this.memoryProcessor.setGraphStore(this.graphMemoryStore);
-            console.log('[PulseAgent] GraphMemoryStore initialized');
+            try {
+                const llm = this.getLLMClient();
+                this.graphMemoryStore = new GraphMemoryStore(config.graphStore, llm as any, embeddings);
+                this.memoryProcessor.setGraphStore(this.graphMemoryStore);
+                console.log('[PulseAgent] GraphMemoryStore initialized');
+            } catch (e) {
+                console.warn('[PulseAgent] Cannot init GraphMemoryStore - LLM not ready:', e);
+            }
         }
 
         return this.graphMemoryStore;
@@ -730,6 +778,21 @@ If the user expresses preferences or shares personal information, acknowledge it
      */
     public async deleteThread(threadId: string): Promise<void> {
         await this.checkpointer.deleteThread(threadId);
+    }
+
+    /**
+     * Ingest structured entities from analysis service directly into Graph Memory
+     */
+    public async ingestStructuredEntities(userId: string, text: string, entities: { name: string, type: string }[]) {
+        try {
+            const store = await this.ensureGraphStore();
+            if (store) {
+                await store.addStructured(userId, text, entities);
+                console.log(`[PulseAgent] Ingested ${entities.length} structured entities into Graph Memory`);
+            }
+        } catch (e) {
+            console.error('[PulseAgent] Failed to ingest structured entities:', e);
+        }
     }
 
     /**

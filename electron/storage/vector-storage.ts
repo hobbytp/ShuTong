@@ -16,8 +16,10 @@ export interface ActivityVector {
     category: string;
     title: string;
     summary: string;
-    source_type: 'activity'; // For now, mostly 'activity'
+    source_type: 'activity' | 'observation';
     created_at: number;
+    context_type?: string;
+    entities?: string; // JSON string
     [key: string]: unknown; // Allow flexible schema for LanceDB
 }
 
@@ -26,6 +28,7 @@ export class VectorStorage {
     private db: lancedb.Connection | null = null;
     private embeddings: OpenAIEmbeddings | null = null;
     private activityTable: lancedb.Table | null = null;
+    private observationTable: lancedb.Table | null = null;
     private initialized = false;
     private embeddingsDisabledReason: string | null = null;
     private embeddingsDisableLogged = false;
@@ -64,13 +67,22 @@ export class VectorStorage {
 
             // 4. Open/Create Tables
             if (this.db) {
-                const tableName = 'activity_context';
+                // Activity Table
+                const actTableName = 'activity_context';
                 const existingTables = await this.db.tableNames();
 
-                if (existingTables.includes(tableName)) {
-                    this.activityTable = await this.db.openTable(tableName);
+                if (existingTables.includes(actTableName)) {
+                    this.activityTable = await this.db.openTable(actTableName);
                 } else {
-                    console.log(`[VectorStorage] Table '${tableName}' does not exist yet. Will create on first insert.`);
+                    console.log(`[VectorStorage] Table '${actTableName}' does not exist yet.`);
+                }
+                
+                // Observation Table (New)
+                const obsTableName = 'observation_context';
+                if (existingTables.includes(obsTableName)) {
+                    this.observationTable = await this.db.openTable(obsTableName);
+                } else {
+                    console.log(`[VectorStorage] Table '${obsTableName}' does not exist yet.`);
                 }
             }
 
@@ -153,6 +165,68 @@ export class VectorStorage {
     }
 
     /**
+     * Add a granular observation to vector storage
+     */
+    public async addObservation(obs: {
+        id: number;
+        text: string;
+        start_ts: number;
+        end_ts: number;
+        context_type?: string;
+        entities?: string;
+    }) {
+        if (!this.embeddings || !this.db) {
+            // Log warning only if not disabled
+            if (!this.embeddingsDisabledReason) {
+                 // console.warn('[VectorStorage] Not initialized. Skipping addObservation.');
+            }
+            return;
+        }
+
+        try {
+            const vector = await this.embeddings.embedQuery(obs.text);
+
+            const record: ActivityVector = {
+                id: `obs-${obs.id}`,
+                vector: vector,
+                text: obs.text,
+                start_ts: obs.start_ts,
+                end_ts: obs.end_ts,
+                category: obs.context_type || 'unknown',
+                title: 'Observation',
+                summary: obs.text,
+                source_type: 'observation',
+                context_type: obs.context_type,
+                entities: obs.entities,
+                created_at: Date.now()
+            };
+
+            const tableName = 'observation_context';
+
+            if (!this.observationTable) {
+                const existingTables = await this.db.tableNames();
+                if (existingTables.includes(tableName)) {
+                    this.observationTable = await this.db.openTable(tableName);
+                    await this.observationTable.add([record]);
+                } else {
+                    this.observationTable = await this.db.createTable(tableName, [record]);
+                    console.log(`[VectorStorage] Created table '${tableName}'`);
+                }
+            } else {
+                await this.observationTable.add([record]);
+            }
+            // console.log(`[VectorStorage] Added observation ${obs.id} to vector index.`);
+
+        } catch (err) {
+             if (this.isAuthError(err)) {
+                this.disableEmbeddings('Embedding auth failed', err);
+                return;
+            }
+            console.error('[VectorStorage] Failed to add observation:', err);
+        }
+    }
+
+    /**
      * Add a timeline card to vector storage
      */
     public async addActivity(card: {
@@ -221,7 +295,7 @@ export class VectorStorage {
      * Semantic search for activities
      */
     public async search(query: string, limit: number = 10): Promise<ActivityVector[]> {
-        if (!this.embeddings || !this.activityTable) {
+        if (!this.embeddings || (!this.activityTable && !this.observationTable)) {
             if (this.embeddingsDisabledReason) {
                 this.logEmbeddingsDisabledOnce();
             } else {
@@ -232,12 +306,26 @@ export class VectorStorage {
 
         try {
             const queryVector = await this.embeddings.embedQuery(query);
+            
+            const results: ActivityVector[] = [];
 
-            const results = await this.activityTable.vectorSearch(queryVector)
-                .limit(limit)
-                .toArray();
+            // Search Activity Table
+            if (this.activityTable) {
+                const acts = await this.activityTable.vectorSearch(queryVector)
+                    .limit(limit)
+                    .toArray();
+                results.push(...(acts as ActivityVector[]));
+            }
+            
+            // Search Observation Table
+            if (this.observationTable) {
+                const obs = await this.observationTable.vectorSearch(queryVector)
+                    .limit(limit)
+                    .toArray();
+                results.push(...(obs as ActivityVector[]));
+            }
 
-            return results as ActivityVector[];
+            return results;
         } catch (err) {
             if (this.isAuthError(err)) {
                 this.disableEmbeddings('Embedding provider authentication failed (check API key / base URL).', err);
