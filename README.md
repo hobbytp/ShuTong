@@ -27,6 +27,7 @@ This project is still under development.
 > 📚 **Detailed Documentation**:
 > - [Architecture Design](docs/designs/enhance-timeline-insights.md)
 > - [Timeline Functions](docs/functions/timeline_enh.md)
+> - [Smart Capture Strategy](docs/functions/smart-capture-func.md)
 
 ## Getting Started
 
@@ -106,7 +107,7 @@ xdg-open shutong://stop-recording
 - **Frontend**: React, TypeScript, TailwindCSS, Vite
 - **Backend / Desktop**: Electron
 - **Database**: Better-SQLite3 (Settings & Activity), LanceDB (Vector Storage)
-- **AI Integration**: LangChain, LangGraph, OpenAI SDK, Google Generative AI (Native Gemini)
+- **AI Integration**: LangChain, LangGraph, OpenAI SDK, Google Generative AI (Native Gemini), PaddleOCR (Local OCR via WebGL)
 - **Video Processing**: FFmpeg
 
 ## Troubleshooting
