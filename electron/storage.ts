@@ -696,6 +696,22 @@ export function getScreenshotsForCard(cardId: number) {
     }
 }
 
+export function getScreenshotsInTimeRange(startTs: number, endTs: number) {
+    if (!db) return [];
+    try {
+        const stmt = db.prepare(`
+            SELECT * FROM screenshots 
+            WHERE captured_at BETWEEN ? AND ?
+              AND is_deleted = 0
+            ORDER BY captured_at ASC
+        `);
+        return stmt.all(startTs, endTs);
+    } catch (err) {
+        console.error('[ShuTong] Failed to get screenshots in range:', err);
+        return [];
+    }
+}
+
 export function updateCardVideoUrl(cardId: number, videoUrl: string) {
     if (!db) return;
     try {

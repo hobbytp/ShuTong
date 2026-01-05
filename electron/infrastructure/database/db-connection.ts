@@ -219,4 +219,21 @@ function createTables(database: Database.Database): void {
             console.error('[Database] Migration failed for entities:', e);
         }
     }
+
+    // New migrations for Topic Tracking - REVERTED
+    // We are no longer using project_name and domain columns
+    // Keeping try-catch block to avoid errors on existing DBs but no new columns added
+
+
+    // New Tables for Topic Feature - REVERTED
+    // We are using JSON-based topic definitions in a simpler table or file
+    database.exec(`
+        CREATE TABLE IF NOT EXISTS topics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            definition TEXT NOT NULL, -- JSON string of rules/keywords
+            color TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+    `);
 }

@@ -1,6 +1,7 @@
 import { FastForward, Film, Pause, Play, Rewind, Search } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { TimelineChatButton } from '../components/TimelineChatButton'
 
 interface Snapshot {
     id: number
@@ -96,7 +97,7 @@ export function Timelapse() {
     const currentSnapshot = snapshots[currentIndex]
 
     return (
-        <div className="p-8 max-w-5xl mx-auto text-zinc-50 min-h-screen">
+        <div className="p-8 max-w-5xl mx-auto text-zinc-50 min-h-screen relative">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
                 <div className="flex items-center gap-3">
                     <div className="p-3 bg-indigo-500/10 rounded-xl border border-indigo-500/20">
@@ -240,6 +241,9 @@ export function Timelapse() {
                     </p>
                 </div>
             )}
+
+            {/* Chat FAB */}
+            <TimelineChatButton />
         </div>
     )
 }

@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { eventBus } from '../../infrastructure/events';
 import { getSetting, saveScreenshot, saveWindowSwitch } from '../../storage';
+// import { parseWindowContext } from '../timeline/context-parser';
 import {
     clearPendingWindowCapture,
     getGuardSettings,
@@ -436,6 +437,8 @@ async function savePendingFrame(frame: PendingFrame, trigger: 'exit' | 'checkpoi
         
         const fullCaptureType = `${frame.captureType}:${trigger}`;
 
+        // const _context = parseWindowContext(frame.appName || '', frame.windowTitle || '');
+
         const screenshotId = saveScreenshot(
             filePath, 
             unixTs, 
@@ -444,7 +447,7 @@ async function savePendingFrame(frame: PendingFrame, trigger: 'exit' | 'checkpoi
             frame.appName || undefined,
             frame.windowTitle, // Pass window title if available
             monitorId,
-            frame.roi // Pass ROI
+            frame.roi
         );
 
         if (screenshotId) {
@@ -788,6 +791,10 @@ async function captureFrame(config: CaptureConfig) {
                 const unixTs = Math.floor(now.getTime() / 1000);
                 const fullCaptureType = `${captureType}:${triggerType}`;
                 
+                // Phase 2: Context Extraction (Basic)
+                // const _context = parseWindowContext(appName || '', currentTitle);
+                // In future: Use context to tag screenshot metadata (e.g. project_name)
+
                 const screenshotId = saveScreenshot(
                     filePath, 
                     unixTs, 

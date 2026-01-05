@@ -135,7 +135,7 @@ async function processBatch(batchId: number, screenshotsOverride?: AnalysisScree
         console.log(`[Analysis] Transcribing Batch #${batchId} (${screenshots.length} shots)...`);
 
         // Dynamic Prompt Injection based on Activity Context
-        const contextInfo = context ? `Current App: ${context.app}\n${context.project ? `Project: ${context.project}` : ''}\n${context.domain ? `Domain: ${context.domain}` : ''}` : undefined;
+        const contextInfo = context ? `Current App: ${context.app}` : undefined;
         const prompt = getAnalysisSystemPrompt(contextInfo);
         console.log(`[Analysis] Using prompt for context: ${context ? context.activityType : 'default'}`);
 

@@ -10,12 +10,6 @@
 export interface ActivityContext {
     /** The raw application name */
     app: string;
-    /** Parsed project name (if applicable, e.g., from VS Code) */
-    project?: string;
-    /** Active file name (if applicable) */
-    file?: string;
-    /** Domain (for browser apps) */
-    domain?: string;
     /** High-level activity category inferred from context */
     activityType: 'coding' | 'research' | 'communication' | 'media' | 'productivity' | 'other';
 }
@@ -34,9 +28,9 @@ export interface ContextRule {
 // VS Code window title format: "filename — project — Visual Studio Code"
 // or "filename - project - Visual Studio Code"
 // Updated to require spaces around separators to avoid matching hyphens in filenames
-const VSCODE_TITLE_REGEX = /^(.+?)\s+[-—]\s+(.+?)\s+[-—]\s+(?:Visual Studio Code|Cursor)/i;
+// const VSCODE_TITLE_REGEX = /^(.+?)\s+[-—]\s+(.+?)\s+[-—]\s+(?:Visual Studio Code|Cursor)/i;
 // For 'Code' app name on some platforms - matches "filename - project - Code"
-const VSCODE_SHORT_TITLE_REGEX = /^(.+?)\s+[-—]\s+(.+?)\s+[-—]\s+(?:Visual Studio )?Code/i;
+// const VSCODE_SHORT_TITLE_REGEX = /^(.+?)\s+[-—]\s+(.+?)\s+[-—]\s+(?:Visual Studio )?Code/i;
 
 // Generic browser domain extraction from title (often "Page Title - Domain - Browser Name")
 // This is a heuristic; not all titles follow this format
@@ -63,37 +57,37 @@ const DOMAIN_CATEGORIES: Record<string, ActivityContext['activityType']> = {
     'outlook.live.com': 'communication',
 };
 
+// Generic document-based app filename extraction (e.g. "MyDoc.docx - Word")
+// Matches: "Filename - AppName" or "Filename - Saved - AppName"
+// const GENERIC_DOC_REGEX = /^(.+?)\s+[-—]\s+(?:Saved\s+[-—]\s+)?(?:.+)$/i;
+
 const DEFAULT_RULES: ContextRule[] = [
     // Dynamic rule injection point (priority over defaults)
     // VS Code / Cursor / Similar Editors
     {
         appPattern: 'code',
-        parse: (title) => {
-            const match = title.match(VSCODE_TITLE_REGEX) || title.match(VSCODE_SHORT_TITLE_REGEX);
-            if (match) {
-                return {
-                    file: match[1].trim(),
-                    project: match[2].trim(),
-                    activityType: 'coding'
-                };
-            }
+        parse: () => {
             return { activityType: 'coding' };
         }
     },
     {
         appPattern: 'cursor',
-        parse: (title) => {
-            // Cursor uses similar format to VS Code
-            const match = title.match(VSCODE_TITLE_REGEX);
-            if (match) {
-                return {
-                    file: match[1].trim(),
-                    project: match[2].trim(),
-                    activityType: 'coding'
-                };
-            }
+        parse: () => {
             return { activityType: 'coding' };
         }
+    },
+    // Office Apps (Word, Excel, PowerPoint)
+    {
+        appPattern: 'word',
+        parse: (_title) => parseGenericDoc(_title, 'productivity')
+    },
+    {
+        appPattern: 'excel',
+        parse: (_title) => parseGenericDoc(_title, 'productivity')
+    },
+    {
+        appPattern: 'powerpoint',
+        parse: (_title) => parseGenericDoc(_title, 'productivity')
     },
     // Browsers - Chrome, Edge, Firefox, etc.
     {
@@ -174,10 +168,14 @@ function parseBrowserTitle(title: string): Partial<ActivityContext> {
              activityType = DOMAIN_CATEGORIES[mainDomain];
         }
         
-        return { domain: fullDomain, activityType: activityType || 'research' };
+        return { activityType: activityType || 'research' };
     }
     // Default browser activity
     return { activityType: 'research' };
+}
+
+function parseGenericDoc(_title: string, activityType: ActivityContext['activityType']): Partial<ActivityContext> {
+    return { activityType };
 }
 
 /**
@@ -231,17 +229,6 @@ export function isContextChange(prev: ActivityContext | null, current: ActivityC
         return true;
     }
 
-    // Same app but different project (including undefined transitions)
-    // e.g., "ShuTong" -> undefined (welcome screen) should be a change
-    if (prev.project !== current.project) {
-        return true;
-    }
-
-    // Same browser but different domain (including undefined transitions)
-    if (prev.domain !== current.domain) {
-        return true;
-    }
-
     return false;
 }
 
@@ -250,11 +237,5 @@ export function isContextChange(prev: ActivityContext | null, current: ActivityC
  * Used for timeline card titles.
  */
 export function getContextLabel(context: ActivityContext): string {
-    if (context.project) {
-        return `${context.app} - ${context.project}`;
-    }
-    if (context.domain) {
-        return `${context.app} - ${context.domain}`;
-    }
     return context.app;
 }

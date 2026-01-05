@@ -1,10 +1,9 @@
 import { AlertCircle, ChevronRight, Lightbulb, Loader2, MessageCircle, Sparkles, Target, Zap } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
+import { AgentChat } from '../components/AgentChat';
 
 interface PulseCard {
     id: string;
@@ -90,9 +89,6 @@ export function PulseFeed() {
     const [deliverableBusy, setDeliverableBusy] = useState<Record<string, boolean>>({});
     const [proposalMode, setProposalMode] = useState<Record<string, ResearchMode>>({});
     const [chatOpen, setChatOpen] = useState(false);
-    const [chatInput, setChatInput] = useState('');
-    const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
-    const [chatLoading, setChatLoading] = useState(false);
 
     useEffect(() => {
         const loadCards = async () => {
@@ -222,25 +218,13 @@ export function PulseFeed() {
         }
     }, [reloadCards]);
 
-    const sendChatMessage = useCallback(async () => {
-        if (!chatInput.trim() || !window.ipcRenderer) return;
-
-        const userMessage = chatInput.trim();
-        setChatInput('');
-        setChatMessages(prev => [...prev, { role: 'user', content: userMessage }]);
-        setChatLoading(true);
-
-        try {
-            const result = await window.ipcRenderer.invoke('ask-pulse', userMessage);
-            if (result.success) {
-                setChatMessages(prev => [...prev, { role: 'assistant', content: result.response }]);
-            }
-        } catch (err) {
-            console.error('Chat failed:', err);
-        } finally {
-            setChatLoading(false);
+    const handlePulseChat = useCallback(async (msg: string) => {
+        if (!window.ipcRenderer) return;
+        const result = await window.ipcRenderer.invoke('ask-pulse', msg);
+        if (result.success) {
+            return result.response;
         }
-    }, [chatInput]);
+    }, []);
 
     return (
         <div className="p-8 max-w-4xl mx-auto min-h-screen text-zinc-50">
@@ -471,57 +455,12 @@ export function PulseFeed() {
 
             {/* Chat Panel */}
             {chatOpen && (
-                <div className="fixed bottom-4 right-4 w-96 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden z-50">
-                    <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-                        <h3 className="font-semibold text-zinc-100 flex items-center gap-2">
-                            <MessageCircle size={16} className="text-indigo-400" />
-                            {t('pulse.ask_pulse', 'Ask Pulse')}
-                        </h3>
-                        <button onClick={() => setChatOpen(false)} className="text-zinc-500 hover:text-zinc-300">×</button>
-                    </div>
-
-                    <div className="h-64 overflow-y-auto p-4 space-y-3">
-                        {chatMessages.length === 0 && (
-                            <p className="text-sm text-zinc-500 text-center mt-8">{t('pulse.ask_anything', 'Ask anything about your activities...')}</p>
-                        )}
-                        {chatMessages.map((msg, i) => (
-                            <div key={i} className={`text-sm ${msg.role === 'user' ? 'text-right' : ''}`}>
-                                <div className={`inline-block max-w-[80%] p-3 rounded-lg ${msg.role === 'user'
-                                    ? 'bg-indigo-600 text-white'
-                                    : 'bg-zinc-800 text-zinc-200'
-                                    }`}>
-                                    <div className="prose prose-invert prose-sm max-w-none break-words">
-                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                            {msg.content}
-                                        </ReactMarkdown>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                        {chatLoading && (
-                            <div className="flex items-center gap-2 text-zinc-500">
-                                <Loader2 size={14} className="animate-spin" />
-                                <span className="text-sm">{t('pulse.thinking', 'Thinking...')}</span>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="p-3 border-t border-zinc-800">
-                        <div className="flex gap-2">
-                            <input
-                                type="text"
-                                value={chatInput}
-                                onChange={(e) => setChatInput(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && sendChatMessage()}
-                                placeholder={t('pulse.ask_question', 'Ask a question...')}
-                                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-                            />
-                            <Button size="sm" onClick={sendChatMessage} disabled={chatLoading}>
-                                {t('pulse.send', 'Send')}
-                            </Button>
-                        </div>
-                    </div>
-                </div>
+                <AgentChat 
+                    agentId="pulse"
+                    title={t('pulse.ask_pulse', 'Ask Pulse')}
+                    onSendMessage={handlePulseChat}
+                    onClose={() => setChatOpen(false)}
+                />
             )}
         </div>
     );

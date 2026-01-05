@@ -57,9 +57,6 @@ export function getPromptForContext(context?: ActivityContext): string {
     const scenarioPrompt = SCENARIO_PROMPTS[context.activityType] || SCENARIO_PROMPTS['other'];
     const contextInfo = `
 Current App: ${context.app}
-${context.project ? `Project: ${context.project}` : ''}
-${context.domain ? `Domain: ${context.domain}` : ''}
-${context.file ? `File: ${context.file}` : ''}
 `.trim();
 
     return `

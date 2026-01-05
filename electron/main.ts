@@ -199,6 +199,8 @@ protocol.registerSchemesAsPrivileged([
   }
 ]);
 
+import { topicAgent } from './features/topic/topic-agent';
+
 async function startApp() {
   try {
     console.log('[Main] App ready')
@@ -210,6 +212,9 @@ async function startApp() {
     setupAnalyticsIPC();
     setupVideoIPC();
     setupBackupIPC();
+    
+    // Initialize Agents
+    void topicAgent; // Ensure singleton is instantiated and IPC registered
 
     ipcMain.handle('get-available-screens', () => {
       try {

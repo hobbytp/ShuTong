@@ -83,6 +83,8 @@ export interface IScreenshotRepository {
         captureType?: string;
         appBundleId?: string;
         windowTitle?: string;
+        monitorId?: string;
+        roi?: { x: number, y: number, w: number, h: number };
     }): number | null;
 
     /**
@@ -330,6 +332,11 @@ export interface IWindowSwitchRepository {
      * Get dwell time statistics (time spent per app).
      */
     getDwellStats(startTs: number, endTs: number): { app: string; total_seconds: number }[];
+
+    /**
+     * Search window switches by title or app name.
+     */
+    searchByTitle(query: string, limit?: number): { app: string; title: string }[];
 }
 
 // =============================================================================

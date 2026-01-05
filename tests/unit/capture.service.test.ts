@@ -222,7 +222,7 @@ describe('CaptureService', () => {
             'Test App',
             'screen:2:0',
             undefined // Temporarily accept undefined to pass test
-            // { x: 80, y: 100, w: 800, h: 600 }
+
         );
 
         vi.useRealTimers();

@@ -68,4 +68,20 @@ export class SQLiteWindowSwitchRepository implements IWindowSwitchRepository {
             return [];
         }
     }
+
+    searchByTitle(query: string, limit = 20): { app: string; title: string }[] {
+        try {
+            const stmt = this.db.prepare(`
+                SELECT DISTINCT to_app as app, to_title as title
+                FROM window_switches
+                WHERE to_title LIKE ? OR to_app LIKE ?
+                LIMIT ?
+            `);
+            const searchTerm = `%${query}%`;
+            return stmt.all(searchTerm, searchTerm, limit) as { app: string; title: string }[];
+        } catch (err) {
+            console.error('[WindowSwitchRepository] Failed to search by title:', err);
+            return [];
+        }
+    }
 }

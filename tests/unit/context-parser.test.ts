@@ -5,17 +5,18 @@ describe('ContextParser', () => {
     it('should parse VS Code title using default rules', () => {
         // Updated test case to match actual parser logic
         const result = parseWindowContext('Code', 'context-parser.ts — ShuTong — Visual Studio Code');
-        // The regex captures "context-parser.ts" correctly
         expect(result.activityType).toBe('coding');
-        expect(result.file).toBe('context-parser.ts');
-        expect(result.project).toBe('ShuTong');
+        // We reverted file/project extraction, so these fields are no longer present
+        // expect(result.file).toBe('context-parser.ts');
+        // expect(result.project).toBe('ShuTong');
     });
 
     it('should parse Browser title using default rules', () => {
         // Fix test case: Include domain in title to verify extraction
         const result = parseWindowContext('Chrome', 'GitHub - hobbytp/ShuTong - github.com - Google Chrome');
         expect(result.activityType).toBe('coding');
-        expect(result.domain).toBe('github.com');
+        // We reverted domain extraction
+        // expect(result.domain).toBe('github.com');
     });
 
     it('should support dynamic rules injection', () => {
@@ -23,7 +24,9 @@ describe('ContextParser', () => {
             {
                 appPattern: 'notepad',
                 activityType: 'productivity',
-                parse: (title) => ({ file: title.replace(' - Notepad', '') })
+                // Custom parser can still return arbitrary fields if defined in interface, 
+                // but we simplified ActivityContext. Let's just check activityType.
+                parse: (title) => ({ activityType: 'productivity' })
             }
         ];
 
@@ -31,7 +34,6 @@ describe('ContextParser', () => {
 
         const result = parseWindowContext('Notepad', 'notes.txt - Notepad');
         expect(result.activityType).toBe('productivity');
-        expect(result.file).toBe('notes.txt');
     });
 
     it('should fallback to default behavior if no rule matches', () => {

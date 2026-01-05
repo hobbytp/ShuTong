@@ -27,7 +27,7 @@ describe('PulseFeed Chat Markdown Rendering', () => {
         fireEvent.click(chatButton);
 
         // Find input and send message
-        const input = screen.getByPlaceholderText('Ask a question...');
+        const input = screen.getByPlaceholderText('Type a message...');
         fireEvent.change(input, { target: { value: 'Hello' } });
 
         const sendButton = screen.getByText('Send');

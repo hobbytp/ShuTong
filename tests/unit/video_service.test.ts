@@ -45,7 +45,8 @@ const mocks = vi.hoisted(() => {
         once: vi.fn(),
         show: vi.fn(),
         hide: vi.fn(),
-        isDestroyed: vi.fn().mockReturnValue(false)
+        isDestroyed: vi.fn().mockReturnValue(false),
+        destroy: vi.fn()
     };
 
     const mockIpcMain = {
