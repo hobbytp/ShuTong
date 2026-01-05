@@ -32,7 +32,7 @@ export class PulseAgent {
 
     constructor() {
         this.checkpointer = createCheckpointer();
-        
+
         let initialModel: any;
         try {
             initialModel = this.getLLMClient();
@@ -47,7 +47,7 @@ export class PulseAgent {
             store: memoryStore,
             model: initialModel // Might be undefined
         });
-        
+
         this.graph = this.buildGraph();
         this.startBackgroundMemoryExtraction();
     }
@@ -118,15 +118,15 @@ export class PulseAgent {
             llm = this.getLLMClient();
             // Update memory processor with valid model if it was missing
             if (llm && !this.memoryProcessor['model']) {
-                 this.memoryProcessor.setModel(llm);
+                this.memoryProcessor.setModel(llm);
             }
         } catch (e: any) {
             // If API key is missing, return a helpful message
             if (e?.message?.includes('LLM_API_KEY_MISSING')) {
-                 return {
-                     messages: [new AIMessage("I can't respond yet because the LLM API key is missing. Please configure it in Settings.")],
-                     recalled_memories: []
-                 };
+                return {
+                    messages: [new AIMessage("I can't respond yet because the LLM API key is missing. Please configure it in Settings.")],
+                    recalled_memories: []
+                };
             }
             throw e;
         }
@@ -230,13 +230,8 @@ export class PulseAgent {
                 'challenge': "Identify potential distractions or inefficient patterns in the activities. Create a gentle 'Challenge'."
             };
 
+            // Static system prompt (cacheable)
             const systemPrompt = `You are ShuTong Pulse.
-
-${memoryContext ? `User Preferences & Knowledge:\n${memoryContext}\n` : ''}
-Current Activity Context:
-${activityContext || "No relevant recent activities found."}
-
-Task: ${cardPrompts[target_card_type] || "Analyze the activities."}
 
 Return your response in strict JSON format:
 {
@@ -245,9 +240,17 @@ Return your response in strict JSON format:
   "suggested_actions": ["action 1", "action 2"]
 }`;
 
+            // Dynamic user message (context + task)
+            const dynamicUserMessage = `${memoryContext ? `User Preferences & Knowledge:\n${memoryContext}\n\n` : ''}Current Activity Context:
+${activityContext || "No relevant recent activities found."}
+
+Task: ${cardPrompts[target_card_type] || "Analyze the activities."}
+
+Generate the card.`;
+
             const response = await llm.invoke([
                 new SystemMessage(systemPrompt),
-                new HumanMessage("Generate the card.")
+                new HumanMessage(dynamicUserMessage)
             ]);
 
             return {
@@ -257,19 +260,26 @@ Return your response in strict JSON format:
         }
 
         // DEFAULT: Chat Mode
+        // Static system prompt (cacheable)
         const systemPrompt = `You are ShuTong Pulse, an intelligent assistant that helps users reflect on their activities.
 
-${memoryContext ? `User Preferences & Knowledge:\n${memoryContext}\n` : ''}
-Recent Activity Context:
-${activityContext || "No relevant recent activities found."}
-
-Your goal is to answer the user's question based on the activity history provided above.
+Your goal is to answer the user's question based on the activity history provided in the user message.
 If the user asks for a summary, synthesize the information.
 If the user asks specific questions, use the timestamps and details to answer accurately.
 If the user expresses preferences or shares personal information, acknowledge it naturally.`;
 
+        // Dynamic context (placed in user message for KV cache efficiency)
+        const dynamicContext = [
+            memoryContext ? `User Preferences & Knowledge:\n${memoryContext}` : '',
+            activityContext ? `Recent Activity Context:\n${activityContext}` : 'No relevant recent activities found.'
+        ].filter(Boolean).join('\n\n');
+
+        // Prepend dynamic context to the first user message
+        const contextMessage = new SystemMessage(`[Context]\n${dynamicContext}`);
+
         const response = await llm.invoke([
             new SystemMessage(systemPrompt),
+            contextMessage,
             ...activeMessages
         ]);
 

@@ -17,9 +17,10 @@ export interface AgentChatProps {
     initialMessage?: string;
     title?: string;
     onClose?: () => void;
+    onFilterChange?: (filter: { name: string; definition: any } | null) => void;
 }
 
-export function AgentChat({ onSendMessage, initialMessage, title, onClose }: AgentChatProps) {
+export function AgentChat({ onSendMessage, initialMessage, title, onClose, onFilterChange }: AgentChatProps) {
     const { t } = useTranslation();
     const [input, setInput] = useState('');
     const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>(
@@ -39,7 +40,12 @@ export function AgentChat({ onSendMessage, initialMessage, title, onClose }: Age
             const response = await onSendMessage(userMsg);
             // Handle different response formats
             const content = typeof response === 'string' ? response : response.message || response.response || JSON.stringify(response);
-            
+
+            // Check for active_filter in response
+            if (typeof response === 'object' && response.active_filter && onFilterChange) {
+                onFilterChange(response.active_filter);
+            }
+
             setMessages(prev => [...prev, { role: 'assistant', content }]);
         } catch (err: any) {
             console.error('Chat failed:', err);

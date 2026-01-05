@@ -170,6 +170,7 @@ export interface IPCContract {
     // -------------------------------------------------------------------------
     'get-snapshots': { args: [limit: number]; return: Snapshot[] };
     'get-snapshots-by-date': { args: [date: string]; return: Snapshot[] };
+    'get-snapshots-by-filter': { args: [date: string, filter: any]; return: Snapshot[] };
 
     // -------------------------------------------------------------------------
     // Timeline
@@ -328,6 +329,18 @@ export interface IPCContract {
     // -------------------------------------------------------------------------
     'change-language': { args: [lang: string]; return: { success: boolean } };
     'get-language': { args: []; return: string };
+
+    // -------------------------------------------------------------------------
+    // Topic Agent
+    // -------------------------------------------------------------------------
+    'topic:discover': {
+        args: [message: string];
+        return: {
+            message: string;
+            contexts?: any[];
+            active_filter?: { name: string; definition: any };
+        }
+    };
 }
 
 // =============================================================================

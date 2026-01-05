@@ -28,6 +28,14 @@ export function getIsResetting() {
 }
 
 /**
+ * Get the underlying BetterSQLite3 database instance.
+ * Useful for raw SQL queries or specialized modules like LangGraph agents.
+ */
+export function getDatabase(): Database.Database | null {
+    return db;
+}
+
+/**
  * Get the repository factory.
  * Use this for new code instead of direct db access.
  */
@@ -270,6 +278,7 @@ function setupStorageIPC() {
     // Snapshots
     typedHandle('get-snapshots', (_event: unknown, limit: number) => getSnapshots(limit));
     typedHandle('get-snapshots-by-date', (_event: unknown, date: string) => getSnapshotsByDate(date));
+    typedHandle('get-snapshots-by-filter', (_event: unknown, date: string, filter: any) => getSnapshotsByFilter(date, filter));
 
     // Settings
     typedHandle('get-settings', () => getSettings());
@@ -314,10 +323,10 @@ export function saveScreenshot(
             VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         const info = stmt.run(
-            capturedAt, 
-            filePath, 
-            fileSize || null, 
-            captureType || null, 
+            capturedAt,
+            filePath,
+            fileSize || null,
+            captureType || null,
             appName || null,
             windowTitle || null,
             monitorId || null,
@@ -523,7 +532,60 @@ export function getSnapshotsByDate(date: string) {
         }));
 
     } catch (err) {
-        console.error('[ShuTong] Failed to get screenshots by date:', err);
+        console.error('[ShuTong] Failed to get snapshots by date:', err);
+        return [];
+    }
+}
+
+export function getSnapshotsByFilter(date: string, filter?: { name: string; definition: any }) {
+    if (!db) return [];
+    try {
+        const start = new Date(date).setHours(0, 0, 0, 0) / 1000;
+        const end = new Date(date).setHours(23, 59, 59, 999) / 1000;
+
+        let query = 'SELECT id, file_path, captured_at FROM screenshots WHERE captured_at BETWEEN ? AND ?';
+        const params: any[] = [start, end];
+
+        if (filter?.definition) {
+            const { contexts, keywords } = filter.definition;
+            const conditions: string[] = [];
+
+            if (contexts && contexts.length > 0) {
+                // Check if window_title is in the saved contexts list
+                // We use LIKE for partial matching or exact match depending on how strict we want to be.
+                // Topic definition 'contexts' are usually specific titles.
+                const placeHolders = contexts.map(() => 'window_title LIKE ?').join(' OR ');
+                if (placeHolders) {
+                    conditions.push(`(${placeHolders})`);
+                    contexts.forEach((c: string) => params.push(`%${c}%`));
+                }
+            }
+
+            if (keywords && keywords.length > 0) {
+                const placeHolders = keywords.map(() => 'window_title LIKE ?').join(' OR ');
+                if (placeHolders) {
+                    conditions.push(`(${placeHolders})`);
+                    keywords.forEach((k: string) => params.push(`%${k}%`));
+                }
+            }
+
+            if (conditions.length > 0) {
+                query += ` AND (${conditions.join(' OR ')})`;
+            }
+        }
+
+        query += ' ORDER BY captured_at ASC';
+
+        const stmt = db.prepare(query);
+        const rows = stmt.all(...params) as { id: number, file_path: string, captured_at: number }[];
+
+        return rows.map(row => ({
+            id: row.id,
+            file_path: row.file_path,
+            timestamp: new Date(row.captured_at * 1000).toISOString()
+        }));
+    } catch (err) {
+        console.error('[ShuTong] Failed to get filtered snapshots:', err);
         return [];
     }
 }

@@ -1,7 +1,7 @@
-import { FastForward, Film, Pause, Play, Rewind, Search } from 'lucide-react'
+import { FastForward, Film, Pause, Play, Rewind, Search, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { TimelineChatButton } from '../components/TimelineChatButton'
+import { TimelineChatButton, TopicFilter } from '../components/TimelineChatButton'
 
 interface Snapshot {
     id: number
@@ -17,13 +17,19 @@ export function Timelapse() {
     const [currentIndex, setCurrentIndex] = useState(0)
     const [playbackSpeed, setPlaybackSpeed] = useState(5) // frames per second
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
+    const [activeFilter, setActiveFilter] = useState<TopicFilter | null>(null)
 
     const timerRef = useRef<NodeJS.Timeout | null>(null)
 
     const fetchSnapshots = async (date: string) => {
         setLoading(true)
         if (window.ipcRenderer) {
-            const data = await window.ipcRenderer.invoke('get-snapshots-by-date', date)
+            let data;
+            if (activeFilter) {
+                data = await window.ipcRenderer.invoke('get-snapshots-by-filter', date, activeFilter);
+            } else {
+                data = await window.ipcRenderer.invoke('get-snapshots-by-date', date);
+            }
             setSnapshots(data)
             setCurrentIndex(0)
             setIsPlaying(false)
@@ -49,7 +55,7 @@ export function Timelapse() {
             stopPlayback();
             if (cleanup) cleanup();
         }
-    }, [selectedDate])
+    }, [selectedDate, activeFilter])
 
     useEffect(() => {
         if (isPlaying) {
@@ -108,6 +114,19 @@ export function Timelapse() {
                         <p className="text-zinc-400">{t('timelapse.subtitle', 'Watch your day in review')}</p>
                     </div>
                 </div>
+
+                {/* Active Filter Badge */}
+                {activeFilter && (
+                    <div className="flex items-center gap-2 bg-indigo-500/20 border border-indigo-500/30 rounded-lg px-3 py-1.5">
+                        <span className="text-sm text-indigo-300">Filtering: <strong>{activeFilter.name}</strong></span>
+                        <button
+                            onClick={() => setActiveFilter(null)}
+                            className="text-indigo-400 hover:text-white transition-colors"
+                        >
+                            <X size={14} />
+                        </button>
+                    </div>
+                )}
 
                 <div className="relative group">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -243,7 +262,7 @@ export function Timelapse() {
             )}
 
             {/* Chat FAB */}
-            <TimelineChatButton />
+            <TimelineChatButton onFilterChange={setActiveFilter} />
         </div>
     )
 }
