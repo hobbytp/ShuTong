@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useSystemStore } from '../../stores/systemStore';
 import { Button } from '../ui/button';
 
 export interface AgentResponse {
@@ -27,6 +28,10 @@ export function AgentChat({ onSendMessage, initialMessage, title, onClose, onFil
         initialMessage ? [{ role: 'assistant', content: initialMessage }] : []
     );
     const [loading, setLoading] = useState(false);
+
+    // System readiness check
+    const status = useSystemStore((state) => state.status);
+    const isSystemReady = status === 'READY';
 
     const handleSend = async () => {
         if (!input.trim()) return;
@@ -99,12 +104,13 @@ export function AgentChat({ onSendMessage, initialMessage, title, onClose, onFil
                         type="text"
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                        placeholder={t('agent.placeholder', 'Type a message...')}
-                        className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-                        autoFocus
+                        onKeyDown={(e) => e.key === 'Enter' && isSystemReady && handleSend()}
+                        placeholder={isSystemReady ? t('agent.placeholder', 'Type a message...') : t('agent.initializing', 'Initializing Neural Engine...')}
+                        className={`flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 ${!isSystemReady ? 'cursor-wait opacity-50' : ''}`}
+                        disabled={!isSystemReady}
+                        autoFocus={isSystemReady}
                     />
-                    <Button size="sm" onClick={handleSend} disabled={loading}>
+                    <Button size="sm" onClick={handleSend} disabled={loading || !isSystemReady}>
                         {t('agent.send', 'Send')}
                     </Button>
                 </div>

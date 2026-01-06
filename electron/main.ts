@@ -86,7 +86,9 @@ function createWindow() {
   const iconFile = process.platform === 'win32' ? 'icon.ico' : 'ShuTong.png';
 
   win = new BrowserWindow({
-    show: false, // Prevent white screen
+    show: false, // Will show after ready-to-show
+    transparent: true, // Enable transparency for floating splash
+    // backgroundColor: '#09090b', // REMOVED: Must be removed for transparency to work
     icon: nativeImage.createFromPath(path.join(process.env.VITE_PUBLIC, iconFile)),
     frame: false, // Frameless for all
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden', // Mac: Traffic lights, Win: None
@@ -145,6 +147,8 @@ function createWindow() {
     }
     return false;
   });
+
+  return win; // Return window instance for async flow
 }
 
 // Quit when all windows are closed, except on macOS. There, it's common
@@ -199,11 +203,80 @@ protocol.registerSchemesAsPrivileged([
   }
 ]);
 
-import { topicAgent } from './features/topic/topic-agent';
+// import { topicAgent } from './features/topic/topic-agent';
+// Lazy load topicAgent inside startApp
 
 async function startApp() {
   try {
-    console.log('[Main] App ready')
+    // Register protocol handlers BEFORE creating window to prevent race condition
+    protocol.handle('media', (request) => {
+      try {
+        let filePath = request.url.replace(/^media:\/*/, '');
+        filePath = decodeURIComponent(filePath);
+        if (process.platform === 'win32' && /^[a-zA-Z]\//.test(filePath)) {
+          filePath = filePath[0] + ':' + filePath.slice(1);
+        }
+        const targetUrl = 'file:///' + filePath;
+        // console.log(`[Main] Media request: ${request.url} -> ${targetUrl}`);
+        return net.fetch(targetUrl);
+      } catch (err) {
+        console.error('[Main] Media protocol error:', err);
+        return new Response('Error loading media', { status: 500 });
+      }
+    });
+
+    protocol.handle('local-file', (request) => {
+      try {
+        let filePath = request.url.replace(/^local-file:\/*/, '');
+        filePath = decodeURIComponent(filePath);
+        if (process.platform === 'win32' && /^[a-zA-Z]\//.test(filePath)) {
+          filePath = filePath[0] + ':' + filePath.slice(1);
+        }
+        const targetUrl = 'file:///' + filePath;
+        return net.fetch(targetUrl);
+      } catch (err) {
+        console.error('[Main] Local-file protocol error:', err);
+        return new Response('Error loading file', { status: 500 });
+      }
+    });
+
+    // Register before-quit handler
+    app.on('before-quit', (e) => {
+      if (getIsResetting()) {
+        e.preventDefault();
+        dialog.showErrorBox('Cannot Quit', 'Database reset in progress.');
+        return;
+      }
+      if (backupService.isInProgress) {
+        e.preventDefault();
+        dialog.showErrorBox('Cannot Quit', 'Data backup in progress.');
+        return;
+      }
+    });
+
+    // 1. Immediate Window Creation (BOOTING State)
+    // Frontend defaults to BOOTING state, no IPC needed here
+    // (webContents may not be ready to receive messages yet)
+    const win = createWindow();
+    // win.show(); // REMOVED: Rely on 'ready-to-show' event in createWindow to avoid white flash
+
+    console.log('[Main] Window created & shown (BOOTING)');
+
+    // ========================================
+    // App Lifecycle State Management
+    // ========================================
+    // Track current state so Frontend can query it on mount (avoids race condition)
+    let appLifecycleState: 'BOOTING' | 'HYDRATING' | 'READY' | 'ERROR' = 'BOOTING';
+
+    // Helper to update and broadcast state
+    const setAppLifecycleState = (state: typeof appLifecycleState) => {
+      appLifecycleState = state;
+      win.webContents.send('app-lifecycle', state);
+      console.log(`[Main] Lifecycle -> ${state}`);
+    };
+
+    // Allow Frontend to query current state (for late mount)
+    ipcMain.handle('get-app-lifecycle', () => appLifecycleState);
 
     // ========================================
     // STEP 1: Register ALL IPC handlers FIRST (SYNCHRONOUS)
@@ -212,9 +285,9 @@ async function startApp() {
     setupAnalyticsIPC();
     setupVideoIPC();
     setupBackupIPC();
-    
-    // Initialize Agents
-    void topicAgent; // Ensure singleton is instantiated and IPC registered
+
+    // Initialize Agents (Lazy Loaded later)
+    // void topicAgent; // Moved to async block
 
     ipcMain.handle('get-available-screens', () => {
       try {
@@ -531,98 +604,57 @@ async function startApp() {
 
     console.log('[Main] IPC handlers registered')
 
-    initStorage()
-    console.log('[Main] Storage initialized')
+    // 2. Hydrate Storage (HYDRATING State)
+    initStorage();
+    console.log('[Main] Storage initialized (HYDRATING)');
+
+    // Notify Frontend: Storage ready (Sidebar can slide in, Content blurred)
+    setAppLifecycleState('HYDRATING');
+
+    // === DEV ONLY: Slow Motion Testing ===
+    // Set to > 0 to add artificial delay between phases (in ms)
+    const DEV_STARTUP_DELAY = 0; // e.g., 2000 for 2s delay
+    if (DEV_STARTUP_DELAY > 0) {
+      console.log(`[Main] DEV: Waiting ${DEV_STARTUP_DELAY}ms before Agent init...`);
+      await new Promise(resolve => setTimeout(resolve, DEV_STARTUP_DELAY));
+    }
 
     // Warmup OCR in background (non-blocking)
     ocrService.warmup().catch(err =>
       console.warn('[Main] OCR warmup failed:', err)
     );
 
-    // Initialize I18n AFTER storage is ready
+    // Initialize I18n AFTER storage is ready (needs settings)
     await initI18n();
-    console.log('[Main] I18n initialized')
+    console.log('[Main] I18n initialized');
 
-    // Register before-quit handler after storage is initialized
-    app.on('before-quit', (e) => {
-      // Check Reset Status
-      if (getIsResetting()) {
-        e.preventDefault();
-        dialog.showErrorBox('Cannot Quit', 'Database reset in progress. Please wait until completion.');
-        return;
-      }
-      // Check Backup/Restore Status
-      if (backupService.isInProgress) {
-        e.preventDefault();
-        dialog.showErrorBox('Cannot Quit', 'Data backup/restore in progress. Please wait until completion.');
-        return;
-      }
-    });
-
-    // Register protocol handlers BEFORE creating window to prevent race condition
-    // where page loads media:// URLs before handler is ready
-    protocol.handle('media', (request) => {
-      try {
-        // Robust URL parsing
-        let filePath = request.url.replace(/^media:\/*/, '');
-        filePath = decodeURIComponent(filePath);
-
-        // Fix Windows drive letter issues (e.g. "f/RayTan" -> "f:/RayTan")
-        // If the path starts with a drive letter but no colon (browser normalization artifact)
-        if (process.platform === 'win32' && /^[a-zA-Z]\//.test(filePath)) {
-          filePath = filePath[0] + ':' + filePath.slice(1);
-        }
-
-        // Ensure standard file:// format
-        const targetUrl = 'file:///' + filePath;
-        console.log(`[Main] Media request: ${request.url} -> ${targetUrl}`);
-        return net.fetch(targetUrl);
-      } catch (err) {
-        console.error('[Main] Media protocol error:', err);
-        return new Response('Error loading media', { status: 500 });
-      }
-    });
-
-    protocol.handle('local-file', (request) => {
-      try {
-        let filePath = request.url.replace(/^local-file:\/*/, '');
-        filePath = decodeURIComponent(filePath);
-
-        if (process.platform === 'win32' && /^[a-zA-Z]\//.test(filePath)) {
-          filePath = filePath[0] + ':' + filePath.slice(1);
-        }
-
-        const targetUrl = 'file:///' + filePath;
-        return net.fetch(targetUrl);
-      } catch (err) {
-        console.error('[Main] Local-file protocol error:', err);
-        return new Response('Error loading file', { status: 500 });
-      }
-    });
-
-    console.log('[Main] Protocol handlers registered');
-
-    createWindow()
-    console.log('[Main] Window created')
-
+    // 3. Initialize Agents & Heavy Services (READY State)
     try {
       const { vectorStorage } = await import('./storage/vector-storage');
       await vectorStorage.init();
-      console.log('[Main] Vector storage initialized')
+      console.log('[Main] Vector storage initialized');
 
       // Initialize Memory Store for PulseAgent
       const { memoryStore } = await import('./features/pulse/agent/memory-store');
       await memoryStore.init();
-      console.log('[Main] Memory store initialized')
+      console.log('[Main] Memory store initialized');
+
+      // Lazy load Topic Agent
+      const { topicAgent } = await import('./features/topic/topic-agent');
+      void topicAgent; // Instantiate
+      console.log('[Main] Topic Agent initialized');
 
       const { checkAndGenerateBriefing } = await import('./scheduler');
       checkAndGenerateBriefing().catch(err => console.error('[Main] Scheduler error:', err));
     } catch (err) {
-      console.error('[Main] Vector storage or Memory store init failed:', err);
+      console.error('[Main] Vector storage or Agent init failed:', err);
     }
 
-    setupScreenCapture()
-    console.log('[Main] Screen capture setup')
+    // Notify Frontend: Agents Ready (Unblur, Input unlock)
+    setAppLifecycleState('READY');
+
+    setupScreenCapture();
+    console.log('[Main] Screen capture setup');
 
     try {
 
@@ -633,8 +665,8 @@ async function startApp() {
     } catch (err) { console.error(err); }
 
     // Initialize event subscribers BEFORE starting async jobs to prevent race conditions
-    setupVideoSubscribers()
-    startAnalysisJob()
+    setupVideoSubscribers();
+    startAnalysisJob();
 
     setupTray(() => win);
 

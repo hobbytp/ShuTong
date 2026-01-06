@@ -7,9 +7,12 @@ import { Tooltip } from '../ui/tooltip-simple';
 interface SidebarProps {
     activePage: string;
     onNavigate: (page: string) => void;
+    isHydrated?: boolean; // true after HYDRATING state
 }
 
-export function Sidebar({ activePage, onNavigate }: SidebarProps) {
+import logo from '../../assets/logo.png';
+
+export function Sidebar({ activePage, onNavigate, isHydrated = true }: SidebarProps) {
     const { t } = useTranslation();
     const navItems = [
         { id: 'home', icon: Home, label: t('sidebar.home', 'Home') },
@@ -22,12 +25,14 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
 
     return (
         <div className={cn(
-            "w-[64px] h-full flex flex-col bg-zinc-950/50 border-r border-zinc-800/50 pt-4 flex-shrink-0 transition-all items-center z-50",
-            "backdrop-blur-xl"
+            "w-[64px] h-full flex flex-col bg-zinc-950/50 border-r border-zinc-800/50 pt-4 flex-shrink-0 items-center z-50",
+            "backdrop-blur-xl",
+            "transition-transform duration-700 ease-out",
+            isHydrated ? "translate-x-0" : "-translate-x-full"
         )}>
             {/* Logo */}
             <div className="mb-4">
-                <img src="/ShuTong.png" alt="ShuTong" className="w-10 h-10 rounded-xl shadow-lg ring-1 ring-white/10" />
+                <img src={logo} alt="ShuTong" className="w-10 h-10 object-contain drop-shadow-md transition-transform hover:scale-105" />
             </div>
 
             <div className="flex-1 overflow-y-auto no-scrollbar py-2 flex flex-col gap-4 items-center w-full">

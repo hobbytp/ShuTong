@@ -6,10 +6,126 @@
   <link rel="icon" type="image/png" href="/ShuTong.png" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ShuTong - AI screen assistant</title>
+  <style>
+    /* Static Splash Styles - Premium Transparent Design */
+    body {
+      margin: 0;
+      background-color: transparent;
+      /* Transparent Body */
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      overflow: hidden;
+      /* Prevent scrollbars */
+    }
+
+    .splash-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      /* Transparent Container - Floating Logo */
+      z-index: 9999;
+    }
+
+    .splash-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+    }
+
+    /* Glow effect behind the logo */
+    .splash-glow {
+      position: absolute;
+      width: 120px;
+      height: 120px;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.2) 0%, rgba(37, 99, 235, 0) 70%);
+      border-radius: 50%;
+      filter: blur(20px);
+      z-index: -1;
+      animation: breathe-glow 3s ease-in-out infinite;
+    }
+
+    .splash-logo-img {
+      width: 80px;
+      height: 80px;
+      object-fit: contain;
+      /* Subtle drop shadow */
+      filter: drop-shadow(0 0 15px rgba(56, 189, 248, 0.3));
+      animation: breathe-logo 3s ease-in-out infinite;
+    }
+
+    .splash-text {
+      margin-top: 40px;
+      color: #52525b;
+      /* zinc-600 */
+      font-size: 12px;
+      letter-spacing: 0.2em;
+      /* tracking-widest */
+      font-weight: 500;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      text-transform: uppercase;
+      opacity: 0.8;
+      animation: pulse-text 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    @keyframes breathe-logo {
+
+      0%,
+      100% {
+        transform: scale(0.95);
+        opacity: 0.9;
+      }
+
+      50% {
+        transform: scale(1.05);
+        opacity: 1;
+      }
+    }
+
+    @keyframes breathe-glow {
+
+      0%,
+      100% {
+        opacity: 0.5;
+        transform: scale(0.9);
+      }
+
+      50% {
+        opacity: 0.8;
+        transform: scale(1.1);
+      }
+    }
+
+    @keyframes pulse-text {
+
+      0%,
+      100% {
+        opacity: 0.8;
+      }
+
+      50% {
+        opacity: 0.4;
+      }
+    }
+  </style>
 </head>
 
 <body>
-  <div id="root"></div>
+  <div id="root">
+    <!-- Static Splash (Pre-React) -->
+    <div class="splash-container">
+      <div class="splash-content">
+        <div class="splash-glow"></div>
+        <img src="/ShuTong.png" class="splash-logo-img" alt="ShuTong" />
+        <p class="splash-text">INITIALIZING SYSTEM</p>
+      </div>
+    </div>
+  </div>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 

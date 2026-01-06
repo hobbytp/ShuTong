@@ -11,31 +11,42 @@ import { PulseFeed } from './pages/PulseFeed'
 import { Settings } from './pages/Settings'
 import { Timelapse } from './pages/Timelapse'
 
+import { StartupSplash } from './components/StartupSplash'
+import { useSystemStore, type AppState } from './stores/systemStore'
+
 function App() {
   const [page, setPage] = useState<'home' | 'settings' | 'onboarding' | 'journal' | 'timelapse' | 'timeline' | 'pulse' | 'analytics'>('home')
-  const [loading, setLoading] = useState(true)
   const [selectedCardId, setSelectedCardId] = useState<number | null>(null)
 
-  // NOTE: Recording state logic will be moved to a context provider later for global access
-  // For now, we keep it simple for the UI Migration
+  const status = useSystemStore((state) => state.status);
+  const setStatus = useSystemStore((state) => state.setStatus);
 
-  // Check state on mount
+  // Check state on mount & Subscribe to Lifecycle
   useEffect(() => {
-    const checkState = async () => {
+    // CRITICAL: Query current state immediately on mount
+    // This handles the race condition where Main Process may have already
+    // sent lifecycle events before React finished mounting
+    const fetchCurrentState = async () => {
       try {
-        // Using typed IPC - no more @ts-ignore!
-        const { invoke } = await import('./lib/ipc');
-        const settings = await invoke('get-settings');
-        if (settings && !settings.onboarding_complete) {
-          setPage('onboarding');
+        // @ts-ignore
+        const currentState = await window.ipcRenderer?.invoke('get-app-lifecycle');
+        if (currentState && currentState !== status) {
+          console.log('[App] Synced lifecycle state:', currentState);
+          setStatus(currentState);
         }
       } catch (e) {
-        console.error("Failed to load settings:", e);
-      } finally {
-        setLoading(false);
+        console.warn('[App] Failed to fetch lifecycle state:', e);
       }
-    }
-    checkState()
+    };
+    fetchCurrentState();
+
+    // Subscribe to future lifecycle updates
+    // @ts-ignore
+    const cleanupLifecycle = window.electron?.on('app-lifecycle', (newStatus: AppState) => {
+      console.log('[App] System Status:', newStatus);
+      setStatus(newStatus);
+    });
+
     // Subscribe to language changes
     // @ts-ignore
     const cleanupLang = window.electron?.on('language-changed', (lang: string) => {
@@ -49,50 +60,62 @@ function App() {
     return () => {
       // @ts-ignore
       if (cleanupLang) cleanupLang();
+      // @ts-ignore
+      if (cleanupLifecycle) cleanupLifecycle();
     }
-  }, [])
+  }, []); // Only run once on mount!
+
+  // Check onboarding when status changes to HYDRATING or READY
+  useEffect(() => {
+    if (status === 'HYDRATING' || status === 'READY') {
+      const checkState = async () => {
+        try {
+          const { invoke } = await import('./lib/ipc');
+          const settings = await invoke('get-settings');
+          if (settings && !settings.onboarding_complete) {
+            setPage('onboarding');
+          }
+        } catch (e) {
+          console.error("Failed to load settings:", e);
+        }
+      }
+      checkState();
+    }
+  }, [status]);
 
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-        <p className="text-zinc-500">Loading...</p>
-      </div>
-    )
-  }
-
-  if (page === 'onboarding') {
-    return <Onboarding onComplete={() => setPage('home')} />
-  }
-
-  // Wrap everything else in the new App Shell
   return (
-    <AppShell activePage={page} onNavigate={(p) => setPage(p as any)}>
-      {page === 'home' && <Dashboard />}
+    <>
+      <StartupSplash />
 
-      {page === 'timeline' && (
-        <div className="flex h-full overflow-hidden">
-          <TimelineContainer
-            selectedCardId={selectedCardId}
-            onSelectCard={setSelectedCardId}
-          />
-          <ActivityDetail cardId={selectedCardId} />
-        </div>
-      )}
+      <div className={`transition-opacity duration-700 ${status === 'BOOTING' ? 'opacity-0' : 'opacity-100'}`}>
+        {page === 'onboarding' ? (
+          <Onboarding onComplete={() => setPage('home')} />
+        ) : (
+          <AppShell activePage={page} onNavigate={(p) => setPage(p as any)}>
+            <div className={`h-full flex flex-col transition-all duration-1000 ${status !== 'READY' ? 'filter blur-sm grayscale-[0.5] pointer-events-none' : ''}`}>
+              {page === 'home' && <Dashboard />}
 
-      {page === 'journal' && <Journal />}
+              {page === 'timeline' && (
+                <div className="flex h-full overflow-hidden">
+                  <TimelineContainer
+                    selectedCardId={selectedCardId}
+                    onSelectCard={setSelectedCardId}
+                  />
+                  <ActivityDetail cardId={selectedCardId} />
+                </div>
+              )}
 
-      {page === 'timelapse' && <Timelapse />}
-
-      {page === 'pulse' && <PulseFeed />}
-
-      {page === 'analytics' && <Analytics />}
-
-      {/* Settings handles its own internal layout, but we might want to unify styles later. 
-              For now, render it within the shell's content area. 
-          */}
-      {page === 'settings' && <Settings onBack={() => setPage('home')} />}
-    </AppShell>
+              {page === 'journal' && <Journal />}
+              {page === 'timelapse' && <Timelapse />}
+              {page === 'pulse' && <PulseFeed />}
+              {page === 'analytics' && <Analytics />}
+              {page === 'settings' && <Settings onBack={() => setPage('home')} />}
+            </div>
+          </AppShell>
+        )}
+      </div>
+    </>
   )
 }
 

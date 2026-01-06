@@ -1,21 +1,33 @@
 import i18n from 'i18next';
-import Backend from 'i18next-http-backend';
 import { initReactI18next } from 'react-i18next';
 
+// Bundle locales to avoid 'file://' fetch issues in production Electron
+const localeModules = import.meta.glob('../public/locales/**/*.json', { eager: true });
+
+const resources: Record<string, any> = {};
+
+for (const path in localeModules) {
+    // Correct regex to account for windows/unix paths and ensure we capture lang/ns
+    const match = path.match(/locales\/([^/]+)\/([^/]+)\.json$/);
+    if (match) {
+        const [_, lng, ns] = match;
+        resources[lng] = resources[lng] || {};
+        // @ts-ignore - import.meta.glob types can be tricky
+        resources[lng][ns] = localeModules[path].default || localeModules[path];
+    }
+}
+
 i18n
-    .use(Backend)
+    // .use(Backend) // Disable HTTP backend
     .use(initReactI18next)
     .init({
+        resources, // Use bundled resources
         fallbackLng: 'en',
         debug: import.meta.env.DEV,
 
         interpolation: {
-            escapeValue: false, // not needed for react as it escapes by default
+            escapeValue: false,
         },
-
-        backend: {
-            loadPath: '/locales/{{lng}}/{{ns}}.json',
-        }
     });
 
 // Sync initial language from Main process (after i18n is ready)

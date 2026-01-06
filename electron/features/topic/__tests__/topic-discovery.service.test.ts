@@ -43,10 +43,10 @@ describe('TopicDiscoveryService', () => {
 
     describe('groupContexts', () => {
         it('should group IDE windows by project', () => {
-            const contexts = [
-                { app: 'Code', title: 'a.ts - ProjectA - Visual Studio Code' },
-                { app: 'Code', title: 'b.ts - ProjectA - Visual Studio Code' },
-                { app: 'Code', title: 'main.py - ProjectB - Visual Studio Code' },
+            const contexts: any[] = [
+                { app: 'Code', title: 'a.ts - ProjectA - Visual Studio Code', timestamp: 1000 },
+                { app: 'Code', title: 'b.ts - ProjectA - Visual Studio Code', timestamp: 2000 },
+                { app: 'Code', title: 'main.py - ProjectB - Visual Studio Code', timestamp: 3000 },
             ];
 
             const groups = service.groupContexts(contexts);
@@ -63,10 +63,10 @@ describe('TopicDiscoveryService', () => {
         });
 
         it('should group browser tabs by domain/smart name', () => {
-            const contexts = [
-                { app: 'Chrome', title: 'Issue #1 - GitHub' },
-                { app: 'Chrome', title: 'PR #2 - GitHub' },
-                { app: 'Chrome', title: 'Dashboard - Linear' },
+            const contexts: any[] = [
+                { app: 'Chrome', title: 'Issue #1 - GitHub', timestamp: 1000 },
+                { app: 'Chrome', title: 'PR #2 - GitHub', timestamp: 2000 },
+                { app: 'Chrome', title: 'Dashboard - Linear', timestamp: 3000 },
             ];
 
             const groups = service.groupContexts(contexts);

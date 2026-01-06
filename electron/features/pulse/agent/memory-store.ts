@@ -414,7 +414,7 @@ export class MemoryStore extends BaseStore {
         if (!this.initialized) await this.init();
         if (!this.memoryTable || !this.embeddings) return [];
 
-        const { query, limit = 10, filter } = options;
+        const { query, limit = 10 } = options;
         const namespaceStr = namespace.join(':');
 
         try {
