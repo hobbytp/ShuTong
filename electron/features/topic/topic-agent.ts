@@ -1,7 +1,8 @@
 import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { END, START, StateGraph } from "@langchain/langgraph";
+import { CompiledStateGraph, END, START, StateGraph } from "@langchain/langgraph";
 import { ipcMain } from 'electron';
 import { createCheckpointer, SQLiteCheckpointer } from '../pulse/agent/checkpointer';
+import { memoryStore } from '../pulse/agent/memory-store';
 import { SharedLLMClient } from '../shared/llm-client';
 import { TopicState, topicStateChannels } from './agent/schema';
 import { topicDiscoveryService } from './topic-discovery.service';
@@ -10,13 +11,17 @@ import { topicDiscoveryService } from './topic-discovery.service';
 import { getDatabase } from '../../storage';
 
 export class TopicAgent {
-    private graph: any; // CompiledStateGraph
+    private graph: CompiledStateGraph<TopicState, Partial<TopicState>, string>;
     private checkpointer: SQLiteCheckpointer;
 
     constructor() {
         this.checkpointer = createCheckpointer(); // Reuse Pulse's checkpointer logic
         this.graph = this.buildGraph();
         this.setupIPC();
+
+        // Initialize MemoryStore lazily or rely on Main process to init it
+        // Do NOT call memoryStore.init() here as it may run before DB is ready
+        // memoryStore.init();
     }
 
     private setupIPC() {
@@ -54,19 +59,33 @@ export class TopicAgent {
             // Edges
             .addEdge(START, "intent_analysis")
 
-            .addConditionalEdges("intent_analysis", (state) => {
-                switch (state.user_intent) {
-                    case 'SEARCH': return 'search_tool';
-                    case 'FILTER': return 'filter_tool';
-                    case 'SAVE': return 'save_tool';
-                    case 'LIST': return 'list_tool';
-                    case 'EDIT':
-                    case 'DELETE': return 'edit_tool';
-                    case 'VIEW': return 'view_tool';
-                    case 'CHAT': return 'chat_node';
-                    default: return 'chat_node';
+            .addConditionalEdges(
+                "intent_analysis",
+                (state) => {
+                    switch (state.user_intent) {
+                        case 'SEARCH': return 'search_tool';
+                        case 'FILTER': return 'filter_tool';
+                        case 'SAVE': return 'save_tool';
+                        case 'LIST': return 'list_tool';
+                        case 'EDIT':
+                        case 'DELETE': return 'edit_tool';
+                        case 'VIEW': return 'view_tool';
+                        case 'VIEW_ACTIVITIES': return 'search_tool';
+                        case 'CHAT': return 'chat_node';
+                        default: return 'chat_node';
+                    }
+                },
+                // Explicit mapping for better graph visualization and validation
+                {
+                    search_tool: "search_tool",
+                    filter_tool: "filter_tool",
+                    save_tool: "save_tool",
+                    list_tool: "list_tool",
+                    edit_tool: "edit_tool",
+                    view_tool: "view_tool",
+                    chat_node: "chat_node"
                 }
-            })
+            )
 
             .addEdge("search_tool", "response_generator")
             .addEdge("filter_tool", "response_generator")
@@ -97,34 +116,74 @@ export class TopicAgent {
         // Filter out internal metadata messages from history to avoid confusing the LLM
         const history = state.messages.filter(m => !(m instanceof SystemMessage && m.content.toString().includes('INTENT_METADATA')));
 
+        // Memory-enhanced context retrieval
+        let memoryContext = '';
+        if (memoryStore.isReady()) {
+            try {
+                const [semanticMems, instructions] = await Promise.all([
+                    memoryStore.recallSemanticMemories('local', query, 3),
+                    memoryStore.getInstructions('local')
+                ]);
+
+                if (semanticMems.length > 0) {
+                    memoryContext += 'User Preferences:\n' +
+                        semanticMems.map(m => `- ${m.content}`).join('\n') + '\n\n';
+                }
+                if (instructions.length > 0) {
+                    memoryContext += 'User Instructions:\n' +
+                        instructions.map(i => `- ${i.instruction}`).join('\n') + '\n\n';
+                }
+
+                if (memoryContext) {
+                    console.log(`[TopicAgent] Recalled ${semanticMems.length} memories, ${instructions.length} instructions`);
+                }
+            } catch (err) {
+                console.warn('[TopicAgent] Memory recall failed:', err);
+            }
+        }
+
+        // Current time context for temporal queries (placed in user message for KV cache efficiency)
+        const now = new Date();
+        const timeContext = `Current Time: ${now.toLocaleString('zh-CN', {
+            year: 'numeric', month: 'long', day: 'numeric',
+            weekday: 'long', hour: '2-digit', minute: '2-digit'
+        })}`;
+
+        // Static system prompt (cacheable)
         const systemPrompt = `You are a Topic Selection Assistant for "ShuTong".
-Your goal is to help users select a "Topic" (a specific project or domain) from their activity history.
+Your goal is to help users select a "Topic" (specific project(s) or domain(s) or both) from their activity history.
 
 Classify the User's Intent into one of the following categories:
-- SEARCH: User is looking for a new topic OR narrowing down the current list by keyword. (e.g. "Show me ShuTong work", "Find my recent python stuff", "Only include Doubao")
+- SEARCH: User is looking for a new topic to CREATE or refine via keywords. (e.g. "Create a topic for my python work", "Find ShuTong stuff and save it")
+- VIEW_ACTIVITIES: User wants to VIEW activity history without creating a topic. (e.g. "What did I do yesterday?", "Show me recent VS Code usage", "Search timeline for 'error'")
 - FILTER: User wants to EXCLUDE specific items from the current list. (e.g. "Exclude Doubao", "Remove browser tabs", "No PDF files")
 - SAVE: User explicitly confirms to save the current selection. (e.g. "Yes save it", "Sounds good", "Confirm")
 - LIST: User wants to see all saved topics. (e.g. "Show me the topic list", "What topics do I have?")
 - EDIT: User wants to rename a topic. (e.g. "Rename X to Y", "Change the name of topic X")
 - DELETE: User wants to delete a topic. (e.g. "Delete topic X", "Remove topic Y")
-- VIEW: User wants to view/filter timelapse by a topic. (e.g. "Show timelapse of topic X", "Only show topic Y", "Filter by topic Z")
+- VIEW: User wants to view/filter timelapse by a saved TOPIC. (e.g. "Show timelapse of topic X", "Only show topic Y")
 - CHAT: User is asking a general question or greeting. (e.g. "Hello", "How does this work?", "What is a Topic?")
 
 Return JSON ONLY:
 {
-  "intent": "SEARCH" | "FILTER" | "SAVE" | "LIST" | "EDIT" | "DELETE" | "VIEW" | "CHAT",
-  "search_query": string | null, // Extracted search keywords if SEARCH (or narrowing)
+  "intent": "SEARCH" | "VIEW_ACTIVITIES" | "FILTER" | "SAVE" | "LIST" | "EDIT" | "DELETE" | "VIEW" | "CHAT",
+  "search_query": string | null, // Extracted search keywords if SEARCH/VIEW_ACTIVITIES
   "exclude_terms": string[] | null, // Extracted terms to exclude if FILTER
   "topic_name": string | null, // Extracted name if SAVE/EDIT/VIEW (e.g. "Save as X", "Rename X", "Show topic X")
   "old_topic_name": string | null, // Target topic for rename/delete
   "new_topic_name": string | null // New name for rename
 }`;
 
+        // Dynamic user message (time + memory context)
+        const dynamicContext = `${timeContext}
+${memoryContext ? `\n${memoryContext}` : ''}
+Based on the conversation above, classify the intent of the last message: "${query}". Return JSON ONLY.`;
+
         try {
             const response = await llm.invoke([
                 new SystemMessage(systemPrompt),
                 ...history,
-                new HumanMessage(`Based on the conversation above, classify the intent of the last message: "${query}". Return JSON ONLY.`)
+                new HumanMessage(dynamicContext)
             ]);
 
             const text = response.content.toString();
@@ -184,14 +243,29 @@ Return JSON ONLY:
         }
 
         const contexts = await topicDiscoveryService.findMatchingWindows(query);
-        const groups = topicDiscoveryService.groupContexts(contexts);
 
+        // Handle VIEW_ACTIVITIES (Transient View)
+        if (state.user_intent === 'VIEW_ACTIVITIES') {
+            return {
+                activity_view_list: {
+                    items: contexts,
+                    summary: `Found ${contexts.length} activities matching "${query}"`,
+                    filter_criteria: query
+                },
+                // Clear draft if just viewing to avoid confusion
+                current_draft: null
+            };
+        }
+
+        // Handle SEARCH (Topic Creation/Refinement)
+        const groups = topicDiscoveryService.groupContexts(contexts);
         return {
             current_draft: {
                 originalQuery: query,
                 groups,
                 excludedEntities: []
-            }
+            },
+            activity_view_list: undefined // Clear view list if switching to draft mode
         };
     }
 
@@ -234,6 +308,36 @@ Return JSON ONLY:
      * Formats the available groups into a nice message.
      */
     private async responseNode(state: TopicState): Promise<Partial<TopicState>> {
+        // Handle Activity View
+        if (state.activity_view_list) {
+            const { items, summary, filter_criteria } = state.activity_view_list;
+            if (items.length === 0) {
+                const msg = `No activities found for "${filter_criteria || 'your query'}".`;
+                return {
+                    final_response: msg,
+                    messages: [new AIMessage(msg)]
+                };
+            }
+
+            // Format activity list
+            let msg = `### 🔍 Activity Results\n**${summary}**\n\n`;
+
+            items.slice(0, 10).forEach(item => {
+                // Formatting: [App] Title (Time)
+                const dateStr = new Date(item.timestamp).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'numeric' });
+                msg += `- **${dateStr}** [${item.app}]: ${item.summary || item.title}\n`;
+            });
+
+            if (items.length > 10) msg += `\n*...and ${items.length - 10} more items.*\n`;
+
+            msg += `\n*You can ask me to filter these results, or say "Save this as a topic" to create a saved topic.*`;
+
+            return {
+                final_response: msg,
+                messages: [new AIMessage(msg)]
+            };
+        }
+
         const draft = state.current_draft;
         if (!draft) return { final_response: "No topics found." };
 
@@ -328,6 +432,24 @@ Return JSON ONLY:
             // Use lastInsertRowid as ID if it's an integer PK, or generate one if needed. 
             // The previous error implies standard SQLite schema.
             const topicId = result.lastInsertRowid.toString();
+
+            // Phase 2: Store episodic memory for future context
+            if (memoryStore.isReady()) {
+                try {
+                    const { v4: uuidv4 } = await import('uuid');
+                    await memoryStore.put(['local', 'memories'], uuidv4(), {
+                        type: 'episodic',
+                        content: `User saved topic "${topicName}" containing ${contexts.length} items from query "${draft.originalQuery}"`,
+                        trigger_pattern: draft.originalQuery,
+                        context_summary: `Topic: ${topicName}`,
+                        created_at: Date.now(),
+                        updated_at: Date.now()
+                    });
+                    console.log(`[TopicAgent] Stored episodic memory for topic "${topicName}"`);
+                } catch (memErr) {
+                    console.warn('[TopicAgent] Failed to store episodic memory:', memErr);
+                }
+            }
 
             const msg = `✅ Saved topic "**${topicName}**" with ${contexts.length} items.`;
             return {
@@ -515,7 +637,7 @@ Return JSON ONLY:
                     user_id: userId
                 }
             }
-        );
+        ) as unknown as TopicState;
 
         // Return format expected by IPC (TopicResponse)
         // Check if there was a save result

@@ -1,6 +1,6 @@
 
 import { BaseMessage } from "@langchain/core/messages";
-import { TopicGroup } from "../topic-discovery.service";
+import { EnhancedContext, TopicGroup } from "../topic-discovery.service";
 
 /**
  * The state of the Topic Agent conversation.
@@ -14,7 +14,7 @@ export interface TopicState {
     /**
      * The derived intent of the user's last message.
      */
-    user_intent: 'SEARCH' | 'FILTER' | 'SAVE' | 'CHAT' | 'LIST' | 'EDIT' | 'DELETE' | 'VIEW' | null;
+    user_intent: 'SEARCH' | 'FILTER' | 'SAVE' | 'CHAT' | 'LIST' | 'EDIT' | 'DELETE' | 'VIEW' | 'VIEW_ACTIVITIES' | null;
 
     /**
      * The current draft topic being built/refined.
@@ -48,6 +48,15 @@ export interface TopicState {
         name: string;
         definition: any;
     };
+
+    /**
+     * Transient list of activities for "View" intent
+     */
+    activity_view_list?: {
+        items: EnhancedContext[];
+        summary: string;
+        filter_criteria?: string;
+    };
 }
 
 export const topicStateChannels = {
@@ -76,6 +85,10 @@ export const topicStateChannels = {
         default: () => undefined
     },
     active_filter: {
+        reducer: (x: any, y: any) => y ?? x,
+        default: () => undefined
+    },
+    activity_view_list: {
         reducer: (x: any, y: any) => y ?? x,
         default: () => undefined
     }

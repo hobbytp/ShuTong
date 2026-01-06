@@ -6,11 +6,17 @@ export interface TopicContext {
     title: string;
 }
 
+export interface EnhancedContext extends TopicContext {
+    timestamp: number;
+    summary?: string;
+    original_vector_data?: any;
+}
+
 export interface TopicGroup {
     entity: string; // "Project: ShuTong" or "Chrome: Doubao"
     type: 'project' | 'app_group';
     count: number;
-    contexts: TopicContext[];
+    contexts: EnhancedContext[];
 }
 
 export class TopicDiscoveryService {
@@ -27,7 +33,7 @@ export class TopicDiscoveryService {
      * 2. Searches WindowSwitch history for matches.
      * 3. Searches VectorDB for semantic matches.
      */
-    async findMatchingWindows(userQuery: string): Promise<TopicContext[]> {
+    async findMatchingWindows(userQuery: string): Promise<EnhancedContext[]> {
         console.log(`[TopicDiscovery] Finding windows for query: "${userQuery}"`);
 
         // Step 1: Extract keywords using heuristic or simple LLM extraction
@@ -37,19 +43,40 @@ export class TopicDiscoveryService {
         // Simple keyword extraction (split by space, filter small words)
         const keywords = userQuery.split(/\s+/).filter(w => w.length > 2);
 
-        const candidates = new Map<string, TopicContext>();
+        const candidates = new Map<string, EnhancedContext>();
 
         // Step 2: Search Window Switches (Recent History)
         const repos = getRepositories();
         if (repos) {
             // Search by full query
             const exactMatches = repos.windowSwitches.searchByTitle(userQuery);
-            exactMatches.forEach(m => candidates.set(`${m.app}:${m.title}`, m));
+            exactMatches.forEach(m => {
+                const key = `${m.app}:${m.title}`;
+                // Keep the most recent timestamp if duplicate
+                if (!candidates.has(key) || (m as any).start_time > candidates.get(key)!.timestamp) {
+                    candidates.set(key, {
+                        app: m.app,
+                        title: m.title,
+                        timestamp: (m as any).start_time * 1000 || Date.now(), // Assume start_time is unix timestamp (seconds or ms?) usually seconds in existing code
+                        summary: `Window switch: ${m.title}`
+                    });
+                }
+            });
 
             // Search by keywords
             for (const keyword of keywords) {
                 const matches = repos.windowSwitches.searchByTitle(keyword);
-                matches.forEach(m => candidates.set(`${m.app}:${m.title}`, m));
+                matches.forEach(m => {
+                    const key = `${m.app}:${m.title}`;
+                    if (!candidates.has(key) || (m as any).start_time > candidates.get(key)!.timestamp) {
+                        candidates.set(key, {
+                            app: m.app,
+                            title: m.title,
+                            timestamp: (m as any).start_time * 1000 || Date.now(),
+                            summary: `Window switch: ${m.title}`
+                        });
+                    }
+                });
             }
         }
 
@@ -62,25 +89,28 @@ export class TopicDiscoveryService {
                     const app = match.app_name as string;
                     const title = (match.window_title as string) || '';
                     const key = `${app}:${title}`;
-                    if (!candidates.has(key)) {
-                        candidates.set(key, {
-                            app,
-                            title
-                        });
-                    }
+
+                    // Always prefer vector data as it has summary
+                    candidates.set(key, {
+                        app,
+                        title,
+                        timestamp: match.start_ts ? match.start_ts * 1000 : Date.now(),
+                        summary: match.summary || match.text || title,
+                        original_vector_data: match
+                    });
                 }
             }
         } catch (err) {
             console.warn('[TopicDiscovery] Vector search failed:', err);
         }
 
-        return Array.from(candidates.values());
+        return Array.from(candidates.values()).sort((a, b) => b.timestamp - a.timestamp);
     }
 
     /**
      * Groups raw contexts into semantic entities (Projects vs App Groups).
      */
-    groupContexts(contexts: TopicContext[]): TopicGroup[] {
+    groupContexts(contexts: EnhancedContext[]): TopicGroup[] {
         const groups = new Map<string, TopicGroup>();
 
         for (const ctx of contexts) {

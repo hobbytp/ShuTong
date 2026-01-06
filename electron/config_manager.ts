@@ -127,16 +127,38 @@ export function getMergedLLMConfig() {
 
     // Merge Roles
     const mergedRoles: Record<string, RoleConfig> = {};
+    const roleKeys = new Set<string>();
+
+    // 1. Add keys from defaults
     if (defaults.roleConfigs) {
-        for (const [role, config] of Object.entries(defaults.roleConfigs)) {
-            const settingKeyBase = `llm.role.${role}`;
-            mergedRoles[role] = {
-                ...config,
-                provider: settings[`${settingKeyBase}.provider`] || config.provider,
-                model: settings[`${settingKeyBase}.model`] || config.model,
-                temperature: settings[`${settingKeyBase}.temperature`] ? parseFloat(settings[`${settingKeyBase}.temperature`]) : config.temperature
-            };
+        Object.keys(defaults.roleConfigs).forEach(k => roleKeys.add(k));
+    }
+
+    // 2. Add keys from settings (format: llm.role.<ROLE>.provider)
+    Object.keys(settings).forEach(key => {
+        if (key.startsWith('llm.role.') && key.endsWith('.provider')) {
+            const parts = key.split('.');
+            if (parts.length === 4) {
+                roleKeys.add(parts[2]);
+            }
         }
+    });
+
+    for (const role of roleKeys) {
+        const config = defaults.roleConfigs?.[role] || {
+            provider: 'OpenAI',
+            model: 'gpt-4o',
+            temperature: 0.5,
+            description: 'Custom Role'
+        }; // Fallback for pure-DB roles
+
+        const settingKeyBase = `llm.role.${role}`;
+        mergedRoles[role] = {
+            ...config,
+            provider: settings[`${settingKeyBase}.provider`] || config.provider,
+            model: settings[`${settingKeyBase}.model`] || config.model,
+            temperature: settings[`${settingKeyBase}.temperature`] ? parseFloat(settings[`${settingKeyBase}.temperature`]) : config.temperature
+        };
     }
 
     return {
@@ -175,16 +197,38 @@ export function getLLMConfigForMain() {
 
     // Merge Roles (Same as frontend)
     const mergedRoles: Record<string, RoleConfig> = {};
+    const roleKeys = new Set<string>();
+
+    // 1. Add keys from defaults
     if (defaults.roleConfigs) {
-        for (const [role, config] of Object.entries(defaults.roleConfigs)) {
-            const settingKeyBase = `llm.role.${role}`;
-            mergedRoles[role] = {
-                ...config,
-                provider: settings[`${settingKeyBase}.provider`] || config.provider,
-                model: settings[`${settingKeyBase}.model`] || config.model,
-                temperature: settings[`${settingKeyBase}.temperature`] ? parseFloat(settings[`${settingKeyBase}.temperature`]) : config.temperature
-            };
+        Object.keys(defaults.roleConfigs).forEach(k => roleKeys.add(k));
+    }
+
+    // 2. Add keys from settings
+    Object.keys(settings).forEach(key => {
+        if (key.startsWith('llm.role.') && key.endsWith('.provider')) {
+            const parts = key.split('.');
+            if (parts.length === 4) {
+                roleKeys.add(parts[2]);
+            }
         }
+    });
+
+    for (const role of roleKeys) {
+        const config = defaults.roleConfigs?.[role] || {
+            provider: 'OpenAI',
+            model: 'gpt-4o',
+            temperature: 0.5,
+            description: 'Custom Role'
+        };
+
+        const settingKeyBase = `llm.role.${role}`;
+        mergedRoles[role] = {
+            ...config,
+            provider: settings[`${settingKeyBase}.provider`] || config.provider,
+            model: settings[`${settingKeyBase}.model`] || config.model,
+            temperature: settings[`${settingKeyBase}.temperature`] ? parseFloat(settings[`${settingKeyBase}.temperature`]) : config.temperature
+        };
     }
 
     return {

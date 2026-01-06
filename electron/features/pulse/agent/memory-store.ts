@@ -192,27 +192,43 @@ export class MemoryStore extends BaseStore {
         let baseURL: string | undefined;
         let embeddingModel = 'text-embedding-3-small';
 
+        console.log('[MemoryStore] Configuring embeddings...');
+        console.log('[MemoryStore] Available Roles:', Object.keys(config.roleConfigs || {}));
+
         // Check for dedicated EMBEDDING role first
         const embeddingRole = config.roleConfigs?.['EMBEDDING'];
         if (embeddingRole) {
+            console.log('[MemoryStore] Found EMBEDDING role:', embeddingRole);
             const roleProvider = config.providers[embeddingRole.provider];
-            if (roleProvider?.apiKey) {
-                apiKey = roleProvider.apiKey;
-                baseURL = roleProvider.apiBaseUrl;
-                embeddingModel = embeddingRole.model || embeddingModel;
+            if (roleProvider) {
+                console.log(`[MemoryStore] Provider for role is ${embeddingRole.provider}. Has Key? ${!!roleProvider.apiKey}`);
+                if (roleProvider.apiKey) {
+                    apiKey = roleProvider.apiKey;
+                    baseURL = roleProvider.apiBaseUrl;
+                    embeddingModel = embeddingRole.model || embeddingModel;
+                } else {
+                    console.warn(`[MemoryStore] Provider ${embeddingRole.provider} has no API key configured.`);
+                }
+            } else {
+                console.warn(`[MemoryStore] Provider ${embeddingRole.provider} not found in providers list.`);
             }
+        } else {
+            console.log('[MemoryStore] No EMBEDDING role configured.');
         }
 
         // Fallback: Try 'OpenAI' provider
         if (!apiKey && config.providers['OpenAI']?.apiKey) {
+            console.log('[MemoryStore] Falling back to OpenAI provider.');
             apiKey = config.providers['OpenAI'].apiKey;
             baseURL = config.providers['OpenAI'].apiBaseUrl;
         }
 
         // Fallback: Try any openaiCompatible provider
         if (!apiKey) {
-            for (const [, provider] of Object.entries(config.providers)) {
+            console.log('[MemoryStore] Falling back to any OpenAI-compatible provider.');
+            for (const [name, provider] of Object.entries(config.providers)) {
                 if (provider.openaiCompatible && provider.hasKey && provider.apiKey) {
+                    console.log(`[MemoryStore] Selected fallback provider: ${name}`);
                     apiKey = provider.apiKey;
                     baseURL = provider.apiBaseUrl;
                     break;
@@ -227,12 +243,14 @@ export class MemoryStore extends BaseStore {
             return;
         }
 
+        console.log(`[MemoryStore] Final Config - Model: ${embeddingModel}, BaseURL: ${baseURL}`);
+
         this.embeddings = new OpenAIEmbeddings({
             openAIApiKey: apiKey,
             configuration: { baseURL },
             modelName: embeddingModel,
         });
-        console.log('[MemoryStore] Embeddings configured');
+        console.log('[MemoryStore] Embeddings configured successfully.');
     }
 
     private logDisabledOnce(): void {
@@ -406,15 +424,6 @@ export class MemoryStore extends BaseStore {
 
             // Build filter string for LanceDB
             const filterParts = [`namespace = '${namespaceStr.replace(/'/g, "''")}'`];
-            if (filter) {
-                for (const [k, v] of Object.entries(filter)) {
-                    if (typeof v === 'string') {
-                        filterParts.push(`${k} = '${v.replace(/'/g, "''")}'`);
-                    } else if (typeof v === 'number' || typeof v === 'boolean') {
-                        filterParts.push(`${k} = ${v}`);
-                    }
-                }
-            }
 
             // Perform vector search with pre-filtering
             const results = await this.memoryTable
@@ -424,7 +433,16 @@ export class MemoryStore extends BaseStore {
                 .toArray();
 
             return results.map((r: any) => this.memoryToItem(r as Memory));
-        } catch (err) {
+            return results.map((r: any) => this.memoryToItem(r as Memory));
+        } catch (err: any) {
+            // Circuit Breaker: specific handling for Auth errors to stop log spam
+            if (err?.status === 401 || err?.error?.code === 'invalid_api_key' || err?.message?.includes('401')) {
+                console.warn('[MemoryStore] Authentication failed (401). Disabling embeddings for this session to prevent further errors.');
+                this.embeddings = null; // Disable future calls
+                this.embeddingsDisabledReason = `Authentication failed: ${err.message}`;
+                return [];
+            }
+
             console.error('[MemoryStore] Search failed:', err);
             return [];
         }
