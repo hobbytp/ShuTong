@@ -57,7 +57,7 @@ export function GeneralSettings() {
                                         : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300'}
                                 `}
                             >
-                                {themeOption}
+                                {t(`settings.theme_${themeOption}`, themeOption.charAt(0).toUpperCase() + themeOption.slice(1))}
                             </button>
                         ))}
                     </div>

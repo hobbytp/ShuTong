@@ -13,6 +13,7 @@ import { RunnableConfig } from "@langchain/core/runnables";
 import { END, START, StateGraph } from "@langchain/langgraph";
 import { ChatOpenAI } from "@langchain/openai";
 import { getLLMConfigForMain } from "../../../config_manager";
+import { getSetting } from "../../../storage";
 import { vectorStorage } from "../../../storage/vector-storage";
 import { createCheckpointer, SQLiteCheckpointer } from "./checkpointer";
 import { GraphMemoryStore } from "./graph-memory-store";
@@ -231,7 +232,11 @@ export class PulseAgent {
             };
 
             // Static system prompt (cacheable)
+            const lang = getSetting('language') || 'en';
+            const langInstruction = lang === 'zh' ? 'Reply in Chinese (Simplified).' : 'Reply in English.';
+
             const systemPrompt = `You are ShuTong Pulse.
+${langInstruction}
 
 Return your response in strict JSON format:
 {
@@ -260,8 +265,12 @@ Generate the card.`;
         }
 
         // DEFAULT: Chat Mode
+        const lang = getSetting('language') || 'en';
+        const langInstruction = lang === 'zh' ? 'Reply in Chinese (Simplified).' : 'Reply in English.';
+
         // Static system prompt (cacheable)
         const systemPrompt = `You are ShuTong Pulse, an intelligent assistant that helps users reflect on their activities.
+${langInstruction}
 
 Your goal is to answer the user's question based on the activity history provided in the user message.
 If the user asks for a summary, synthesize the information.

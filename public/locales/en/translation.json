@@ -44,6 +44,9 @@
         "appearance": "Appearance",
         "system": "System",
         "theme_preference": "Theme Preference",
+        "theme_light": "Light",
+        "theme_dark": "Dark",
+        "theme_system": "System",
         "launch_at_startup": "Launch at Startup",
         "launch_desc": "Automatically open ShuTong when you log in",
         "language": "Language",
@@ -57,6 +60,15 @@
         "ai_models_providers": "AI Models & Providers"
     },
     "llm": {
+        "role_description": {
+            "SMART_ROUTER": "Smart Router",
+            "OCR_SCANNER": "OCR Scanner",
+            "RERANKER": "Re-ranker Model",
+            "SCREEN_ANALYZE": "Screen Content Analysis",
+            "TEXT_SUMMARY": "Text Summary",
+            "DAILY_REPORT": "Daily Report Generation",
+            "DEEP_THINKING": "Deep Thinking"
+        },
         "providers": "Providers",
         "roles": "Role Assignments",
         "config": "Raw Config",
@@ -66,6 +78,8 @@
         "api_key": "API Key",
         "api_key_placeholder_loaded": "Loaded from Settings/Env (Hidden)",
         "api_key_placeholder_enter": "Enter API Key",
+        "role_provider": "Provider",
+        "role_model": "Model",
         "provider": "Provider",
         "model": "Model",
         "select_model": "Select or type model...",

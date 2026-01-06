@@ -170,12 +170,12 @@ export function LLMSettings() {
                             <div key={roleKey} className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
                                 <div className="mb-6">
                                     <h3 className="text-lg font-bold text-zinc-100 mb-1">{roleKey}</h3>
-                                    <p className="text-sm text-zinc-400">{roleCfg.description}</p>
+                                    <p className="text-sm text-zinc-400">{t(`llm.role_description.${roleKey}`, roleCfg.description)}</p>
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div>
-                                        <Label>{t('llm.provider', 'Provider')}</Label>
+                                        <Label>{t('llm.role_provider', 'Provider')}</Label>
                                         <Select
                                             value={roleCfg.provider}
                                             onChange={(e) => {
@@ -195,7 +195,7 @@ export function LLMSettings() {
                                     </div>
 
                                     <div>
-                                        <Label>{t('llm.model', 'Model')}</Label>
+                                        <Label>{t('llm.role_model', 'Model')}</Label>
                                         <Combobox
                                             value={roleCfg.model}
                                             options={availableModels}

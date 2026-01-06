@@ -44,6 +44,9 @@
         "appearance": "外观",
         "system": "系统",
         "theme_preference": "主题偏好",
+        "theme_light": "亮色",
+        "theme_dark": "深色",
+        "theme_system": "跟随系统",
         "launch_at_startup": "开机自启",
         "launch_desc": "登录时自动启动书童",
         "language": "语言",
@@ -57,6 +60,15 @@
         "ai_models_providers": "AI 模型与提供商"
     },
     "llm": {
+        "role_description": {
+            "SMART_ROUTER": "智能路由",
+            "OCR_SCANNER": "OCR扫描",
+            "RERANKER": "文本重排模型",
+            "SCREEN_ANALYZE": "分析屏幕内容",
+            "TEXT_SUMMARY": "文本总结",
+            "DAILY_REPORT": "生成每日报告",
+            "DEEP_THINKING": "深度思考"
+        },
         "providers": "提供商",
         "roles": "角色分配",
         "config": "原始配置",
@@ -69,6 +81,8 @@
         "provider": "提供商",
         "model": "模型",
         "select_model": "选择或输入模型...",
+        "role_provider": "提供商",
+        "role_model": "模型",
         "active_key": "当前密钥",
         "present": "已存在",
         "missing": "缺失",
