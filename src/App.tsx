@@ -40,6 +40,18 @@ function App() {
     };
     fetchCurrentState();
 
+    // Initialize theme from settings
+    const fetchTheme = async () => {
+      try {
+        const { invoke } = await import('./lib/ipc');
+        const savedTheme = await invoke('get-theme');
+        applyTheme(savedTheme);
+      } catch (e) {
+        console.warn('[App] Failed to fetch theme:', e);
+      }
+    };
+    fetchTheme();
+
     // Subscribe to future lifecycle updates
     // @ts-ignore
     const cleanupLifecycle = window.electron?.on('app-lifecycle', (newStatus: AppState) => {
@@ -57,13 +69,31 @@ function App() {
       });
     });
 
+    // Subscribe to theme changes
+    // @ts-ignore
+    const cleanupTheme = window.electron?.on('theme-changed', (theme: string) => {
+      applyTheme(theme);
+    });
+
     return () => {
       // @ts-ignore
       if (cleanupLang) cleanupLang();
       // @ts-ignore
       if (cleanupLifecycle) cleanupLifecycle();
+      // @ts-ignore
+      if (cleanupTheme) cleanupTheme();
     }
   }, []); // Only run once on mount!
+
+  // Theme application helper
+  const applyTheme = (t: string) => {
+    if (t === 'system') {
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+    } else {
+      document.documentElement.setAttribute('data-theme', t);
+    }
+  };
 
   // Check onboarding when status changes to HYDRATING or READY
   useEffect(() => {

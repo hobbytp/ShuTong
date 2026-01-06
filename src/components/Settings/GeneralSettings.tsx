@@ -11,9 +11,26 @@ export function GeneralSettings() {
         // Load initial settings if needed
     }, []);
 
-    const handleThemeChange = (t: string) => {
+    const handleThemeChange = async (t: string) => {
         setTheme(t);
-        // Implement theme persistence
+        // Apply theme to DOM
+        applyTheme(t);
+        // Persist theme setting
+        try {
+            const { invoke } = await import('../../lib/ipc');
+            await invoke('change-theme', t);
+        } catch (err) {
+            console.error('Failed to save theme setting', err);
+        }
+    };
+
+    const applyTheme = (t: string) => {
+        if (t === 'system') {
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+        } else {
+            document.documentElement.setAttribute('data-theme', t);
+        }
     };
 
     const changeLanguage = async (lng: string) => {

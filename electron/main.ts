@@ -598,6 +598,19 @@ async function startApp() {
       return { success: true };
     });
 
+    ipcMain.handle('change-theme', async (_, theme: string) => {
+      setSetting('theme', theme);
+      // Notify all windows
+      BrowserWindow.getAllWindows().forEach(w => {
+        w.webContents.send('theme-changed', theme);
+      });
+      return { success: true };
+    });
+
+    ipcMain.handle('get-theme', () => {
+      return getSetting('theme') || 'dark';
+    });
+
     ipcMain.handle('get-language', () => {
       return getSetting('language') || 'en';
     });
