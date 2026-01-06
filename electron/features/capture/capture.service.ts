@@ -24,6 +24,33 @@ import {
     updateDedupSettings
 } from './frame-dedup';
 
+/**
+ * Wrapper for desktopCapturer.getSources with retry logic.
+ * Windows Graphics Capture (WGC) can timeout on first frame; retry helps.
+ */
+async function getSourcesWithRetry(
+    options: Electron.SourcesOptions,
+    maxRetries: number = 2
+): Promise<Electron.DesktopCapturerSource[]> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const sources = await desktopCapturer.getSources(options);
+            // Filter out sources with empty thumbnails (WGC timeout symptom)
+            const validSources = sources.filter(s => !s.thumbnail.isEmpty());
+            if (validSources.length > 0 || attempt === maxRetries) {
+                return validSources;
+            }
+            console.warn(`[ShuTong] WGC returned empty thumbnails, retrying (${attempt + 1}/${maxRetries})...`);
+            await new Promise(r => setTimeout(r, 500)); // Brief delay before retry
+        } catch (err) {
+            if (attempt === maxRetries) throw err;
+            console.warn(`[ShuTong] desktopCapturer failed, retrying (${attempt + 1}/${maxRetries}):`, err);
+            await new Promise(r => setTimeout(r, 500));
+        }
+    }
+    return [];
+}
+
 let captureInterval: NodeJS.Timeout | null = null;
 let isRecording = false;
 let currentIntervalMs = 1000; // Track current interval for dynamic updates
@@ -419,7 +446,7 @@ async function savePendingFrame(frame: PendingFrame, trigger: 'exit' | 'checkpoi
         const png = frame.thumbnail.toPNG();
 
         const now = new Date(frame.timestamp); // Use frame's original timestamp
-        
+
         const dateStr = now.toISOString().split('T')[0];
         const timeStr = now.toISOString().split('T')[1].replace(/:/g, '-').split('.')[0];
 
@@ -434,16 +461,16 @@ async function savePendingFrame(frame: PendingFrame, trigger: 'exit' | 'checkpoi
         await fs.promises.writeFile(filePath, png);
 
         const unixTs = Math.floor(frame.timestamp / 1000);
-        
+
         const fullCaptureType = `${frame.captureType}:${trigger}`;
 
         // const _context = parseWindowContext(frame.appName || '', frame.windowTitle || '');
 
         const screenshotId = saveScreenshot(
-            filePath, 
-            unixTs, 
-            png.length, 
-            fullCaptureType, 
+            filePath,
+            unixTs,
+            png.length,
+            fullCaptureType,
             frame.appName || undefined,
             frame.windowTitle, // Pass window title if available
             monitorId,
@@ -538,7 +565,7 @@ async function captureFrame(config: CaptureConfig) {
         // Handle Window Switch: Commit all pending frames as 'exit'
         if (windowSwitched) {
             const dwellTime = Date.now() - windowEnterTime;
-            
+
             // Iterate all pending frames and save them if dwell time was sufficient
             // We assume the user was "in the previous context" for all screens
             for (const [ctxId, frame] of pendingFrames) {
@@ -547,7 +574,7 @@ async function captureFrame(config: CaptureConfig) {
                     await savePendingFrame(frame, 'exit', ctxId);
                 }
             }
-            
+
             // Clear all pending frames and dedup state as context changed
             pendingFrames.clear();
             resetLastFrame(); // Clear dedup state for all contexts
@@ -562,10 +589,10 @@ async function captureFrame(config: CaptureConfig) {
 
         // Collect Captures
         // -------------------------------------------------------------------------
-        const captures: { 
-            thumbnail: Electron.NativeImage, 
-            monitorId: string, 
-            appName: string | null, 
+        const captures: {
+            thumbnail: Electron.NativeImage,
+            monitorId: string,
+            appName: string | null,
             captureType: 'screen' | 'window',
             roi?: { x: number, y: number, w: number, h: number }
         }[] = [];
@@ -575,7 +602,7 @@ async function captureFrame(config: CaptureConfig) {
 
         if (config.captureMode === 'window' && activeWindow) {
             // Window-level capture
-            const sources = await desktopCapturer.getSources({
+            const sources = await getSourcesWithRetry({
                 types: ['window'],
                 thumbnailSize: config.resolution,
                 fetchWindowIcons: false
@@ -594,7 +621,7 @@ async function captureFrame(config: CaptureConfig) {
             } else {
                 console.warn('[ShuTong] No window source found, falling back to screen capture');
                 // Fallback to primary screen
-                const screens = await desktopCapturer.getSources({
+                const screens = await getSourcesWithRetry({
                     types: ['screen'],
                     thumbnailSize: config.resolution,
                     fetchWindowIcons: false
@@ -611,12 +638,12 @@ async function captureFrame(config: CaptureConfig) {
             }
         } else {
             // Screen capture - Multi-monitor
-            const screens = await desktopCapturer.getSources({
+            const screens = await getSourcesWithRetry({
                 types: ['screen'],
                 thumbnailSize: config.resolution,
                 fetchWindowIcons: false
             });
-            
+
             // Capture all screens
             for (let i = 0; i < screens.length; i++) {
                 const screenSource = screens[i];
@@ -652,9 +679,9 @@ async function captureFrame(config: CaptureConfig) {
                 // Or "currentTitle" is used below but not defined in this scope?
                 // Ah, "currentTitle" is used in PendingFrame creation but defined at top of function.
                 // Let's check "currentTitle".
-                
+
                 // Also "currentWindowId" is used.
-                
+
                 captures.push({
                     thumbnail: screenSource.thumbnail,
                     monitorId: screenSource.id,
@@ -723,7 +750,7 @@ async function captureFrame(config: CaptureConfig) {
                 if (simResult.isSimilar) {
                     // SIMILAR -> Buffer (Pending)
                     const pendingFrame: PendingFrame = {
-                        buffer: bitmap, 
+                        buffer: bitmap,
                         thumbnail: thumbnail,
                         timestamp: Date.now(),
                         appName: appName,
@@ -737,10 +764,10 @@ async function captureFrame(config: CaptureConfig) {
                     // DIFFERENT -> Save (Onset)
                     shouldSave = true;
                     triggerType = 'onset';
-                    
+
                     // Update dedup state
                     checkFrameSimilarity(bitmap, size.width, size.height, estimatedBytes, true, monitorId, dedupRoi);
-                    
+
                     // Clear pending frame for this monitor as we are saving a new onset
                     pendingFrames.delete(monitorId);
                 }
@@ -790,16 +817,16 @@ async function captureFrame(config: CaptureConfig) {
 
                 const unixTs = Math.floor(now.getTime() / 1000);
                 const fullCaptureType = `${captureType}:${triggerType}`;
-                
+
                 // Phase 2: Context Extraction (Basic)
                 // const _context = parseWindowContext(appName || '', currentTitle);
                 // In future: Use context to tag screenshot metadata (e.g. project_name)
 
                 const screenshotId = saveScreenshot(
-                    filePath, 
-                    unixTs, 
-                    png.length, 
-                    fullCaptureType, 
+                    filePath,
+                    unixTs,
+                    png.length,
+                    fullCaptureType,
                     appName || undefined,
                     currentTitle,
                     monitorId,
@@ -811,7 +838,7 @@ async function captureFrame(config: CaptureConfig) {
                 }
             }
         }
-        
+
         // Update Checkpoint Timer
         const now = Date.now();
         if (now - lastCheckpointTime >= CHECKPOINT_INTERVAL_MS) {

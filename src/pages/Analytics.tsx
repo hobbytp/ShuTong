@@ -81,10 +81,10 @@ export function Analytics() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
-                        <BarChart2 className="text-indigo-400" />
+                        <BarChart2 size={22} className="text-indigo-400" />
                         {t('analytics.title', 'Activity Analytics')}
                     </h1>
-                    <p className="text-zinc-500 text-sm mt-1">{t('analytics.subtitle', 'Daily overview of your digital activity')}</p>
+                    <p className="text-sm text-zinc-500 mt-1">{t('analytics.subtitle', 'Daily overview of your digital activity')}</p>
                 </div>
 
                 <div className="flex items-center gap-4 bg-zinc-900/50 p-1.5 rounded-lg border border-zinc-800">

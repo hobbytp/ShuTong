@@ -4,7 +4,7 @@ import { Label, Section } from './Shared';
 
 export function GeneralSettings() {
     const { t, i18n } = useTranslation();
-    const [theme, setTheme] = useState('dark');
+    const [theme, setTheme] = useState(() => localStorage.getItem('shutong-theme') || 'dark');
     const [autoLaunch, setAutoLaunch] = useState(false);
 
     useEffect(() => {
@@ -15,7 +15,9 @@ export function GeneralSettings() {
         setTheme(t);
         // Apply theme to DOM
         applyTheme(t);
-        // Persist theme setting
+        // Sync to localStorage for initial load script (prevents theme flash)
+        localStorage.setItem('shutong-theme', t);
+        // Persist theme setting to main process
         try {
             const { invoke } = await import('../../lib/ipc');
             await invoke('change-theme', t);

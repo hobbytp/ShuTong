@@ -6,6 +6,8 @@ import {
     saveObservation,
     saveTimelineCard,
     screenshotsForBatch,
+    deleteCards as storageDeleteCards,
+    getRecentCards as storageGetRecentCards,
     updateBatchStatus
 } from '../../storage';
 
@@ -16,6 +18,8 @@ export interface IAnalysisRepository {
     saveTimelineCard(card: any): number | bigint | null;
     saveObservation(batchId: number, startTs: number, endTs: number, observation: string, model?: string, contextType?: string, entities?: string): number | bigint | undefined;
     screenshotsForBatch(batchId: number): any[];
+    getRecentCards(limit: number, sinceTs: number): any[];
+    deleteCards(cardIds: number[]): void;
     getSetting(key: string): string | null;
     getRepositories(): any;
 }
@@ -47,6 +51,14 @@ export class SqliteAnalysisRepository implements IAnalysisRepository {
 
     getSetting(key: string): string | null {
         return getSetting(key);
+    }
+
+    getRecentCards(limit: number, sinceTs: number): any[] {
+        return storageGetRecentCards(limit, sinceTs);
+    }
+
+    deleteCards(cardIds: number[]): void {
+        storageDeleteCards(cardIds);
     }
 
     getRepositories(): any {

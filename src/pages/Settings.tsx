@@ -27,17 +27,17 @@ export function Settings({ onBack }: { onBack: () => void }) {
         <div className="flex h-full w-full bg-zinc-950 text-zinc-50 overflow-hidden font-sans">
             <Sidebar activeTab={activeTab} onTabChange={setActiveTab} onBack={onBack} />
             <div className="flex-1 overflow-y-auto no-scrollbar">
-                <div className="max-w-4xl mx-auto p-8 md:p-12">
-                    <header className="mb-8">
-                        <h1 className="text-3xl font-bold tracking-tight text-white mb-2 capitalize">
+                <div className="max-w-4xl mx-auto p-6 md:p-8">
+                    <header className="mb-6">
+                        <h1 className="text-2xl font-bold tracking-tight text-white mb-1 capitalize">
                             {activeTab === 'llm' ? t('settings.ai_models_providers', 'AI Models & Providers') : t(`settings.${activeTab}`, activeTab) + ' ' + t('settings.title', 'Settings')}
                         </h1>
-                        <p className="text-zinc-400 text-sm">
+                        <p className="text-zinc-400 text-xs">
                             {t('settings.manage_prefs', 'Manage your application preferences and configurations.')}
                         </p>
                     </header>
 
-                    <div className="space-y-6">
+                    <div className="space-y-5">
                         {renderContent()}
                     </div>
                 </div>

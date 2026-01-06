@@ -9,6 +9,7 @@ import {
     type IAnalysisRepository
 } from './analysis.repository';
 import { isContextChange, parseWindowContext, type ActivityContext } from './context-parser';
+import { sessionMerger } from './merge.service';
 import { ocrService } from './ocr.service';
 import { getAnalysisSystemPrompt } from './prompts/index';
 
@@ -79,6 +80,12 @@ export async function processRecordings() {
             }
         }
 
+        // 4. Run Post-processing Merge (Scheme B)
+        try {
+            await sessionMerger.run();
+        } catch (mergeErr) {
+            console.warn('[Analysis] SessionMerger failed:', mergeErr);
+        }
     } catch (err) {
         console.error('[Analysis] Error processing recordings:', err);
     } finally {
@@ -168,19 +175,19 @@ async function processBatch(batchId: number, screenshotsOverride?: AnalysisScree
         // Save observations
         for (const obs of observations) {
             const obsId = repository.saveObservation(batchId, obs.start, obs.end, obs.text, observationModelLabel, obs.context_type, obs.entities);
-            
+
             // Ingest to Graph Memory if entities exist
             if (obs.entities) {
                 try {
                     const entities = JSON.parse(obs.entities);
                     if (Array.isArray(entities) && entities.length > 0) {
-                         // Use 'local' user ID for now as PulseAgent defaults to it
-                         // Run in background to not block analysis
-                         // Dynamic import to avoid premature instantiation
-                         const { pulseAgent } = await import('../pulse/agent/pulse-agent');
-                         pulseAgent.ingestStructuredEntities('local', obs.text, entities).catch(err => {
-                             console.error('[Analysis] Async Graph Memory ingestion failed:', err);
-                         });
+                        // Use 'local' user ID for now as PulseAgent defaults to it
+                        // Run in background to not block analysis
+                        // Dynamic import to avoid premature instantiation
+                        const { pulseAgent } = await import('../pulse/agent/pulse-agent');
+                        pulseAgent.ingestStructuredEntities('local', obs.text, entities).catch(err => {
+                            console.error('[Analysis] Async Graph Memory ingestion failed:', err);
+                        });
                     }
                 } catch (e) {
                     console.error('[Analysis] Failed to parse entities for Graph Memory ingestion:', e);
@@ -189,16 +196,16 @@ async function processBatch(batchId: number, screenshotsOverride?: AnalysisScree
 
             // Ingest to Vector Storage (Async)
             if (!isTest && obsId) {
-                 import('../../storage/vector-storage').then(({ vectorStorage }) => {
-                     vectorStorage.addObservation({
-                         id: Number(obsId),
-                         text: obs.text,
-                         start_ts: obs.start,
-                         end_ts: obs.end,
-                         context_type: obs.context_type,
-                         entities: obs.entities
-                     }).catch(err => console.error('[Analysis] Vector indexing failed:', err));
-                 });
+                import('../../storage/vector-storage').then(({ vectorStorage }) => {
+                    vectorStorage.addObservation({
+                        id: Number(obsId),
+                        text: obs.text,
+                        start_ts: obs.start,
+                        end_ts: obs.end,
+                        context_type: obs.context_type,
+                        entities: obs.entities
+                    }).catch(err => console.error('[Analysis] Vector indexing failed:', err));
+                });
             }
         }
 
@@ -297,11 +304,11 @@ export function getBatchingConfig(): BatchingConfig {
     const intervalSeconds = Math.max(1, Math.ceil(intervalMs / 1000));
 
     // maxGap must be larger than the capture interval; otherwise each screenshot becomes its own batch.
-    // Using 1.5x leaves room for timer jitter and occasional capture delays.
-    const maxGapSeconds = Math.max(10, Math.ceil(intervalSeconds * 1.5));
+    // Increase tolerance to 2 min to account for frame deduplication and reading pauses.
+    const maxGapSeconds = Math.max(120, Math.ceil(intervalSeconds * 3));
 
     return {
-        targetDuration: 60,
+        targetDuration: 15 * 60,  // 15 minutes - align with MAX_BATCH_DURATION for semantic grouping
         maxGap: maxGapSeconds,
         minBatchDuration: 10
     };

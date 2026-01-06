@@ -2,6 +2,7 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
 // Bundle locales to avoid 'file://' fetch issues in production Electron
+// Note: Vite warns about public directory imports, but this is intentional for bundling
 const localeModules = import.meta.glob('../public/locales/**/*.json', { eager: true });
 
 const resources: Record<string, any> = {};

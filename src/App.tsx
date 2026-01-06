@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AppShell } from './components/Shell/AppShell'
 import { ActivityDetail } from './components/Timeline/ActivityDetail'
 import { TimelineSidebar } from './components/Timeline/TimelineSidebar'
@@ -20,6 +20,20 @@ function App() {
 
   const status = useSystemStore((state) => state.status);
   const setStatus = useSystemStore((state) => state.setStatus);
+
+  // Store current theme preference to check in matchMedia listener
+  const currentThemeRef = useRef<string>('dark');
+
+  // Theme application helper
+  const applyTheme = (t: string) => {
+    currentThemeRef.current = t;
+    if (t === 'system') {
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+    } else {
+      document.documentElement.setAttribute('data-theme', t);
+    }
+  };
 
   // Check state on mount & Subscribe to Lifecycle
   useEffect(() => {
@@ -69,11 +83,20 @@ function App() {
       });
     });
 
-    // Subscribe to theme changes
+    // Subscribe to theme changes from IPC (e.g., user changed in Settings)
     // @ts-ignore
     const cleanupTheme = window.electron?.on('theme-changed', (theme: string) => {
       applyTheme(theme);
     });
+
+    // Subscribe to OS-level theme changes for 'system' mode
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleSystemThemeChange = () => {
+      if (currentThemeRef.current === 'system') {
+        applyTheme('system');
+      }
+    };
+    mediaQuery.addEventListener('change', handleSystemThemeChange);
 
     return () => {
       // @ts-ignore
@@ -82,18 +105,9 @@ function App() {
       if (cleanupLifecycle) cleanupLifecycle();
       // @ts-ignore
       if (cleanupTheme) cleanupTheme();
+      mediaQuery.removeEventListener('change', handleSystemThemeChange);
     }
   }, []); // Only run once on mount!
-
-  // Theme application helper
-  const applyTheme = (t: string) => {
-    if (t === 'system') {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
-    } else {
-      document.documentElement.setAttribute('data-theme', t);
-    }
-  };
 
   // Check onboarding when status changes to HYDRATING or READY
   useEffect(() => {

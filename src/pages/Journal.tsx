@@ -43,9 +43,12 @@ export function Journal() {
         <div className="p-8 max-w-3xl mx-auto text-zinc-50 min-h-screen">
             <div className="flex items-center gap-3 mb-8">
                 <div className="p-3 bg-indigo-500/10 rounded-xl border border-indigo-500/20">
-                    <BookOpen className="w-6 h-6 text-indigo-400" />
+                    <BookOpen size={22} className="text-indigo-400" />
                 </div>
-                <h1 className="text-3xl font-bold tracking-tight">Journal</h1>
+                <div>
+                    <h1 className="text-2xl font-bold tracking-tight text-zinc-100">{t('journal.title', 'Journal')}</h1>
+                    <p className="text-sm text-zinc-500 mt-1">{t('journal.subtitle', 'Capture your intentions and reflections.')}</p>
+                </div>
             </div>
 
             {/* Input Section */}

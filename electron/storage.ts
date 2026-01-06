@@ -460,13 +460,14 @@ export function saveTimelineCard(card: {
     title: string,
     summary: string,
     detailedSummary?: string,
-    videoUrl?: string
+    videoUrl?: string,
+    isMerged?: boolean
 }) {
     if (!db) return undefined;
     try {
         const stmt = db.prepare(`
-            INSERT INTO timeline_cards(batch_id, start_ts, end_ts, category, subcategory, title, summary, detailed_summary, video_url)
-        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO timeline_cards(batch_id, start_ts, end_ts, category, subcategory, title, summary, detailed_summary, video_url, is_merged)
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         const info = stmt.run(
             card.batchId || null,
@@ -477,7 +478,8 @@ export function saveTimelineCard(card: {
             card.title,
             card.summary,
             card.detailedSummary || null,
-            card.videoUrl || null
+            card.videoUrl || null,
+            card.isMerged ? 1 : 0
         );
         return info.lastInsertRowid;
     } catch (err) {
@@ -723,7 +725,27 @@ export function getCardDetails(cardId: number) {
         // Fetch related observations
         // Assuming card.batch_id is present. If logic changes to multi-batch cards, this needs update.
         // For now 1 card = 1 batch.
-        const observations = db.prepare('SELECT * FROM observations WHERE batch_id = ? ORDER BY start_ts ASC').all((card as any).batch_id);
+        // Fetch related observations
+        let observations;
+
+        if ((card as any).is_merged) {
+            // Merged cards span multiple batches, so we query strictly by time range
+            observations = db.prepare(`
+                SELECT * FROM observations 
+                WHERE start_ts >= ? 
+                AND end_ts <= ? 
+                ORDER BY start_ts ASC
+            `).all((card as any).start_ts, (card as any).end_ts);
+        } else {
+            // Regular cards (Batch-based) - filter by batch_id AND time range for safety
+            observations = db.prepare(`
+                SELECT * FROM observations 
+                WHERE batch_id = ? 
+                AND start_ts >= ? 
+                AND end_ts <= ? 
+                ORDER BY start_ts ASC
+            `).all((card as any).batch_id, (card as any).start_ts, (card as any).end_ts);
+        }
 
         return {
             ...card,
@@ -735,13 +757,45 @@ export function getCardDetails(cardId: number) {
     }
 }
 
+export function getRecentCards(limit = 50, sinceTs: number): any[] {
+    if (!db) return [];
+    try {
+        return db.prepare('SELECT * FROM timeline_cards WHERE start_ts >= ? ORDER BY start_ts ASC LIMIT ?').all(sinceTs, limit);
+    } catch (err) {
+        console.error('[ShuTong] Failed to get recent cards:', err);
+        return [];
+    }
+}
+
+export function deleteCards(cardIds: number[]) {
+    if (!db || cardIds.length === 0) return;
+    try {
+        const placeholders = cardIds.map(() => '?').join(',');
+        db.prepare(`DELETE FROM timeline_cards WHERE id IN (${placeholders})`).run(...cardIds);
+    } catch (err) {
+        console.error('[ShuTong] Failed to delete cards:', err);
+    }
+}
+
 export function getScreenshotsForCard(cardId: number) {
     if (!db) return [];
     try {
-        const card = db.prepare('SELECT batch_id FROM timeline_cards WHERE id = ?').get(cardId);
+        const card = db.prepare('SELECT batch_id, start_ts, end_ts, is_merged FROM timeline_cards WHERE id = ?').get(cardId) as any;
         if (!card) return [];
 
-        const batchId = (card as any).batch_id;
+        // For merged cards, query screenshots by time range since they span multiple batches
+        if (card.is_merged) {
+            const stmt = db.prepare(`
+                SELECT * FROM screenshots 
+                WHERE captured_at BETWEEN ? AND ?
+                  AND is_deleted = 0
+                ORDER BY captured_at ASC
+            `);
+            return stmt.all(card.start_ts, card.end_ts);
+        }
+
+        // For regular cards, query by batch_id
+        const batchId = card.batch_id;
         if (!batchId) return [];
 
         const stmt = db.prepare(`

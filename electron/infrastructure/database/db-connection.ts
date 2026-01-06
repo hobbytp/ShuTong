@@ -236,4 +236,11 @@ function createTables(database: Database.Database): void {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
     `);
+    try {
+        database.prepare('ALTER TABLE timeline_cards ADD COLUMN is_merged INTEGER DEFAULT 0').run();
+    } catch (e: any) {
+        if (!e.message.includes('duplicate column name')) {
+            console.error('[Database] Migration failed for is_merged:', e);
+        }
+    }
 }
