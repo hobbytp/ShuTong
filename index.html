@@ -113,6 +113,26 @@
       }
     }
   </style>
+  <!-- Prevent Flash of Incorrect Theme (FOIT) -->
+  <!-- This script runs synchronously before body renders -->
+  <script>
+    (function () {
+      try {
+        // In Electron, we can access localStorage or preload script variables
+        // For now, use localStorage as a sync cache
+        var savedTheme = localStorage.getItem('shutong-theme') || 'dark';
+        if (savedTheme === 'system') {
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+        } else {
+          document.documentElement.setAttribute('data-theme', savedTheme);
+        }
+      } catch (e) {
+        // Fallback to dark theme if localStorage fails
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
 </head>
 
 <body>

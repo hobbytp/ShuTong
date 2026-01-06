@@ -66,4 +66,17 @@ venv/
 # recordings/
 # *.sqlite
 
-docs/
+#docs/
+#*.toml
+MineContext/
+*.md
+!docs/**/*.md
+!docs/*.md
+!README.md
+!openspec/
+#oss/
+
+.claude/
+.cursor/
+.gemini/
+.windsurf/

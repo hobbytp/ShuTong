@@ -1,0 +1,94 @@
+
+以下是关于 ShuTong 项目 `timeline` 模块的功能、架构、关键流程总结及改进建议。
+
+### 一、 Timeline 功能与架构总结
+
+Timeline 模块是 ShuTong 的核心智能分析引擎，负责将原始的屏幕截图转化为有意义的用户活动时间轴。它不仅记录"发生了什么"，还试图通过 LLM 和 OCR 理解"正在做什么"。
+
+#### 1. 核心功能
+*   **智能截屏与关键帧提取**：自动捕获屏幕内容，通过图像相似度和窗口切换检测关键帧（Onset/Exit/Checkpoint），减少冗余数据。
+*   **多模态分析**：结合 OCR（文字提取）和 Vision LLM（图像理解）分析截图内容。
+*   **活动聚合**：将连续的截图聚合成"Batch"（批次），生成 Timeline Card（活动卡片），提供摘要、分类和详细描述。
+*   **数据统计**：提供每日活动摘要、应用使用时长、专注度分析等统计数据。
+
+#### 2. 架构设计
+采用了分层架构，职责清晰：
+*   **Service Layer (`*.service.ts`)**: 核心业务逻辑。
+    *   `analysis.service.ts`: 负责调度分析任务，管理 Screenshot -> Batch -> LLM Observation -> Timeline Card 的流水线。
+    *   `analytics.service.ts`: 负责数据聚合，为 UI 提供统计报表（如 `getDailyActivitySummary`）。
+    *   `ocr.service.ts` & `paddle-window/`: 负责文字提取，支持 Cloud LLM 和本地 PaddleOCR（通过隐藏窗口运行）。
+*   **Repository Layer (`*.repository.ts`)**: 数据访问层，封装 SQLite 数据库操作，提供干净的接口给 Service 层。
+*   **Infrastructure (`capture/`)**: 虽然在 `timeline` 目录外，但紧密配合。`capture.service.ts` 负责生产数据，`timeline` 负责消费数据。
+
+---
+
+### 二、 关键流程解析
+
+#### 1. 如何截图 (Capture)
+*   **入口**: [capture.service.ts](file:///f:/AI/src/ShuTong/electron/features/capture/capture.service.ts#L478-L726) 的 `captureFrame` 函数。
+*   **触发机制**: 定时器触发（默认 1s），结合 `onDebouncedCapture`（窗口切换后防抖触发）。
+*   **源获取**: 使用 Electron `desktopCapturer.getSources` 获取屏幕或窗口画面。
+*   **智能守卫**: `capture-guard.ts` 会检查是否空闲（Idle）、锁屏、或在黑名单应用中，从而跳过截图。
+
+#### 2. 如何分辨关键帧 (Keyframe & Dedup)
+*   **逻辑位置**: [frame-dedup.ts](file:///f:/AI/src/ShuTong/electron/features/capture/frame-dedup.ts) 和 [capture.service.ts](file:///f:/AI/src/ShuTong/electron/features/capture/capture.service.ts#L579-L673)。
+*   **网格采样算法**: 将图片划分为 32x32 网格，采样 RGB 均值，计算欧氏距离。
+*   **三种关键帧类型**:
+    *   **Onset (开始)**: 窗口切换或画面发生剧烈变化（相似度低）时触发，标记新活动的开始。
+    *   **Exit (结束)**: 离开当前窗口时，如果停留超过 1秒，保存离开前的最后一帧，标记活动的结束状态。
+    *   **Checkpoint (检查点)**: 如果在同一窗口停留超过 30秒且有输入活动，强制保存一帧，防止长活动丢失细节。
+
+#### 3. 如何进行 OCR (文字提取)
+*   **策略模式**: [ocr.service.ts](file:///f:/AI/src/ShuTong/electron/features/timeline/ocr.service.ts) 支持多种引擎（Cloud LLM, Tesseract, Paddle）。
+*   **本地 OCR 实现**:
+    *   通过 [paddle-window/window.ts](file:///f:/AI/src/ShuTong/electron/features/timeline/paddle-window/window.ts) 创建一个隐藏的 Electron 渲染进程。
+    *   加载 `paddle_runner.html`，在浏览器环境中运行 Paddle.js 模型。
+    *   主进程通过 IPC (`paddle-extract`) 发送图片路径，渲染进程处理后返回文本。
+*   **云端 OCR**: 将图片发送给配置的 LLM（如 GPT-4o），使用 Prompt 提取所有可见文本。
+
+#### 4. 如何用大模型进行图像分析
+*   **批处理 (Batching)**: [analysis.service.ts](file:///f:/AI/src/ShuTong/electron/features/timeline/analysis.service.ts#L289) 将未处理的截图按时间（如每 60秒）或事件分组。
+*   **OCR 增强**: 先对 Batch 中的关键帧运行 OCR，提取文本。
+*   **Prompt 构建**: 将 OCR 提取的文本作为 Context，连同截图一起发给 Vision LLM。
+*   **分析 (Transcribe)**: LLM 生成对截图序列的描述（Observation）。
+*   **生成卡片 (Card Generation)**: 再次调用 LLM，基于 Observation 生成结构化的 Timeline Card（标题、摘要、分类）。
+
+#### 5. 如何总结用户行为
+*   **数据源**: 基于 `timeline_cards` 表和 `window_switches` 表。
+*   **聚合逻辑**: [analytics.service.ts](file:///f:/AI/src/ShuTong/electron/features/timeline/analytics.service.ts#L47) 计算：
+    *   **专注度**: 根据应用类别权重（Work=1.0, Social=0.4）计算加权分数。
+    *   **应用分布**: 统计各应用停留时长（Dwell Time）。
+    *   **每日摘要**: 聚合当天的 Timeline Cards 生成 Markdown 报告。
+
+---
+
+### 三、 不足之处与改进建议 (用户视角 & 技术视角)
+
+#### 1. 必须改进 (Critical / High Priority)
+
+*   **隐私与成本 - 默认云端 OCR**:
+    *   **问题**: 代码中 `CloudLLMOCRProvider` 似乎是默认或兜底选项。将所有截图发往云端不仅成本高昂，且存在隐私风险。
+    *   **建议**: 强制优先使用本地 PaddleOCR/Tesseract。只有用户显式开启"增强云端分析"时才使用 LLM OCR。
+*   **PaddleOCR 稳定性**:
+    *   **问题**: `paddle-window` 使用隐藏窗口方案，一旦渲染进程崩溃（`render-process-gone`），虽然有重启机制，但可能会丢失当前请求。
+
+
+#### 2. 可以改进 (Improvement / Medium Priority)
+
+*   **关键帧策略的局限性**:
+    *   **问题**: 目前主要依赖像素网格相似度。对于"看视频"或"滚动网页"场景，像素变化大但语义没变，会产生过多冗余帧。
+    *   **建议**: 引入"语义去重"。如果 OCR 提取的关键词变化不大，即使画面变了（如广告滚动），也视为同一帧。
+*   **上下文感知的缺失**:
+    *   **问题**: `context-parser.ts` 目前仅基于窗口标题做简单的正则匹配。
+    *   **建议**: 增强上下文感知。例如，如果 OCR 识别到 IDE 中的代码是 Python，应自动关联到"后端开发"分类，而不仅仅是"Coding"。
+*   **数据呈现的实时性**:
+    *   **问题**: 分析任务是定时轮询（60s）。用户做完一件事，可能要等 1 分钟才能在 Timeline 看到。
+    *   **建议**: 引入 WebSocket 或更频繁的事件驱动更新，当 Batch 分析完成后立即推送到前端。
+
+#### 3. 架构优化 (Refactoring)
+
+*   **解耦 Capture 与 Analysis**: 目前两者通过数据库耦合。建议引入轻量级任务队列（即便是基于 SQLite 的表也可以），明确任务状态（Pending -> OCR_Done -> Analyzed），方便监控积压情况。
+*   **测试覆盖率**: 虽然单元测试通过，但集成测试（特别是涉及真实 OCR 窗口和 LLM 调用链路的）较少，容易在环境变化时挂掉。
+
+### 总结
+ShuTong 的 Timeline 模块设计思路先进，结合了传统图像处理（相似度）和现代 AI（LLM/OCR），能够提供深度的行为洞察。当前的短板主要集中在**处理效率**和**隐私/成本控制**上。优化 OCR 流程和本地化能力是下一步的重中之重。
