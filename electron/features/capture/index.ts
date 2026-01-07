@@ -7,7 +7,7 @@
 // Core capture service
 export {
     __test__captureFrame, __test__resetCaptureState,
-    __test__setLastCapturedWindowApp, getIsRecording,
+    __test__setLastCapturedWindowApp, captureShutdownService, getIsRecording,
     setupScreenCapture,
     startRecording,
     stopRecording

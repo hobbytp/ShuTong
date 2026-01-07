@@ -12,6 +12,7 @@
 import { existsSync } from 'fs';
 import { createWorker, Worker } from 'tesseract.js';
 import { getMergedLLMConfig } from '../../config_manager';
+import { Shutdownable, ShutdownPriority } from '../../infrastructure/lifecycle';
 import { metrics } from '../../infrastructure/monitoring/metrics-collector';
 import { consumeStreamWithIdleTimeout, getLLMProvider } from '../../llm/providers';
 import { getSetting, setSetting } from '../../storage';
@@ -270,7 +271,9 @@ class PaddleOCRProvider implements IOCRProvider {
 
 // --- OCR Service ---
 
-export class OCRService {
+export class OCRService implements Shutdownable {
+    public readonly name = 'OCRService';
+    public readonly priority = ShutdownPriority.HIGH;
     private providers: Map<OCREngine, IOCRProvider>;
     private enabled: boolean = true;
     private currentEngine: OCREngine = 'cloud';

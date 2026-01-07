@@ -9,14 +9,16 @@ import { fileURLToPath } from 'node:url';
 import { cancelMigration, commitMigration, getBootstrapConfig, PendingMigration, resolveUserDataPath, setCustomUserDataPath, setPendingMigration } from './bootstrap';
 import { getMergedLLMConfig, getRawLLMConfig, saveRawLLMConfig, setLLMProviderConfig, setRoleConfig } from './config_manager';
 import { backupService, setupBackupIPC } from './features/backup';
-import { getIsRecording, startRecording, stopRecording } from './features/capture';
+import { captureShutdownService, getIsRecording, startRecording, stopRecording } from './features/capture';
 import { setupAnalyticsIPC } from './features/timeline';
 import { ocrService } from './features/timeline/ocr.service';
 import { createVideoGenerationWindow, setupVideoIPC, setupVideoSubscribers } from './features/video';
 import { eventBus } from './infrastructure/events';
+import { lifecycleManager } from './infrastructure/lifecycle';
 import { setupPerformanceIPC } from './infrastructure/monitoring';
 import { getLLMMetrics } from './llm/metrics';
 import { copyUserData } from './migration-utils';
+import { storageShutdownService } from './storage';
 import { getIsQuitting, setupTray, updateTrayMenu } from './tray';
 
 // Initialize i18next
@@ -155,9 +157,9 @@ function createWindow() {
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
-app.on('will-quit', async () => {
-  // Ensure OCR worker is terminated
-  await ocrService.shutdown();
+app.on('will-quit', async (e) => {
+  e.preventDefault();
+  await lifecycleManager.shutdown();
 });
 
 app.on('window-all-closed', () => {
@@ -625,6 +627,12 @@ async function startApp() {
     initStorage();
     console.log('[Main] Storage initialized (HYDRATING)');
 
+    // Register Core Services for Shutdown
+    lifecycleManager.register(storageShutdownService);
+    lifecycleManager.register(captureShutdownService);
+    lifecycleManager.register(ocrService);
+    console.log('[Main] Registered core services for graceful shutdown');
+
     // Notify Frontend: Storage ready (Sidebar can slide in, Content blurred)
     setAppLifecycleState('HYDRATING');
 
@@ -649,6 +657,7 @@ async function startApp() {
     try {
       const { vectorStorage } = await import('./storage/vector-storage');
       await vectorStorage.init();
+      lifecycleManager.register(vectorStorage);
       console.log('[Main] Vector storage initialized');
 
       // Initialize Memory Store for PulseAgent

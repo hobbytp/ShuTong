@@ -5,6 +5,7 @@ import { eventBus } from '../../infrastructure/events';
 import { metrics } from '../../infrastructure/monitoring/metrics-collector';
 import { getSetting, saveScreenshot, saveWindowSwitch } from '../../storage';
 // import { parseWindowContext } from '../timeline/context-parser';
+import { Shutdownable, ShutdownPriority } from '../../infrastructure/lifecycle';
 import {
     clearPendingWindowCapture,
     getGuardSettings,
@@ -358,8 +359,8 @@ export function setupScreenCapture() {
         return true;
     });
 
-    ipcMain.handle('stop-recording-sync', () => {
-        stopRecording();
+    ipcMain.handle('stop-recording-sync', async () => {
+        await stopRecording();
         return true;
     });
 
@@ -469,7 +470,7 @@ export function startRecording() {
     }, lastConfig.interval);
 }
 
-export function stopRecording() {
+export async function stopRecording() {
     if (!isRecording) return;
     isRecording = false;
     eventBus.emitEvent('recording:state-changed', { isRecording: false });
@@ -481,8 +482,15 @@ export function stopRecording() {
     clearPendingWindowCapture();
 
     // Commit any pending buffer as we stop
+    const promises: Promise<void>[] = [];
     for (const [contextId, frame] of pendingFrames) {
-        savePendingFrame(frame, 'exit', contextId).catch(console.error);
+        promises.push(savePendingFrame(frame, 'exit', contextId));
+    }
+
+    // Await all saves (Error Isolation: logic handled inside savePendingFrame catch)
+    if (promises.length > 0) {
+        console.log(`[Capture] Saving ${promises.length} pending frames...`);
+        await Promise.allSettled(promises);
     }
     pendingFrames.clear();
 
@@ -538,6 +546,14 @@ async function savePendingFrame(frame: PendingFrame, trigger: 'exit' | 'checkpoi
         console.error('[ShuTong] Failed to save pending frame:', err);
     }
 }
+
+export const captureShutdownService: Shutdownable = {
+    name: 'CaptureService',
+    priority: ShutdownPriority.HIGH,
+    shutdown: async () => {
+        await stopRecording();
+    }
+};
 
 // --- Test Helpers ---
 

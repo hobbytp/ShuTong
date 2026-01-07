@@ -12,6 +12,7 @@ import path from 'path';
 import type { JournalEntry, Snapshot } from '../shared/ipc-contract';
 import { closeDatabase, getDbPath, initDatabase } from './infrastructure/database';
 import { typedHandle } from './infrastructure/ipc/typed-ipc';
+import { Shutdownable, ShutdownPriority } from './infrastructure/lifecycle';
 import { createRepositoryFactory, IRepositoryFactory } from './infrastructure/repositories';
 
 // Backward compatibility: expose db for legacy code
@@ -270,6 +271,15 @@ export function closeStorage() {
     repos = null;
     console.log('[ShuTong] Storage closed.');
 }
+
+export const storageShutdownService: Shutdownable = {
+    name: 'StorageService',
+    priority: ShutdownPriority.LOW,
+    shutdown: async () => {
+        closeStorage();
+        return Promise.resolve();
+    }
+};
 
 // IPC Handlers for Storage
 function setupStorageIPC() {
