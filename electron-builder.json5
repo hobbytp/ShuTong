@@ -29,5 +29,8 @@
     "perMachine": false,
     "allowToChangeInstallationDirectory": true,
     "deleteAppDataOnUninstall": false
-  }
+  },
+  // Disable auto-update publishing for local builds
+  // Set to a valid provider (github, s3, etc.) for production releases
+  "publish": null
 }

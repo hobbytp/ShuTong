@@ -14,6 +14,7 @@ import { setupAnalyticsIPC } from './features/timeline';
 import { ocrService } from './features/timeline/ocr.service';
 import { createVideoGenerationWindow, setupVideoIPC, setupVideoSubscribers } from './features/video';
 import { eventBus } from './infrastructure/events';
+import { setupPerformanceIPC } from './infrastructure/monitoring';
 import { getLLMMetrics } from './llm/metrics';
 import { copyUserData } from './migration-utils';
 import { getIsQuitting, setupTray, updateTrayMenu } from './tray';
@@ -446,6 +447,9 @@ async function startApp() {
     ipcMain.handle('ocr:getStatus', () => {
       return ocrService.getStatus();
     });
+
+    // Performance Monitoring
+    setupPerformanceIPC();
 
     ipcMain.handle('set-llm-provider-config', (_, providerName, config) => {
       setLLMProviderConfig(providerName, config);

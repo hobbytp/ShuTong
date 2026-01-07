@@ -26,6 +26,12 @@ export function getDatabase(): Database.Database | null {
     return db;
 }
 
+import { metrics } from '../monitoring/metrics-collector';
+
+// ... import Database ...
+
+// ...
+
 /**
  * Initialize the database connection.
  * Should be called once at app startup.
@@ -33,20 +39,119 @@ export function getDatabase(): Database.Database | null {
 export function initDatabase(): Database.Database {
     if (db) return db;
 
-    db = new Database(getDbPath());
-    db.pragma('journal_mode = WAL');
+    const rawDb = new Database(getDbPath());
+    rawDb.pragma('journal_mode = WAL');
 
-    // Create tables
-    createTables(db);
+    // Create tables (use rawDb to avoid metric noise during startup)
+    createTables(rawDb);
+
+    // Instrument with Proxy for RED metrics
+    db = new Proxy(rawDb, {
+        get(target, prop, receiver) {
+            // Get the value from the target directly
+            const value = Reflect.get(target, prop, receiver);
+
+            // If it's a function, we might need to bind it or intercept it
+            if (typeof value === 'function') {
+                if (prop === 'prepare') {
+                    return function (this: any, ...args: any[]) {
+                        // Apply to TARGET (rawDb), not 'this' (the proxy)
+                        const stmt = value.apply(target, args);
+                        return proxyStatement(stmt, args[0] as string);
+                    };
+                }
+
+                if (prop === 'exec') {
+                    return function (this: any, ...args: any[]) {
+                        const timer = metrics.startTimer('db.query_duration_seconds', { operation: 'EXEC', table: 'multiple' });
+                        metrics.incCounter('db.queries_total', { operation: 'EXEC', table: 'multiple' });
+                        try {
+                            // Apply to TARGET
+                            const res = value.apply(target, args);
+                            timer.end();
+                            return res;
+                        } catch (e) {
+                            metrics.incCounter('db.errors_total', { operation: 'EXEC', table: 'multiple' });
+                            throw e;
+                        }
+                    };
+                }
+
+                // For other functions (like pragma, close, etc.), bind to target
+                // to avoid "Illegal invocation"
+                return value.bind(target);
+            }
+
+            return value;
+        }
+    });
 
     console.log('[Database] Initialized at', getDbPath());
     return db;
+}
+
+function proxyStatement(stmt: any, sql: string) {
+    // Simple parsing for operation and table
+    const normalized = sql.trim().toUpperCase();
+    const operation = normalized.split(' ')[0] || 'UNKNOWN';
+    let table = 'unknown';
+
+    try {
+        if (operation === 'SELECT') {
+            const match = normalized.match(/FROM\s+([^\s(;]+)/i);
+            if (match) table = match[1].replace(/["`]/g, '');
+        } else if (operation === 'INSERT') {
+            const match = normalized.match(/INTO\s+([^\s(;]+)/i);
+            if (match) table = match[1].replace(/["`]/g, '');
+        } else if (operation === 'UPDATE') {
+            const match = normalized.match(/UPDATE\s+([^\s(;]+)/i);
+            if (match) table = match[1].replace(/["`]/g, '');
+        } else if (operation === 'DELETE') {
+            const match = normalized.match(/FROM\s+([^\s(;]+)/i);
+            if (match) table = match[1].replace(/["`]/g, '');
+        }
+    } catch { /* ignore parsing errors */ }
+
+    // Sanitize table name (remove schema or weird chars if any)
+    table = table.split('.').pop() || table;
+
+    return new Proxy(stmt, {
+        get(target, prop, receiver) {
+            const value = Reflect.get(target, prop, receiver);
+
+            if (typeof value === 'function') {
+                // Intercept execution methods
+                if (['run', 'get', 'all', 'iterate'].includes(prop as string)) {
+                    return function (this: any, ...args: any[]) {
+                        const timer = metrics.startTimer('db.query_duration_seconds', { operation, table });
+                        metrics.incCounter('db.queries_total', { operation, table });
+
+                        try {
+                            // Apply to TARGET (stmt)
+                            const result = value.apply(target, args);
+                            timer.end();
+                            return result;
+                        } catch (err) {
+                            metrics.incCounter('db.errors_total', { operation, table });
+                            throw err;
+                        }
+                    };
+                }
+
+                // Bind other methods (bind, columns, etc.) to target
+                return value.bind(target);
+            }
+
+            return value;
+        }
+    });
 }
 
 /**
  * Close the database connection.
  */
 export function closeDatabase(): void {
+    // ...
     if (db) {
         db.close();
         db = null;

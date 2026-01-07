@@ -7,8 +7,8 @@
   "type": "module",
   "scripts": {
     "dev": "cross-env NODE_OPTIONS=--max-old-space-size=4096 vite",
-    "build": "tsc && vite build && electron-builder -c.publish.provider=generic -c.publish.url=https://example.com/downloads",
-    "build:dir": "tsc && vite build && electron-builder --dir -c.publish.provider=generic",
+    "build": "tsc && vite build && electron-builder",
+    "build:dir": "tsc && vite build && electron-builder --dir",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "rebuild": "electron-rebuild -w better-sqlite3",

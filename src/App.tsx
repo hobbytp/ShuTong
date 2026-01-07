@@ -7,6 +7,7 @@ import { Analytics } from './pages/Analytics'
 import { Dashboard } from './pages/Dashboard'
 import { Journal } from './pages/Journal'
 import { Onboarding } from './pages/Onboarding'
+import { PerformanceDashboard } from './pages/PerformanceDashboard'
 import { PulseFeed } from './pages/PulseFeed'
 import { Settings } from './pages/Settings'
 import { Timelapse } from './pages/Timelapse'
@@ -15,7 +16,7 @@ import { StartupSplash } from './components/StartupSplash'
 import { useSystemStore, type AppState } from './stores/systemStore'
 
 function App() {
-  const [page, setPage] = useState<'home' | 'settings' | 'onboarding' | 'journal' | 'timelapse' | 'timeline' | 'pulse' | 'analytics'>('home')
+  const [page, setPage] = useState<'home' | 'settings' | 'onboarding' | 'journal' | 'timelapse' | 'timeline' | 'pulse' | 'analytics' | 'performance'>('home')
   const [selectedCardId, setSelectedCardId] = useState<number | null>(null)
 
   const status = useSystemStore((state) => state.status);
@@ -154,6 +155,7 @@ function App() {
               {page === 'timelapse' && <Timelapse />}
               {page === 'pulse' && <PulseFeed />}
               {page === 'analytics' && <Analytics />}
+              {page === 'performance' && <PerformanceDashboard />}
               {page === 'settings' && <Settings onBack={() => setPage('home')} />}
             </div>
           </AppShell>

@@ -1,6 +1,7 @@
 import i18next from 'i18next';
 import { Jimp } from 'jimp';
 import { getMergedLLMConfig } from '../config_manager';
+import { getCentralMetrics } from '../infrastructure/monitoring/metrics-types';
 import { Screenshot } from '../infrastructure/repositories/interfaces';
 import { safeParseJSON } from '../utils/json';
 import { getLLMMetrics } from './metrics';
@@ -26,12 +27,35 @@ export interface ActivityCard {
 
 
 export class LLMService {
+    // P2: Track concurrent LLM requests for saturation visibility
+    private concurrentRequests = 0;
+
     constructor() {
     }
 
     // No longer caching provider internally as it depends on the task (role)
 
+    // Helper to update concurrent request gauge
+    private updateConcurrentMetric(): void {
+        const metricsInstance = getCentralMetrics();
+        if (metricsInstance) {
+            metricsInstance.setGauge('llm.concurrent_requests', this.concurrentRequests);
+        }
+    }
+
     async transcribeBatch(screenshots: Screenshot[], prompt?: string): Promise<Observation[]> {
+        this.concurrentRequests++;
+        this.updateConcurrentMetric();
+
+        try {
+            return await this._transcribeBatchInternal(screenshots, prompt);
+        } finally {
+            this.concurrentRequests--;
+            this.updateConcurrentMetric();
+        }
+    }
+
+    private async _transcribeBatchInternal(screenshots: Screenshot[], prompt?: string): Promise<Observation[]> {
         if (screenshots.length === 0) return [];
 
         const config = getMergedLLMConfig();
@@ -206,6 +230,18 @@ Return JSON format:
     }
 
     async generateActivityCards(observations: Observation[]): Promise<ActivityCard[]> {
+        this.concurrentRequests++;
+        this.updateConcurrentMetric();
+
+        try {
+            return await this._generateActivityCardsInternal(observations);
+        } finally {
+            this.concurrentRequests--;
+            this.updateConcurrentMetric();
+        }
+    }
+
+    private async _generateActivityCardsInternal(observations: Observation[]): Promise<ActivityCard[]> {
         if (observations.length === 0) return [];
 
         // Safety: Sample observations if too many to prevent token explosion
@@ -304,6 +340,18 @@ Return JSON:
     }
 
     async mergeCards(cards: { title: string, summary: string, category: string, start_ts: number, end_ts: number }[]): Promise<ActivityCard | null> {
+        this.concurrentRequests++;
+        this.updateConcurrentMetric();
+
+        try {
+            return await this._mergeCardsInternal(cards);
+        } finally {
+            this.concurrentRequests--;
+            this.updateConcurrentMetric();
+        }
+    }
+
+    private async _mergeCardsInternal(cards: { title: string, summary: string, category: string, start_ts: number, end_ts: number }[]): Promise<ActivityCard | null> {
         if (cards.length < 2) return null;
 
         // Get current language for output

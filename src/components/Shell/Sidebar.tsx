@@ -1,4 +1,4 @@
-import { Activity, Clock, FileText, Home, PlayCircle, Settings, Sparkles } from 'lucide-react';
+import { Activity, Clock, FileText, Gauge, Home, PlayCircle, Settings, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
@@ -21,6 +21,7 @@ export function Sidebar({ activePage, onNavigate, isHydrated = true }: SidebarPr
         { id: 'analytics', icon: Activity, label: t('sidebar.analytics', 'Analytics') },
         { id: 'journal', icon: FileText, label: t('sidebar.journal', 'Journal') },
         { id: 'timelapse', icon: PlayCircle, label: t('sidebar.timelapse', 'Timelapse') },
+        { id: 'performance', icon: Gauge, label: t('sidebar.performance', 'Performance') },
     ];
 
     return (

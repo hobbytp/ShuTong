@@ -347,6 +347,40 @@ export interface IPCContract {
             active_filter?: { name: string; definition: any };
         }
     };
+
+    // -------------------------------------------------------------------------
+    // Performance Monitoring
+    // -------------------------------------------------------------------------
+    'performance:getSnapshot': { args: []; return: PerformanceSnapshot };
+    'performance:subscribe': { args: []; return: void };
+    'performance:unsubscribe': { args: []; return: void };
+}
+
+// Performance Snapshot type (matches metrics-collector.ts)
+export interface PerformanceSnapshot {
+    timestamp: number;
+    system: {
+        cpuPercent: number;
+        memoryUsedBytes: number;
+        memoryTotalBytes: number;
+        heapUsedBytes: number;
+        eventLoopLagMs: number;
+    };
+    histograms: {
+        [name: string]: {
+            p50: number;
+            p95: number;
+            p99: number;
+            count: number;
+            avgMs: number;
+        };
+    };
+    counters: {
+        [name: string]: number;
+    };
+    gauges: {
+        [name: string]: number;
+    };
 }
 
 // =============================================================================

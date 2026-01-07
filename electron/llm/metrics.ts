@@ -12,6 +12,7 @@
 export type { LLMErrorCategory, LLMMetricsSummary } from '../../shared/ipc-contract';
 import type { LLMErrorCategory, LLMMetricsSummary } from '../../shared/ipc-contract';
 import type { AdaptiveChunkingConfig } from '../config_manager';
+import { getCentralMetrics } from '../infrastructure/monitoring/metrics-types';
 
 export interface LLMRequestMetric {
     timestamp: number;
@@ -102,7 +103,37 @@ export class LLMMetricsCollector {
             this.totalCompletionTokens += metric.completionTokens;
         }
 
-        // (Note: tokensPerSecond tracking removed - now using duration-based adaptive logic)
+        // ======= Bridge to Central MetricsCollector for Dashboard =======
+        const centralMetrics = getCentralMetrics();
+        if (centralMetrics) {
+            // Counter: llm.requests_total
+            centralMetrics.incCounter('llm.requests_total', 1, {
+                provider: metric.provider,
+                model: metric.model,
+            });
+
+            // Counter: llm.errors_total (only on failure)
+            if (!metric.success && metric.errorCategory) {
+                // P3: Use consistent lowercase naming for error categories
+                centralMetrics.incCounter('llm.errors_total', 1, {
+                    provider: metric.provider,
+                    error_category: metric.errorCategory.replace(/_/g, ''), // e.g., rate_limit -> ratelimit
+                });
+            }
+
+            // Histogram: llm.request_duration_seconds
+            centralMetrics.observeHistogram(
+                'llm.request_duration_seconds',
+                metric.durationMs / 1000, // Convert ms to seconds
+                { provider: metric.provider }
+            );
+
+            // Gauge: llm.tokens_total (cumulative)
+            if (metric.promptTokens || metric.completionTokens) {
+                centralMetrics.setGauge('llm.tokens_total', this.totalPromptTokens + this.totalCompletionTokens);
+            }
+        }
+        // ================================================================
 
         // Log structured metric
         console.log('[LLMMetrics]', {

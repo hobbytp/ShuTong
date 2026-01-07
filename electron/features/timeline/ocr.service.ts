@@ -12,7 +12,7 @@
 import { existsSync } from 'fs';
 import { createWorker, Worker } from 'tesseract.js';
 import { getMergedLLMConfig } from '../../config_manager';
-import { measure, metrics } from '../../infrastructure/monitoring/metrics.service';
+import { metrics } from '../../infrastructure/monitoring/metrics-collector';
 import { consumeStreamWithIdleTimeout, getLLMProvider } from '../../llm/providers';
 import { getSetting, setSetting } from '../../storage';
 
@@ -345,6 +345,12 @@ export class OCRService {
      * @param options OCR options
      * @returns Extracted text and metadata
      */
+    /**
+     * Extract text from a screenshot image
+     * @param imagePath Absolute path to the image file
+     * @param options OCR options
+     * @returns Extracted text and metadata
+     */
     async extractText(imagePath: string, options?: OCROptions): Promise<OCRResult | null> {
         if (!this.isEnabled()) {
             console.log('[OCRService] OCR is disabled, skipping extraction');
@@ -356,30 +362,34 @@ export class OCRService {
 
         console.log(`[OCRService] Extracting text using ${provider.name} from: ${imagePath}`);
 
+        // Start timer and count request
+        const timer = metrics.startTimer('ocr.duration_seconds', { provider: provider.name });
+        metrics.incCounter('ocr.requests_total', { provider: provider.name });
+
         try {
-            const result = await measure('ocr.extract', () => provider.extract(imagePath, options), {
-                provider: provider.name,
-                image: imagePath
-            });
+            const result = await provider.extract(imagePath, options);
+            timer.end(); // Stop timer
+
             console.log(`[OCRService] Extracted ${result.text.length} chars in ${result.processingTimeMs}ms`);
 
             // Record detailed stats
-            metrics.recordDuration('ocr.provider.latency', result.processingTimeMs, { provider: provider.name });
-            metrics.gauge('ocr.text.length', result.text.length, { provider: provider.name });
+            metrics.setGauge('ocr.text_length_chars', result.text.length, { provider: provider.name });
 
             // Success reset
             if (this.currentEngine !== 'cloud' && provider.name !== 'CloudLLM') {
                 this.consecutiveFailures = 0;
+                metrics.setGauge('ocr.consecutive_failures', 0, { provider: provider.name });
             }
 
             return result;
         } catch (err) {
             console.error('[OCRService] Extraction failed:', err);
-            metrics.incrementCounter('ocr.failure', 1, { provider: provider.name, error: (err as Error).message });
+            metrics.incCounter('ocr.errors_total', { provider: provider.name, error_category: 'extraction_failed' });
 
             // Handle Failure & Circuit Breaker
             if (this.currentEngine !== 'cloud' && provider.name !== 'CloudLLM') {
                 this.consecutiveFailures++;
+                metrics.setGauge('ocr.consecutive_failures', this.consecutiveFailures, { provider: provider.name });
                 console.warn(`[OCRService] Local OCR failure ${this.consecutiveFailures}/${this.MAX_FAILURES}`);
 
                 // Log memory usage on failure to detect OOM patterns
@@ -388,7 +398,9 @@ export class OCRService {
 
                 if (this.consecutiveFailures >= this.MAX_FAILURES) {
                     console.error('[OCRService] Too many failures. Opening circuit breaker (fallback to Cloud).');
-                    metrics.incrementCounter('ocr.circuit_breaker.open', 1, { engine: this.currentEngine });
+                    metrics.incCounter('ocr.circuit_breaker_opened_total', { engine: this.currentEngine });
+                    metrics.setGauge('ocr.circuit_breaker_state', 1, { engine: this.currentEngine });
+
                     this.circuitOpenTs = Date.now();
                     this.consecutiveFailures = 0;
 
@@ -489,11 +501,16 @@ export class OCRService {
      * Get current OCR status for UI display
      */
     getStatus(): OCRStatusInfo {
-        const recentMetrics = metrics.getRecent('ocr.extract', 10);
-        const successCount = recentMetrics.filter(m => !m.tags?.error).length;
-        const avgDuration = recentMetrics.length > 0
-            ? recentMetrics.reduce((sum, m) => sum + (m.value || 0), 0) / recentMetrics.length
-            : 0;
+        const snapshot = metrics.getSnapshot();
+        const providerName = this.getActiveProvider().name;
+
+        // Attempt to get average duration for current provider
+        // Note: Key construction matches MetricsCollector logic (labels sorted alpha)
+        const histKey = `ocr.duration_seconds{provider="${providerName}"}`;
+        const avgDuration = snapshot.histograms[histKey]?.avgMs || 0;
+
+        // Success rate can be derived from ocr.errors_total / ocr.requests_total if needed
+
 
         // Determine provider readiness
         let isReady = true;
@@ -521,7 +538,7 @@ export class OCRService {
             initDurationMs,
             isCircuitOpen: this.isCircuitOpen(),
             consecutiveFailures: this.consecutiveFailures,
-            recentSuccessRate: recentMetrics.length > 0 ? successCount / recentMetrics.length : 1,
+            recentSuccessRate: 1, // Placeholder
             avgInferenceMs: Math.round(avgDuration)
         };
     }

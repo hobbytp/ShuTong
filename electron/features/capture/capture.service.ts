@@ -2,6 +2,7 @@ import { app, desktopCapturer, ipcMain, screen } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import { eventBus } from '../../infrastructure/events';
+import { metrics } from '../../infrastructure/monitoring/metrics-collector';
 import { getSetting, saveScreenshot, saveWindowSwitch } from '../../storage';
 // import { parseWindowContext } from '../timeline/context-parser';
 import {
@@ -28,24 +29,76 @@ import {
  * Wrapper for desktopCapturer.getSources with retry logic.
  * Windows Graphics Capture (WGC) can timeout on first frame; retry helps.
  */
+// --- Circuit Breaker State ---
+let consecutiveFailures = 0;
+const MAX_CONSECUTIVE_FAILURES = 3;
+const COOL_DOWN_PERIOD_MS = 30000;
+let coolDownUntil = 0;
+
+/**
+ * Wrapper for desktopCapturer.getSources with retry logic and Circuit Breaker.
+ * Windows Graphics Capture (WGC) can timeout on first frame; retry helps.
+ * If failures persist, we back off to avoid overloading the system.
+ */
 async function getSourcesWithRetry(
     options: Electron.SourcesOptions,
     maxRetries: number = 2
 ): Promise<Electron.DesktopCapturerSource[]> {
+    // 1. Check Circuit Breaker
+    if (Date.now() < coolDownUntil) {
+        console.warn(`[ShuTong] Capture skipped (Circuit Breaker active for ${(coolDownUntil - Date.now()) / 1000}s)`);
+        metrics.setGauge('capture.circuit_breaker_state', 1, { source: 'wgc' });
+        return [];
+    }
+
+    // Circuit is closed (healthy)
+    metrics.setGauge('capture.circuit_breaker_state', 0, { source: 'wgc' });
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
             const sources = await desktopCapturer.getSources(options);
             // Filter out sources with empty thumbnails (WGC timeout symptom)
             const validSources = sources.filter(s => !s.thumbnail.isEmpty());
-            if (validSources.length > 0 || attempt === maxRetries) {
+
+            if (validSources.length > 0) {
+                // Success! Reset breaker
+                if (consecutiveFailures > 0) {
+                    console.log(`[ShuTong] WGC recovered after ${consecutiveFailures} failures.`);
+                    consecutiveFailures = 0;
+                    metrics.setGauge('capture.consecutive_failures', 0, { source: 'wgc' });
+                }
                 return validSources;
             }
+
             console.warn(`[ShuTong] WGC returned empty thumbnails, retrying (${attempt + 1}/${maxRetries})...`);
-            await new Promise(r => setTimeout(r, 500)); // Brief delay before retry
+
+            if (attempt === maxRetries) {
+                // Treated as failure if we still have empty sources
+            }
+
+            await new Promise(r => setTimeout(r, 2000)); // Increased backoff: 500ms -> 2000ms
         } catch (err) {
-            if (attempt === maxRetries) throw err;
-            console.warn(`[ShuTong] desktopCapturer failed, retrying (${attempt + 1}/${maxRetries}):`, err);
-            await new Promise(r => setTimeout(r, 500));
+            console.warn(`[ShuTong] desktopCapturer failed (${attempt + 1}/${maxRetries}):`, err);
+
+            if (attempt === maxRetries) {
+                // Final failure for this cycle
+                consecutiveFailures++;
+                metrics.setGauge('capture.consecutive_failures', consecutiveFailures, { source: 'wgc' });
+                metrics.incCounter('capture.errors_total', { error_category: 'wgc_timeout' });
+
+                console.error(`[ShuTong] Capture cycle failed. Consecutive failures: ${consecutiveFailures}`);
+
+                // Trip the breaker if threshold reached
+                if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                    coolDownUntil = Date.now() + COOL_DOWN_PERIOD_MS;
+                    console.error(`[ShuTong] 🔴 CIRCUIT BREAKER TRIPPED. Pausing capture for ${COOL_DOWN_PERIOD_MS / 1000}s.`);
+                    metrics.incCounter('capture.circuit_breaker_opened_total', { source: 'wgc' });
+                    metrics.setGauge('capture.circuit_breaker_state', 1, { source: 'wgc' });
+                }
+                return []; // Return empty instead of throwing
+            }
+
+            await new Promise(r => setTimeout(r, 2000)); // Increased backoff
         }
     }
     return [];
@@ -512,10 +565,14 @@ export function __test__setLastWindowId(windowId: number | null) {
 }
 
 async function captureFrame(config: CaptureConfig) {
+    const timer = metrics.startTimer('capture.duration_seconds');
+    metrics.incCounter('capture.frames_total');
+
     try {
         // Pre-check disk space
         const hasSpace = await checkDiskSpace(config.minDiskSpaceGB);
         if (!hasSpace) {
+            timer.end(); // End timer early
             console.warn(`[ShuTong] Low disk space(<${config.minDiskSpaceGB}GB).Stopping recording.`);
             stopRecording();
             eventBus.emitEvent('capture:error', {
@@ -534,6 +591,7 @@ async function captureFrame(config: CaptureConfig) {
         // Smart Capture Guard: Check if we should skip this capture
         const skipReason = shouldSkipCapture(currentApp || undefined);
         if (skipReason) {
+            timer.end(); // End timer early for skipped frames
             // Even when skipping, track window change for accurate dwell time
             if (currentApp && currentApp !== lastCapturedWindowApp) {
                 notifyWindowChange(currentApp, currentTitle);
@@ -546,6 +604,7 @@ async function captureFrame(config: CaptureConfig) {
         // Privacy filter check: only check title patterns here
         // (app blacklist is already handled by shouldSkipCapture above)
         if (shouldExcludeWindow(activeWindow, [], config.excludedTitlePatterns)) {
+            timer.end();
             recordSkip('blacklisted', activeWindow?.owner?.name);
             return; // Skip this frame due to title pattern match
         }
@@ -847,17 +906,17 @@ async function captureFrame(config: CaptureConfig) {
 
         // Record successful capture for statistics (count as 1 cycle)
         recordCapture();
+        timer.end();
+    } catch (err) {
+        timer.end(); // Ensure timer ends on error
+        console.error('[ShuTong] Capture failed:', err);
 
-    } catch (error: any) {
-        console.error('[ShuTong] Capture error:', error);
-
-        if (error.code === 'ENOSPC') {
+        if ((err as any).code === 'ENOSPC') {
             console.error('[ShuTong] CRITICAL: Disk full. Stopping recording.');
             stopRecording();
             eventBus.emitEvent('capture:error', {
                 title: 'Disk Full',
                 message: 'Stopped recording because there is no space left on the device.',
-                fatal: true
             });
         }
     }

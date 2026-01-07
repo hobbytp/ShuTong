@@ -1,0 +1,234 @@
+/**
+ * Performance Dashboard Styles - Grafana Dark Theme
+ */
+
+/* Grafana Theme Variables */
+.performance-dashboard.grafana-style {
+    --panel-bg: #181b1f;
+    --panel-header: #22252b;
+    --text-primary: #ccccdc;
+    --text-secondary: #8e8e9e;
+    --color-green: #73bf69;
+    --color-yellow: #e0b400;
+    --color-red: #f2495c;
+    --color-blue: #5794f2;
+}
+
+.performance-dashboard {
+    padding: 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+    color: var(--color-text);
+}
+
+.performance-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.performance-header h1 {
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.status-badge {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.status-live {
+    color: var(--color-green, #22c55e);
+    font-weight: 500;
+}
+
+.status-paused {
+    color: var(--color-yellow, #f59e0b);
+    font-weight: 500;
+}
+
+.refresh-btn {
+    background: var(--color-surface, #22252b);
+    border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
+    border-radius: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.refresh-btn:hover {
+    background: var(--color-hover, #2a2d33);
+}
+
+.error-banner {
+    background: var(--color-error-bg, rgba(242, 73, 92, 0.15));
+    color: var(--color-red, #f2495c);
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    border: 1px solid var(--color-red, #f2495c);
+}
+
+/* Metrics Section */
+.metrics-section {
+    margin-bottom: 20px;
+}
+
+.metrics-section h2 {
+    font-size: 14px;
+    font-weight: 500;
+    margin: 0 0 12px 0;
+    color: var(--text-secondary, var(--color-text-secondary));
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Panel Row - Grafana-style grid */
+.panel-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+/* Legacy grid styles (kept for backwards compat) */
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+}
+
+.metric-card {
+    background: var(--panel-bg, var(--color-background));
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+    transition: transform 0.2s;
+}
+
+.metric-card:hover {
+    transform: translateY(-2px);
+}
+
+.metric-card.severity-low {
+    border-left: 4px solid var(--color-green, #22c55e);
+}
+
+.metric-card.severity-medium {
+    border-left: 4px solid var(--color-yellow, #f59e0b);
+}
+
+.metric-card.severity-high {
+    border-left: 4px solid var(--color-red, #ef4444);
+}
+
+.metric-label {
+    font-size: 12px;
+    color: var(--text-secondary, var(--color-text-muted));
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+
+.metric-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text-primary, var(--color-text));
+}
+
+.metric-subvalue {
+    font-size: 11px;
+    color: var(--text-secondary, var(--color-text-muted));
+    margin-top: 4px;
+}
+
+/* Histogram List */
+.histogram-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.histogram-row {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--panel-bg, var(--color-background));
+    border-radius: 8px;
+    gap: 16px;
+}
+
+.histogram-name {
+    flex: 1;
+    font-family: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
+    font-size: 13px;
+    color: var(--color-blue, var(--color-primary));
+}
+
+.histogram-values {
+    display: flex;
+    gap: 4px;
+    font-family: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
+    font-size: 13px;
+}
+
+.histogram-values .divider {
+    color: var(--text-secondary, var(--color-text-muted));
+}
+
+.histogram-count {
+    font-size: 12px;
+    color: var(--text-secondary, var(--color-text-muted));
+}
+
+/* Counter/Gauge Grid */
+.counter-grid,
+.gauge-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 8px;
+}
+
+.counter-item,
+.gauge-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--panel-bg, var(--color-background));
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.counter-name,
+.gauge-name {
+    font-family: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
+    color: var(--text-secondary, var(--color-text-secondary));
+}
+
+.counter-value,
+.gauge-value {
+    font-weight: 600;
+    color: var(--text-primary, var(--color-text));
+}
+
+.no-data {
+    color: var(--text-secondary, var(--color-text-muted));
+    font-style: italic;
+    padding: 16px;
+    text-align: center;
+}
+
+/* Footer */
+.performance-footer {
+    display: flex;
+    justify-content: space-between;
+    padding-top: 16px;
+    font-size: 12px;
+    color: var(--text-secondary, var(--color-text-muted));
+}
+
+.history-count {
+    opacity: 0.7;
+}

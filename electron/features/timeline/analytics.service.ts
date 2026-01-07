@@ -7,7 +7,8 @@
  */
 
 import { typedHandle } from '../../infrastructure/ipc/typed-ipc';
-import { defaultAnalyticsRepository, IAnalyticsRepository } from './analytics.repository';
+import { WindowSwitchRecord } from '../../storage';
+import { defaultAnalyticsRepository, IAnalyticsRepository, TimelineCardRecord } from './analytics.repository';
 
 // Initialize with default implementation
 let repository: IAnalyticsRepository = defaultAnalyticsRepository;
@@ -50,21 +51,36 @@ export function getDailyActivitySummary(date: string): DailyActivitySummary {
     const startOfDay = new Date(year, month - 1, day, 0, 0, 0).getTime() / 1000;
     const endOfDay = startOfDay + 86400;
 
-    // Get dwell stats for the day
-    const dwellStats = repository.getWindowDwellStats(startOfDay, endOfDay);
+    // Use NEW method to get verified data
+    const { cards, switches } = repository.getDailyUsageFromCards(startOfDay, endOfDay);
 
-    // Calculate total active time
-    const totalActiveSeconds = dwellStats.reduce((sum, stat) => sum + stat.total_seconds, 0);
+    // 1. Calculate total active time (Sum of Card Durations) - MATCHES DASHBOARD
+    const totalActiveSeconds = cards.reduce((sum, card) => sum + (card.end_ts - card.start_ts), 0);
 
-    // Build app usage with percentages
-    const appUsage: AppUsageEntry[] = dwellStats.map(stat => ({
-        app: stat.app,
-        seconds: stat.total_seconds,
-        percentage: totalActiveSeconds > 0 ? (stat.total_seconds / totalActiveSeconds) * 100 : 0
-    }));
+    // 2. Build app usage from FILTERED switches
+    // We need to calculate dwell time from these switches
+    // Since switches are now filtered to be inside cards, we can trust them more,
+    // but we need to re-calculate durations.
+    // However, the simple `getWindowDwellStats` logic was "switch duration = next - current".
+    // If we have gaps because we filtered out idle time, that logic holds ONLY if we are careful.
+    // actually, `switches` only contains points.
+    // If we have Card A [10:00 - 11:00] and Card B [12:00 - 13:00].
+    // And switches S1 (10:00), S2 (10:30), S3 (12:00).
+    // S1 duration is 10:30 - 10:00 = 30m.
+    // S2 duration? If S3 is 12:00, S2->S3 is 1.5h. 
+    // BUT we know S2 is in Card A (ends 11:00). So meaningful duration is limited to Card A end?
+    // OR, we just use the raw dwell stats from the filtered switches but cap them?
 
-    // Get hourly activity distribution
-    const hourlyActivity = getHourlyActivityDistribution(startOfDay, endOfDay);
+    // Better approach for App Usage:
+    // Iterate through cards. For each card, find switches INSIDE it.
+    // Calculate dwell times inside that card.
+
+    // Let's call a helper to process this locally
+    const appUsage = calculateAppUsageFromCardsAndSwitches(cards, switches);
+
+    // 3. Get hourly activity (distribution of card durations)
+    // We distribute the CARD durations, not just switches
+    const hourlyActivity = calculateHourlyActivityFromCards(cards);
 
     return {
         date,
@@ -75,42 +91,94 @@ export function getDailyActivitySummary(date: string): DailyActivitySummary {
 }
 
 /**
- * Get hourly activity distribution for a time range.
- * Returns array of 24 values (seconds active per hour).
+ * Calculate app usage breakdown by intersecting switches with cards.
  */
-function getHourlyActivityDistribution(startTs: number, endTs: number): number[] {
-    const hourlySeconds = new Array(24).fill(0);
-    const switches = repository.getWindowSwitches(startTs, endTs, 10000);
+/**
+ * Calculate app usage breakdown by intersecting switches with cards.
+ * Handles edge case: if a card has no switches, attributes time to card title.
+ */
+function calculateAppUsageFromCardsAndSwitches(
+    cards: TimelineCardRecord[],
+    switches: WindowSwitchRecord[]
+): AppUsageEntry[] {
+    const appSeconds: Record<string, number> = {};
+    let totalSeconds = 0;
 
-    for (let i = 0; i < switches.length; i++) {
-        const current = switches[i];
-        const next = switches[i + 1];
+    cards.forEach(card => {
+        const cardStart = card.start_ts;
+        const cardEnd = card.end_ts;
+        const cardDuration = cardEnd - cardStart;
 
-        if (next) {
-            let remainingDuration = next.timestamp - current.timestamp;
-            let currentTs = current.timestamp;
+        // Find switches relevant to this card
+        const relevantSwitches = switches.filter(
+            s => s.timestamp >= cardStart && s.timestamp < cardEnd
+        );
 
-            // Distribute duration across hours if it spans multiple hours
-            while (remainingDuration > 0) {
-                const currentDate = new Date(currentTs * 1000);
-                const hour = currentDate.getHours();
-
-                // Calculate seconds until next hour
-                const secondsUntilNextHour = 3600 - (currentDate.getMinutes() * 60 + currentDate.getSeconds());
-                const durationThisHour = Math.min(remainingDuration, secondsUntilNextHour);
-
-                if (hour >= 0 && hour < 24) {
-                    hourlySeconds[hour] += durationThisHour;
-                }
-
-                remainingDuration -= durationThisHour;
-                currentTs += durationThisHour;
-            }
+        // Edge case: No switches recorded inside this card
+        // Fallback to card title as the "app" to ensure time is not lost
+        if (relevantSwitches.length === 0) {
+            const fallbackApp = card.title || card.category || 'Unknown';
+            appSeconds[fallbackApp] = (appSeconds[fallbackApp] || 0) + cardDuration;
+            totalSeconds += cardDuration;
+            return;
         }
-    }
+
+        // Calculate durations from switches
+        for (let i = 0; i < relevantSwitches.length; i++) {
+            const sw = relevantSwitches[i];
+            const nextSw = relevantSwitches[i + 1];
+
+            // Duration is from this switch until:
+            // 1. The next switch, OR
+            // 2. The end of the card
+            // whichever comes first.
+            const segmentEnd = nextSw ? Math.min(nextSw.timestamp, cardEnd) : cardEnd;
+            const duration = Math.max(0, segmentEnd - sw.timestamp);
+
+            const appName = sw.to_app || 'Unknown';
+            appSeconds[appName] = (appSeconds[appName] || 0) + duration;
+            totalSeconds += duration;
+        }
+    });
+
+    const result: AppUsageEntry[] = Object.entries(appSeconds).map(([app, seconds]) => ({
+        app,
+        seconds,
+        percentage: totalSeconds > 0 ? (seconds / totalSeconds) * 100 : 0
+    }));
+
+    return result.sort((a, b) => b.seconds - a.seconds);
+}
+
+function calculateHourlyActivityFromCards(cards: TimelineCardRecord[]): number[] {
+    const hourlySeconds = new Array(24).fill(0);
+
+    cards.forEach(card => {
+        let currentTs = card.start_ts;
+        let remaining = card.end_ts - card.start_ts;
+
+        while (remaining > 0) {
+            const d = new Date(currentTs * 1000);
+            const hour = d.getHours();
+
+            // Seconds left in this hour
+            const secondsInHour = 3600 - (d.getMinutes() * 60 + d.getSeconds());
+
+            const duration = Math.min(remaining, secondsInHour);
+
+            if (hour >= 0 && hour < 24) {
+                hourlySeconds[hour] += duration;
+            }
+
+            remaining -= duration;
+            currentTs += duration;
+        }
+    });
 
     return hourlySeconds;
 }
+
+// Legacy getHourlyActivityDistribution removed - replaced by calculateHourlyActivityFromCards
 
 /**
  * Get activity timeline events for a time range.

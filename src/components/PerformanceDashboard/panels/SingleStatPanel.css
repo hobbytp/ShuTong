@@ -1,0 +1,41 @@
+/**
+ * SingleStatPanel Styles
+ */
+
+.single-stat-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.single-stat-value {
+    font-size: 32px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+    color: var(--text-primary, #ccccdc);
+    line-height: 1;
+}
+
+.single-stat-value--green {
+    color: var(--color-green, #73bf69);
+}
+
+.single-stat-value--yellow {
+    color: var(--color-yellow, #e0b400);
+}
+
+.single-stat-value--red {
+    color: var(--color-red, #f2495c);
+}
+
+.single-stat-unit {
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--text-secondary, #8e8e9e);
+    margin-left: 4px;
+}
+
+.sparkline {
+    opacity: 0.8;
+}

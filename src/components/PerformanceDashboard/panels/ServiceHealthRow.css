@@ -1,0 +1,44 @@
+/**
+ * ServiceHealthRow Styles
+ */
+
+.service-health-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 16px;
+    background: var(--panel-bg, #181b1f);
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.service-health-label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-secondary, #8e8e9e);
+    min-width: 100px;
+}
+
+.service-health-indicators {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.service-health-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: default;
+}
+
+.service-health-emoji {
+    font-size: 16px;
+}
+
+.service-health-name {
+    font-size: 12px;
+    color: var(--text-primary, #ccccdc);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}

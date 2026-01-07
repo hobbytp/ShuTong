@@ -3,10 +3,12 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock repository instead of direct storage dependencies
+// Mock data stores
 const mockWindowSwitches: any[] = [];
 const mockDwellStats: any[] = [];
 const mockSkipLog: any[] = [];
+const mockCards: any[] = [];
+const mockCardSwitches: any[] = [];
 const mockGuardStats = {
     totalCaptures: 0,
     totalSkips: 0,
@@ -21,7 +23,8 @@ vi.mock('../../electron/features/timeline/analytics.repository', () => ({
         getWindowDwellStats: vi.fn(() => mockDwellStats),
         getGuardStats: vi.fn(() => ({ ...mockGuardStats })),
         getSkipLog: vi.fn((limit?: number) => limit ? mockSkipLog.slice(-limit) : [...mockSkipLog]),
-        resetGuardStats: vi.fn()
+        resetGuardStats: vi.fn(),
+        getDailyUsageFromCards: vi.fn(() => ({ cards: [...mockCards], switches: [...mockCardSwitches] }))
     }
 }));
 
@@ -38,6 +41,8 @@ describe('Analytics Service', () => {
         mockWindowSwitches.length = 0;
         mockDwellStats.length = 0;
         mockSkipLog.length = 0;
+        mockCards.length = 0;
+        mockCardSwitches.length = 0;
         mockGuardStats.totalCaptures = 0;
         mockGuardStats.totalSkips = 0;
         mockGuardStats.skipsByReason = {};
@@ -53,18 +58,98 @@ describe('Analytics Service', () => {
             expect(summary.hourlyActivity.length).toBe(24);
         });
 
-        it('should calculate app usage percentages', () => {
-            mockDwellStats.push(
-                { app: 'VSCode', total_seconds: 3600 },  // 50%
-                { app: 'Chrome', total_seconds: 3600 }   // 50%
-            );
+        it('should calculate total active time from card durations', () => {
+            // Card from 10:00 to 11:00 (1 hour = 3600 seconds)
+            mockCards.push({
+                id: 1,
+                start_ts: 1705312800, // 2024-01-15 10:00:00
+                end_ts: 1705316400,   // 2024-01-15 11:00:00
+                category: 'Work',
+                title: 'Coding Session'
+            });
+            // Card from 14:00 to 15:30 (1.5 hours = 5400 seconds)
+            mockCards.push({
+                id: 2,
+                start_ts: 1705327200, // 2024-01-15 14:00:00
+                end_ts: 1705332600,   // 2024-01-15 15:30:00
+                category: 'Work',
+                title: 'Meeting'
+            });
 
             const summary = getDailyActivitySummary('2024-01-15');
 
-            expect(summary.totalActiveSeconds).toBe(7200);
+            expect(summary.totalActiveSeconds).toBe(3600 + 5400); // 9000 seconds = 2.5 hours
+        });
+
+        it('should calculate app usage from switches inside cards', () => {
+            mockCards.push({
+                id: 1,
+                start_ts: 1705312800, // 10:00:00
+                end_ts: 1705316400,   // 11:00:00
+                category: 'Work',
+                title: 'Coding'
+            });
+            // Switch at 10:00 to VSCode, then at 10:30 to Chrome
+            mockCardSwitches.push({
+                timestamp: 1705312800,
+                to_app: 'VSCode',
+                to_title: 'index.ts'
+            });
+            mockCardSwitches.push({
+                timestamp: 1705314600, // 10:30
+                to_app: 'Chrome',
+                to_title: 'Google'
+            });
+
+            const summary = getDailyActivitySummary('2024-01-15');
+
+            // VSCode: 10:00 - 10:30 = 1800s
+            // Chrome: 10:30 - 11:00 = 1800s
             expect(summary.appUsage.length).toBe(2);
-            expect(summary.appUsage[0].percentage).toBeCloseTo(50, 0);
-            expect(summary.appUsage[1].percentage).toBeCloseTo(50, 0);
+            expect(summary.appUsage.find(a => a.app === 'VSCode')?.seconds).toBe(1800);
+            expect(summary.appUsage.find(a => a.app === 'Chrome')?.seconds).toBe(1800);
+        });
+
+        it('should fallback to card title when no switches present', () => {
+            mockCards.push({
+                id: 1,
+                start_ts: 1705312800,
+                end_ts: 1705316400,
+                category: 'Work',
+                title: 'Deep Focus Session'
+            });
+            // No switches added
+
+            const summary = getDailyActivitySummary('2024-01-15');
+
+            // Should attribute time to the card title
+            expect(summary.appUsage.length).toBe(1);
+            expect(summary.appUsage[0].app).toBe('Deep Focus Session');
+            expect(summary.appUsage[0].seconds).toBe(3600);
+        });
+
+        it('should distribute hourly activity correctly', () => {
+            // Use today's date with specific hours to avoid timezone issues
+            const today = new Date();
+            today.setHours(9, 30, 0, 0); // 9:30 AM local time
+            const start = Math.floor(today.getTime() / 1000);
+            today.setHours(10, 30, 0, 0); // 10:30 AM local time
+            const end = Math.floor(today.getTime() / 1000);
+
+            mockCards.push({
+                id: 1,
+                start_ts: start,
+                end_ts: end,
+                category: 'Work',
+                title: 'Cross-hour session'
+            });
+
+            const summary = getDailyActivitySummary(today.toISOString().split('T')[0]);
+
+            // Hour 9 should have 30 minutes (1800s)
+            // Hour 10 should have 30 minutes (1800s)
+            expect(summary.hourlyActivity[9]).toBe(1800);
+            expect(summary.hourlyActivity[10]).toBe(1800);
         });
     });
 
@@ -190,3 +275,4 @@ describe('Analytics Service', () => {
         });
     });
 });
+
