@@ -4,6 +4,7 @@ import { app } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import { getLLMConfigForMain, LLMGlobalConfig } from '../config_manager';
+import { Shutdownable, ShutdownPriority } from '../infrastructure/lifecycle';
 
 // Define the schema for Activity Context
 // Aligning with OpenContext's structure but simplified for ShuTong's need
@@ -23,7 +24,9 @@ export interface ActivityVector {
     [key: string]: unknown; // Allow flexible schema for LanceDB
 }
 
-export class VectorStorage {
+export class VectorStorage implements Shutdownable {
+    public readonly name = 'VectorStorage';
+    public readonly priority = ShutdownPriority.LOW;
     private static instance: VectorStorage;
     private db: lancedb.Connection | null = null;
     private embeddings: OpenAIEmbeddings | null = null;
@@ -76,7 +79,7 @@ export class VectorStorage {
                 } else {
                     console.log(`[VectorStorage] Table '${actTableName}' does not exist yet.`);
                 }
-                
+
                 // Observation Table (New)
                 const obsTableName = 'observation_context';
                 if (existingTables.includes(obsTableName)) {
@@ -178,7 +181,7 @@ export class VectorStorage {
         if (!this.embeddings || !this.db) {
             // Log warning only if not disabled
             if (!this.embeddingsDisabledReason) {
-                 // console.warn('[VectorStorage] Not initialized. Skipping addObservation.');
+                // console.warn('[VectorStorage] Not initialized. Skipping addObservation.');
             }
             return;
         }
@@ -218,7 +221,7 @@ export class VectorStorage {
             // console.log(`[VectorStorage] Added observation ${obs.id} to vector index.`);
 
         } catch (err) {
-             if (this.isAuthError(err)) {
+            if (this.isAuthError(err)) {
                 this.disableEmbeddings('Embedding auth failed', err);
                 return;
             }
@@ -306,7 +309,7 @@ export class VectorStorage {
 
         try {
             const queryVector = await this.embeddings.embedQuery(query);
-            
+
             const results: ActivityVector[] = [];
 
             // Search Activity Table
@@ -316,7 +319,7 @@ export class VectorStorage {
                     .toArray();
                 results.push(...(acts as ActivityVector[]));
             }
-            
+
             // Search Observation Table
             if (this.observationTable) {
                 const obs = await this.observationTable.vectorSearch(queryVector)
@@ -400,6 +403,18 @@ export class VectorStorage {
         } catch (err) {
             console.error('[VectorStorage] Failed to reset:', err);
             throw err;
+        }
+    }
+
+    public async shutdown(): Promise<void> {
+        console.log('[VectorStorage] Shutting down...');
+        if (this.db) {
+            // LanceDB doesn't always have a close method exposed in all versions, 
+            // but setting it to null prevents further usage.
+            // If the underlying bindings support it, we could try.
+            // For now, we assume safe disposal or just stopping writes.
+            this.db = null;
+            this.activityTable = null;
         }
     }
 }
