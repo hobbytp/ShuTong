@@ -51,29 +51,29 @@ export function PerformanceDashboard() {
     // Service health summary
     const serviceHealth: ServiceHealth[] = [
         {
-            name: 'DB',
+            name: t('performance.database', 'DB'),
             status: getServiceStatus(dbErrorRate, { warning: 1, critical: 5 }),
-            tooltip: `Error Rate: ${dbErrorRate.toFixed(2)}%`,
+            tooltip: `${t('performance.panels.error_rate', 'Error Rate')}: ${dbErrorRate.toFixed(2)}%`,
         },
         {
-            name: 'OCR',
+            name: t('performance.ocr', 'OCR'),
             status: getServiceStatus(ocrErrorRate, { warning: 5, critical: 20 }),
-            tooltip: `Error Rate: ${ocrErrorRate.toFixed(2)}%`,
+            tooltip: `${t('performance.panels.error_rate', 'Error Rate')}: ${ocrErrorRate.toFixed(2)}%`,
         },
         {
-            name: 'LLM',
+            name: t('performance.llm', 'LLM'),
             status: getServiceStatus(llmErrorRate, { warning: 5, critical: 20 }),
-            tooltip: `Error Rate: ${llmErrorRate.toFixed(2)}%`,
+            tooltip: `${t('performance.panels.error_rate', 'Error Rate')}: ${llmErrorRate.toFixed(2)}%`,
         },
         {
-            name: 'Capture',
+            name: t('performance.capture', 'Capture'),
             status: captureRate > 0 ? 'green' : 'unknown',
-            tooltip: `Frame Rate: ${captureRate.toFixed(1)} fps`,
+            tooltip: `${t('performance.panels.frame_rate', 'Frame Rate')}: ${captureRate.toFixed(1)} fps`,
         },
         {
-            name: 'System',
+            name: t('performance.panels.system', 'System'),
             status: getServiceStatus(system.cpuPercent, { warning: 50, critical: 80 }),
-            tooltip: `CPU: ${system.cpuPercent.toFixed(1)}%`,
+            tooltip: `${t('performance.panels.cpu', 'CPU')}: ${system.cpuPercent.toFixed(1)}%`,
         },
     ];
 
@@ -83,9 +83,9 @@ export function PerformanceDashboard() {
                 <h1>⚡ {t('performance.title', 'Performance Monitor')}</h1>
                 <div className="status-badge">
                     {isSubscribed ? (
-                        <span className="status-live">🟢 Live</span>
+                        <span className="status-live">🟢 {t('performance.live', 'Live')}</span>
                     ) : (
-                        <span className="status-paused">⏸ Paused</span>
+                        <span className="status-paused">⏸ {t('performance.paused', 'Paused')}</span>
                     )}
                     <button onClick={refresh} className="refresh-btn">🔄</button>
                 </div>
@@ -101,22 +101,22 @@ export function PerformanceDashboard() {
                 <h2>🖥️ {t('performance.systemHealth', 'System Overview')}</h2>
                 <div className="panel-row">
                     <GaugePanel
-                        title="CPU"
+                        title={t('performance.panels.cpu', 'CPU')}
                         value={system.cpuPercent}
                         thresholds={{ warning: 50, critical: 80 }}
                     />
                     <GaugePanel
-                        title="Memory"
+                        title={t('performance.panels.memory', 'Memory')}
                         value={memoryPercent}
                         subtitle={`${formatBytes(system.memoryUsedBytes)} / ${formatBytes(system.memoryTotalBytes)}`}
                         thresholds={{ warning: 60, critical: 80 }}
                     />
                     <SingleStatPanel
-                        title="Heap"
+                        title={t('performance.panels.heap', 'Heap')}
                         value={formatBytes(system.heapUsedBytes)}
                     />
                     <SingleStatPanel
-                        title="Event Loop Lag"
+                        title={t('performance.panels.event_loop_lag', 'Event Loop Lag')}
                         value={system.eventLoopLagMs}
                         unit="ms"
                         thresholds={{ warning: 50, critical: 100 }}
@@ -129,19 +129,19 @@ export function PerformanceDashboard() {
                 <h2>🗄️ {t('performance.database', 'Database')}</h2>
                 <div className="panel-row">
                     <SingleStatPanel
-                        title="QPS"
+                        title={t('performance.panels.qps', 'QPS')}
                         value={dbQps}
                         unit="/s"
                         sparklineData={dbQpsSparkline}
                     />
                     <SingleStatPanel
-                        title="Latency (P95)"
+                        title={t('performance.panels.latency_p95', 'Latency (P95)')}
                         value={histograms['db.query_duration_seconds']?.p95 * 1000 || 0}
                         unit="ms"
                         thresholds={{ warning: 50, critical: 200 }}
                     />
                     <SingleStatPanel
-                        title="Error Rate"
+                        title={t('performance.panels.error_rate', 'Error Rate')}
                         value={dbErrorRate}
                         unit="%"
                         thresholds={{ warning: 0.5, critical: 2 }}
@@ -154,18 +154,18 @@ export function PerformanceDashboard() {
                 <h2>👁️ {t('performance.ocr', 'OCR Service')}</h2>
                 <div className="panel-row">
                     <SingleStatPanel
-                        title="Throughput"
+                        title={t('performance.panels.throughput', 'Throughput')}
                         value={ocrRps}
                         unit="/s"
                     />
                     <SingleStatPanel
-                        title="Latency (P95)"
+                        title={t('performance.panels.latency_p95', 'Latency (P95)')}
                         value={histograms['ocr.duration_seconds']?.p95 * 1000 || 0}
                         unit="ms"
                         thresholds={{ warning: 1000, critical: 5000 }}
                     />
                     <GaugePanel
-                        title="Success Rate"
+                        title={t('performance.panels.success_rate', 'Success Rate')}
                         value={100 - ocrErrorRate}
                         thresholds={{ warning: 95, critical: 80 }}
                         invertThreshold={true}
@@ -178,23 +178,23 @@ export function PerformanceDashboard() {
                 <h2>🤖 {t('performance.llm', 'LLM Service')}</h2>
                 <div className="panel-row">
                     <SingleStatPanel
-                        title="Throughput"
+                        title={t('performance.panels.throughput', 'Throughput')}
                         value={llmRps}
                         unit="/s"
                         sparklineData={llmSparkline}
                     />
                     <SingleStatPanel
-                        title="Latency (P95)"
+                        title={t('performance.panels.latency_p95', 'Latency (P95)')}
                         value={histograms['llm.request_duration_seconds']?.p95 * 1000 || 0}
                         unit="ms"
                         thresholds={{ warning: 3000, critical: 15000 }}
                     />
                     <SingleStatPanel
-                        title="Total Tokens"
+                        title={t('performance.panels.total_tokens', 'Total Tokens')}
                         value={llmTokensTotal}
                     />
                     <SingleStatPanel
-                        title="Error Rate"
+                        title={t('performance.panels.error_rate', 'Error Rate')}
                         value={llmErrorRate}
                         unit="%"
                         thresholds={{ warning: 5, critical: 20 }}
@@ -207,12 +207,12 @@ export function PerformanceDashboard() {
                 <h2>📸 {t('performance.capture', 'Capture')}</h2>
                 <div className="panel-row">
                     <SingleStatPanel
-                        title="Frame Rate"
+                        title={t('performance.panels.frame_rate', 'Frame Rate')}
                         value={captureRate}
                         unit="fps"
                     />
                     <SingleStatPanel
-                        title="Latency (P95)"
+                        title={t('performance.panels.latency_p95', 'Latency (P95)')}
                         value={histograms['capture.duration_seconds']?.p95 * 1000 || 0}
                         unit="ms"
                     />
@@ -224,7 +224,7 @@ export function PerformanceDashboard() {
                     {t('performance.lastUpdated', 'Last updated')}: {snapshot.timestamp === 0 ? '--:--:--' : new Date(snapshot.timestamp).toLocaleTimeString()}
                 </span>
                 <span className="history-count">
-                    History: {history.length} snapshots
+                    {t('performance.history', { count: history.length, defaultValue: `History: ${history.length} snapshots` })}
                 </span>
             </footer>
         </div>

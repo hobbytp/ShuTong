@@ -261,21 +261,72 @@ class MetricsCollector {
     public getSnapshot(): PerformanceSnapshot {
         const countersObj: Record<string, number> = {};
         for (const [key, data] of this.counters) {
+            // Also store raw key
             countersObj[key] = data.value;
+
+            // P1 Fix: Aggregate by base name (without labels)
+            const baseName = key.split('{')[0];
+            if (baseName !== key) {
+                countersObj[baseName] = (countersObj[baseName] || 0) + data.value;
+            }
         }
 
         const gaugesObj: Record<string, number> = {};
         for (const [key, data] of this.gauges) {
             gaugesObj[key] = data.value;
+
+            // P1 Fix: Aggregate gauges by summing (or averaging? Sum is safer for "total" metrics)
+            const baseName = key.split('{')[0];
+            if (baseName !== key) {
+                gaugesObj[baseName] = (gaugesObj[baseName] || 0) + data.value;
+            }
         }
 
         const histogramsObj: Record<string, { p50: number; p95: number; p99: number; count: number; avgMs: number }> = {};
+
+        // Helper to aggregate histogram data
+        const aggregatedHistograms = new Map<string, HistogramData>();
+
         for (const [key, data] of this.histograms) {
+            // 1. Export specific labeled metric
             const percentiles = this.calculatePercentiles(data);
             histogramsObj[key] = {
                 ...percentiles,
                 count: data.count,
-                avgMs: data.count > 0 ? (data.sum / data.count) * 1000 : 0, // Convert to ms
+                avgMs: data.count > 0 ? (data.sum / data.count) * 1000 : 0,
+            };
+
+            // 2. Aggregate into base name
+            const baseName = key.split('{')[0];
+            if (baseName !== key) {
+                let agg = aggregatedHistograms.get(baseName);
+                if (!agg) {
+                    agg = {
+                        buckets: [...data.buckets],
+                        counts: new Array(data.buckets.length + 1).fill(0),
+                        sum: 0,
+                        count: 0,
+                        labels: {}
+                    };
+                    aggregatedHistograms.set(baseName, agg);
+                }
+
+                // Merge counts and sum
+                agg.count += data.count;
+                agg.sum += data.sum;
+                for (let i = 0; i < agg.counts.length; i++) {
+                    agg.counts[i] += data.counts[i];
+                }
+            }
+        }
+
+        // 3. Export aggregated histograms
+        for (const [baseName, aggData] of aggregatedHistograms) {
+            const percentiles = this.calculatePercentiles(aggData);
+            histogramsObj[baseName] = {
+                ...percentiles,
+                count: aggData.count,
+                avgMs: aggData.count > 0 ? (aggData.sum / aggData.count) * 1000 : 0,
             };
         }
 
