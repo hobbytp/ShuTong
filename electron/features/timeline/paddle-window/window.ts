@@ -255,8 +255,24 @@ export class PaddleOCRWindow {
 
             const handleError = (_event: any, error: any) => {
                 const errorData = typeof error === 'string' ? { message: error } : error;
-                if (errorData.requestId && errorData.requestId !== requestId) return;
+                if (errorData.requestId && errorData.requestId !== requestId && errorData.requestId !== 'system') return;
+
                 cleanup();
+
+                // P1 Fix: Handle Critical WebGL Crash
+                if (errorData.message === 'WEBGL_CONTEXT_LOST') {
+                    console.error('[PaddleManager] Critical: WebGL Context Lost. Destroying window to force restart.');
+                    this.cleanupAndReset('WebGL Context Lost');
+                    if (this.window) {
+                        this.window.destroy();
+                        this.window = null;
+                        this.isReady = false;
+                    }
+                    // Reject current request so it can be retried (or failed gracefully)
+                    reject(new Error('WebGL Context Lost - Worker Restarting'));
+                    return;
+                }
+
                 reject(new Error(errorData.message || 'Unknown error'));
             };
 

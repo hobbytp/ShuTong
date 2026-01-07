@@ -12,6 +12,18 @@ try {
     throw e;
 }
 
+
+// P1 Fix: Global error handler for WebGL context loss
+window.addEventListener('error', (event) => {
+    const msg = event.message || '';
+    if (msg.includes('webgl context is lost') || msg.includes('CONTEXT_LOST_WEBGL')) {
+        console.error('[PaddleWorker] CRITICAL: WebGL Context Lost detected per global listener.');
+        log('CRITICAL: WebGL Context Lost!');
+        // Notify main process to restart this worker
+        ipcRenderer.send('paddle-error', { message: 'WEBGL_CONTEXT_LOST', requestId: 'system' });
+    }
+});
+
 console.log('[PaddleWorker] Renderer process started.');
 
 const STATE = {
