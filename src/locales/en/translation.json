@@ -294,5 +294,31 @@
         "start_recording": "Start Recording",
         "stop_recording": "Stop Recording",
         "quit": "Quit"
+    },
+    "performance": {
+        "title": "Performance Monitor",
+        "live": "Live",
+        "paused": "Paused",
+        "system_overview": "System Overview",
+        "database": "Database",
+        "ocr": "OCR Service",
+        "llm": "LLM Service",
+        "capture": "Capture",
+        "last_updated": "Last updated",
+        "history": "History: {{count}} snapshots",
+        "service_health": "Service Health",
+        "panels": {
+            "cpu": "CPU",
+            "memory": "Memory",
+            "heap": "Heap",
+            "event_loop_lag": "Event Loop Lag",
+            "qps": "QPS",
+            "latency_p95": "Latency (P95)",
+            "error_rate": "Error Rate",
+            "throughput": "Throughput",
+            "success_rate": "Success Rate",
+            "total_tokens": "Total Tokens",
+            "frame_rate": "Frame Rate"
+        }
     }
 }

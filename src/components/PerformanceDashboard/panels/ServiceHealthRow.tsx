@@ -23,10 +23,13 @@ const STATUS_EMOJI: Record<ServiceStatus, string> = {
     unknown: '⚪',
 };
 
+import { useTranslation } from 'react-i18next';
+
 export function ServiceHealthRow({ services }: ServiceHealthRowProps) {
+    const { t } = useTranslation();
     return (
         <div className="service-health-row">
-            <span className="service-health-label">Service Health</span>
+            <span className="service-health-label">{t('performance.service_health', 'Service Health')}</span>
             <div className="service-health-indicators">
                 {services.map((service) => (
                     <div

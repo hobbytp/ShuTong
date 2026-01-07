@@ -294,5 +294,31 @@
         "start_recording": "开始录制",
         "stop_recording": "停止录制",
         "quit": "退出"
+    },
+    "performance": {
+        "title": "性能监控",
+        "live": "实时",
+        "paused": "暂停",
+        "system_overview": "系统概览",
+        "database": "数据库",
+        "ocr": "OCR 服务",
+        "llm": "LLM 服务",
+        "capture": "捕获服务",
+        "last_updated": "最后更新",
+        "history": "历史记录: {{count}} 快照",
+        "service_health": "服务健康度",
+        "panels": {
+            "cpu": "CPU",
+            "memory": "内存",
+            "heap": "堆内存",
+            "event_loop_lag": "事件循环延迟",
+            "qps": "QPS",
+            "latency_p95": "延迟 (P95)",
+            "error_rate": "错误率",
+            "throughput": "吞吐量",
+            "success_rate": "成功率",
+            "total_tokens": "总 Token",
+            "frame_rate": "帧率"
+        }
     }
 }
