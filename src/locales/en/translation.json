@@ -7,12 +7,14 @@
         "home": "Home",
         "timeline": "Timeline",
         "pulse": "Pulse",
+        "insights": "Insights",
         "analytics": "Analytics",
         "journal": "Journal",
         "timelapse": "Timelapse",
         "settings": "Settings",
         "search": "Search",
-        "chat": "Ask AI"
+        "chat": "Ask AI",
+        "performance": "Performance"
     },
     "timeline": {
         "title": "Timeline",
@@ -320,5 +322,23 @@
             "total_tokens": "Total Tokens",
             "frame_rate": "Frame Rate"
         }
+    },
+    "insights": {
+        "title": "Productivity Insights",
+        "subtitle": "Understand your focus and work patterns",
+        "deep_work": "Deep Work",
+        "deep_work_desc": "High focus time today",
+        "focus_score": "Focus Score",
+        "total_active": "Total Active",
+        "today": "Today",
+        "app_usage": "App Usage",
+        "context_switches": "Context Switches",
+        "switches_today": "App switches today",
+        "cognitive_flow": "Cognitive Flow",
+        "recovery": "Recovery Needed",
+        "recovery_desc": "You have been in high focus for a while. Take a short break to recharge.",
+        "recovery_status": "Recovery Status",
+        "ready": "Ready",
+        "brain_battery": "Brain battery is full"
     }
 }

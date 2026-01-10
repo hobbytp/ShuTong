@@ -9,6 +9,7 @@ interface RecordingConfig {
     capture_quality: number;
     capture_screen_index: number;
     capture_mode: 'screen' | 'window';
+    capture_engine: 'auto' | 'native' | 'wgc';
     auto_start_recording: boolean;
     excluded_apps: string[];
     excluded_title_patterns: string[];
@@ -66,6 +67,7 @@ export function RecordingSettings() {
         capture_quality: 60,
         capture_screen_index: 0,
         capture_mode: 'screen',
+        capture_engine: 'auto',
         auto_start_recording: false,
         excluded_apps: [],
         excluded_title_patterns: [],
@@ -183,6 +185,7 @@ export function RecordingSettings() {
                 capture_quality: parseInt(settings.capture_quality) || 60,
                 capture_screen_index: parseInt(settings.capture_screen_index) || 0,
                 capture_mode: (settings.capture_mode as 'screen' | 'window') || 'screen',
+                capture_engine: (settings.capture_engine as 'auto' | 'native' | 'wgc') || 'auto',
                 auto_start_recording: settings.auto_start_recording === 'true',
                 excluded_apps: safeParse(settings.excluded_apps, []),
                 excluded_title_patterns: safeParse(settings.excluded_title_patterns, []),
@@ -292,6 +295,30 @@ export function RecordingSettings() {
                                     ? `${config.capture_interval_ms / 1000}s`
                                     : `${Math.floor(config.capture_interval_ms / 60000)}m ${((config.capture_interval_ms % 60000) / 1000).toFixed(0)}s`}
                             </span>
+                        </div>
+                    </div>
+
+                    {/* Capture Engine */}
+                    <div className="flex items-center justify-between p-4 bg-zinc-950 border border-zinc-800 rounded-lg">
+                        <div className="flex items-center gap-4">
+                            <div className="p-2 bg-blue-500/10 rounded-lg">
+                                <Activity size={18} className="text-blue-400" />
+                            </div>
+                            <div>
+                                <div className="text-sm font-medium text-zinc-200">{t('recording.capture_engine', 'Capture Engine')}</div>
+                                <div className="text-xs text-zinc-500">{t('recording.capture_engine_desc', 'Native = Fast/Stable, WGC = Compatibility')}</div>
+                            </div>
+                        </div>
+                        <div className="w-48">
+                            <select
+                                value={config.capture_engine}
+                                onChange={(e) => updateSetting('capture_engine', e.target.value)}
+                                className="w-full appearance-none bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                            >
+                                <option value="auto">Auto (Smart)</option>
+                                <option value="native">Native DXGI</option>
+                                <option value="wgc">Windows Graphics</option>
+                            </select>
                         </div>
                     </div>
 

@@ -9,7 +9,7 @@
  */
 
 // Allowed labels to prevent cardinality explosion
-const ALLOWED_LABELS = ['status', 'provider', 'mode', 'engine', 'error_category', 'source', 'operation', 'table', 'model'] as const;
+const ALLOWED_LABELS = ['status', 'provider', 'mode', 'engine', 'error_category', 'source', 'operation', 'table', 'model', 'stage', 'report'] as const;
 type AllowedLabel = typeof ALLOWED_LABELS[number];
 export type Labels = Partial<Record<AllowedLabel, string>>;
 
@@ -44,6 +44,7 @@ export interface PerformanceSnapshot {
         memoryUsedBytes: number;
         memoryTotalBytes: number;
         heapUsedBytes: number;
+        appMemoryUsedBytes: number; // [NEW] Total App RSS (Main + Renderer + GPU)
         eventLoopLagMs: number;
     };
     histograms: {
@@ -123,6 +124,7 @@ class MetricsCollector {
         memoryUsedBytes: 0,
         memoryTotalBytes: 0,
         heapUsedBytes: 0,
+        appMemoryUsedBytes: 0,
         eventLoopLagMs: 0,
     };
 
@@ -350,6 +352,7 @@ class MetricsCollector {
             memoryUsedBytes: 0,
             memoryTotalBytes: 0,
             heapUsedBytes: 0,
+            appMemoryUsedBytes: 0,
             eventLoopLagMs: 0,
         };
     }

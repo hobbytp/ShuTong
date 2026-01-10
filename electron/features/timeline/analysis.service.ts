@@ -49,6 +49,22 @@ export async function processRecordings() {
         const BATCH_LIMIT = 500;
         const screenshots = repository.fetchUnprocessedScreenshots(sevenDaysAgo, BATCH_LIMIT);
 
+        // 2. Retry failed batches (from crashes or timeouts)
+        // Fetch a small number (5) to avoid overwhelming the system if many failed
+        const failedBatches = repository.getFailedBatches(5);
+        if (failedBatches.length > 0) {
+            console.log(`[Analysis] Retrying ${failedBatches.length} failed batches...`);
+            for (const batch of failedBatches) {
+                // Ensure we don't process if valid screenshots are missing, 
+                // but for older batches, files might be deleted.
+                // Repository.screenshotsForBatch handles this (returns valid ones).
+                // Just trigger processBatch again.
+                // We trust processBatch to handle empty screenshots case.
+                await processBatch(batch.id, undefined, null); // Context is lost for now unless we store it.
+                // Note: If context is lost, we might lose some prompt specificity, but basic analysis still works.
+            }
+        }
+
         if (screenshots.length === 0) {
             isProcessing = false;
             return;
@@ -56,12 +72,12 @@ export async function processRecordings() {
 
         console.log(`[Analysis] Found ${screenshots.length} unprocessed screenshots. Grouping...`);
 
-        // 2. Build logical batches (use event-based or time-based based on feature flag)
+        // 3. Build logical batches (use event-based or time-based based on feature flag)
         const batches = useEventBasedBatching()
             ? createEventBatches(screenshots)
             : createScreenshotBatches(screenshots);
 
-        // 3. Persist batches
+        // 4. Persist batches
         for (const batch of batches) {
             const batchId = repository.saveBatchWithScreenshots(
                 batch.start,

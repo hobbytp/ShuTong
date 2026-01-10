@@ -7,12 +7,14 @@
         "home": "首页",
         "timeline": "时间轴",
         "pulse": "脉搏",
+        "insights": "洞察",
         "analytics": "分析",
         "journal": "日记",
         "timelapse": "延时摄影",
         "settings": "设置",
         "search": "搜索",
-        "chat": "智能问答"
+        "chat": "智能问答",
+        "performance": "性能"
     },
     "timeline": {
         "title": "时间轴",
@@ -320,5 +322,23 @@
             "total_tokens": "总 Token",
             "frame_rate": "帧率"
         }
+    },
+    "insights": {
+        "title": "生产力洞察",
+        "subtitle": "了解你的专注模式和工作效率",
+        "deep_work": "深度工作时长",
+        "deep_work_desc": "今日高度专注时间",
+        "focus_score": "专注评分",
+        "total_active": "总活跃时间",
+        "today": "今天",
+        "app_usage": "应用使用分布",
+        "context_switches": "上下文切换",
+        "switches_today": "应用切换次数",
+        "cognitive_flow": "心流趋势",
+        "recovery": "需要休息",
+        "recovery_desc": "你已经专注很长时间了，建议休息片刻以恢复精力。",
+        "recovery_status": "脑力状态",
+        "ready": "充沛",
+        "brain_battery": "精神状态良好"
     }
 }

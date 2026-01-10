@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cancelMigration, commitMigration, getBootstrapConfig, PendingMigration, resolveUserDataPath, setCustomUserDataPath, setPendingMigration } from './bootstrap';
 import { getMergedLLMConfig, getRawLLMConfig, saveRawLLMConfig, setLLMProviderConfig, setRoleConfig } from './config_manager';
+import { analyticsService } from './features/analytics/analytics.service';
 import { backupService, setupBackupIPC } from './features/backup';
 import { captureShutdownService, getIsRecording, startRecording, stopRecording } from './features/capture';
 import { setupAnalyticsIPC } from './features/timeline';
@@ -48,16 +49,23 @@ if (process.platform === 'win32') {
   app.setAppUserModelId('com.raytan.shutong');
 }
 
-// GPU Optimization: Force high-performance GPU (NVIDIA) for WebGL operations
-// This significantly improves PaddleOCR inference speed on laptops with dual GPUs
+// GPU Flags for Screen Capture Stability
+// WGC (Windows Graphics Capture) can be unstable with aggressive GPU flags.
+// We use conservative settings to prioritize capture reliability over raw performance.
+
+// Keep GPU rasterization for general UI performance
 app.commandLine.appendSwitch('enable-gpu-rasterization');
-app.commandLine.appendSwitch('enable-zero-copy');
-app.commandLine.appendSwitch('force_high_performance_gpu');
-// Disable GPU process sandbox to allow GPU switching on some systems
-app.commandLine.appendSwitch('disable-gpu-sandbox');
-// Use hardware acceleration for video decode/encode
+
+// Hardware acceleration for video (encoding/decoding)
 app.commandLine.appendSwitch('enable-accelerated-video-decode');
-console.log('[Main] GPU optimization flags enabled');
+
+// REMOVED: These flags were causing issues:
+// - 'in-process-gpu' - causes UI rendering failure on dual-GPU laptops
+// - 'disable-gpu-sandbox' - can destabilize WGC on some systems
+// - 'force_high_performance_gpu' - causes GPU contention with WGC
+// - 'enable-zero-copy' - can conflict with WGC frame buffer access
+
+console.log('[Main] GPU flags configured for capture stability');
 
 // Resolve custom path before anything else
 resolveUserDataPath();
@@ -288,6 +296,9 @@ async function startApp() {
     setupAnalyticsIPC();
     setupVideoIPC();
     setupBackupIPC();
+
+    // Initialize Analytics Service (IPC)
+    void analyticsService;
 
     // Initialize Agents (Lazy Loaded later)
     // void topicAgent; // Moved to async block
@@ -750,6 +761,33 @@ async function startApp() {
 
     createVideoGenerationWindow();
     console.log('[Main] Video generation service started');
+
+    // === MEMORY LEAK DEBUGGING ===
+    setInterval(() => {
+      const mem = process.memoryUsage();
+      const formatMB = (bytes: number) => (bytes / 1024 / 1024).toFixed(2) + ' MB';
+
+      // Calculate total app memory (all Electron processes)
+      let totalAppMemory = mem.rss;
+      try {
+        const appMetrics = app.getAppMetrics();
+        totalAppMemory = appMetrics.reduce((sum, proc) => sum + (proc.memory.workingSetSize * 1024), 0);
+      } catch {
+        // Fallback to main process RSS
+      }
+
+      console.log('--- Memory Check ---');
+      console.log(`Main Process RSS: ${formatMB(mem.rss)}`);
+      console.log(`Total App Memory: ${formatMB(totalAppMemory)} (All Processes)`);
+      console.log(`Heap Used: ${formatMB(mem.heapUsed)} (JS Objects)`);
+      console.log(`External: ${formatMB(mem.external)} (Buffers/C++ objects bound to JS)`);
+
+      // Use total app memory for threshold (consistent with capture.service.ts)
+      const totalAppMemoryMB = totalAppMemory / 1024 / 1024;
+      if (totalAppMemoryMB > 500) {
+        console.warn(`⚠️ HIGH MEMORY USAGE DETECTED (Total: ${totalAppMemoryMB.toFixed(0)}MB)`);
+      }
+    }, 10000); // Check every 10s
 
   } catch (error) {
     console.error('[Main] Startup error:', error)

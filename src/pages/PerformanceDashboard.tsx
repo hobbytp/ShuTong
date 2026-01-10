@@ -112,8 +112,9 @@ export function PerformanceDashboard() {
                         thresholds={{ warning: 60, critical: 80 }}
                     />
                     <SingleStatPanel
-                        title={t('performance.panels.heap', 'Heap')}
-                        value={formatBytes(system.heapUsedBytes)}
+                        title={t('performance.panels.app_memory', 'App Memory (RSS)')}
+                        value={formatBytes(system.appMemoryUsedBytes || system.heapUsedBytes)}
+                        tooltip={`Heap: ${formatBytes(system.heapUsedBytes)}`}
                     />
                     <SingleStatPanel
                         title={t('performance.panels.event_loop_lag', 'Event Loop Lag')}
@@ -212,9 +213,34 @@ export function PerformanceDashboard() {
                         unit="fps"
                     />
                     <SingleStatPanel
-                        title={t('performance.panels.latency_p95', 'Latency (P95)')}
-                        value={histograms['capture.duration_seconds']?.p95 * 1000 || 0}
+                        title={t('performance.panels.latency_avg', 'Latency (Total Avg)')}
+                        value={histograms['capture.duration_seconds']?.avgMs || 0}
                         unit="ms"
+                        sparklineData={getSparklineData(history, 'capture.duration_seconds', 20)}
+                    />
+                    <SingleStatPanel
+                        title="Source Latency (OS)"
+                        value={histograms['capture.get_sources_duration_seconds']?.avgMs || 0}
+                        unit="ms"
+                        thresholds={{ warning: 500, critical: 2000 }} // Windows Graphics Capture can be slow
+                    />
+                    <SingleStatPanel
+                        title="Bitmap Process (CPU)"
+                        value={histograms['capture.bitmap_processing_duration_seconds']?.avgMs || 0}
+                        unit="ms"
+                        thresholds={{ warning: 200, critical: 1000 }} // Heavy CPU use
+                    />
+                    <SingleStatPanel
+                        title="Disk I/O"
+                        value={histograms['capture.io_duration_seconds']?.avgMs || 0}
+                        unit="ms"
+                        thresholds={{ warning: 100, critical: 500 }}
+                    />
+                    <SingleStatPanel
+                        title="Watchdog Resets"
+                        value={snapshot.counters['capture.watchdog_reset_total'] || 0}
+                        unit=""
+                        thresholds={{ warning: 1, critical: 5 }}
                     />
                 </div>
             </section>

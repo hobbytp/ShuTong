@@ -17,6 +17,7 @@ const EMPTY_SNAPSHOT: PerformanceSnapshot = {
         memoryUsedBytes: 0,
         memoryTotalBytes: 0,
         heapUsedBytes: 0,
+        appMemoryUsedBytes: 0,
         eventLoopLagMs: 0,
     },
     histograms: {},

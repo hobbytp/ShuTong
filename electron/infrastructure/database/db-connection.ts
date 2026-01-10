@@ -348,4 +348,54 @@ function createTables(database: Database.Database): void {
             console.error('[Database] Migration failed for is_merged:', e);
         }
     }
+
+    try {
+        database.prepare('ALTER TABLE window_switches ADD COLUMN duration INTEGER').run();
+    } catch (e: any) {
+        if (!e.message.includes('duplicate column name')) {
+            console.error('[Database] Migration failed for duration:', e);
+        }
+    }
+
+    try {
+        database.prepare('ALTER TABLE window_switches ADD COLUMN app_name TEXT').run();
+        // Since we are adding app_name, we should probably migrate existing rows to copy from to_app
+        database.prepare('UPDATE window_switches SET app_name = to_app WHERE app_name IS NULL').run();
+    } catch (e: any) {
+        if (!e.message.includes('duplicate column name')) {
+            console.error('[Database] Migration failed for app_name:', e);
+        }
+    }
+
+    try {
+        database.prepare('ALTER TABLE window_switches ADD COLUMN window_title TEXT').run();
+        // Migrate existing rows to copy from to_title
+        database.prepare('UPDATE window_switches SET window_title = to_title WHERE window_title IS NULL').run();
+    } catch (e: any) {
+        if (!e.message.includes('duplicate column name')) {
+            // Check if column already exists (e.g. from previous manual intervention) - actually to_title exists, window_title might not
+            // Wait, window_title is already in the original CREATE TABLE? 
+            // Let's check line 266: to_title TEXT NOT NULL.
+            // But the query fails on 'app_name' and 'duration'.
+            // window_switches has 'to_app' and 'to_title' in CREATE TABLE (line 265-266).
+            // But the query in analytics.repository.ts uses 'app_name' and 'duration'.
+
+            // Ah, wait. The error is `no such column: app_name`.
+            // The query in analytics.repository.ts (line 144) is:
+            // SELECT app_name, SUM(duration) ... FROM window_switches ...
+
+            // But the table definition (line 260) is:
+            // CREATE TABLE IF NOT EXISTS window_switches (
+            // ...
+            // to_app TEXT NOT NULL,
+            // to_title TEXT NOT NULL,
+            // ...
+
+            // So we need to migrate `to_app` -> `app_name` and `to_title` -> `window_title` OR update the query.
+            // However, `duration` is also missing from CREATE TABLE.
+            // We need to add `duration` and `app_name` via migration.
+            // And we should probably populate them.
+            console.error('[Database] Migration failed for window_title:', e);
+        }
+    }
 }

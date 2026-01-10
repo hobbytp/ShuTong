@@ -93,14 +93,39 @@ class SystemMonitor {
                 this.eventLoopMonitor.reset();
             }
 
+            // Electron App Memory (Main + Renderer + GPU + Shared)
+            let totalAppMemory = memUsage.rss; // Start with Main process RSS
+            try {
+                const appMetrics = app.getAppMetrics();
+                // appMetrics includes the Main process too, but we iterate carefully to avoid double counting if needed
+                // actually, app.getAppMetrics() includes one entry for the main process.
+                // Let's sum everything from getAppMetrics() which is safer/more complete.
+                totalAppMemory = appMetrics.reduce((sum, proc) => sum + (proc.memory.workingSetSize * 1024), 0);
+            } catch (e) {
+                // Fallback to just Main process RSS if getAppMetrics fails
+                console.warn('[SystemMonitor] Failed to get app metrics:', e);
+            }
+
             // Update MetricsCollector
             metricsCollector.updateSystemMetrics({
                 cpuPercent,
                 memoryUsedBytes: usedMem,
                 memoryTotalBytes: totalMem,
                 heapUsedBytes: memUsage.heapUsed,
+                appMemoryUsedBytes: totalAppMemory,
                 eventLoopLagMs,
             });
+
+            // Memory Leak Detection
+            const HEAP_THRESHOLD = 1 * 1024 * 1024 * 1024; // 1 GB
+            if (memUsage.heapUsed > HEAP_THRESHOLD) {
+                console.warn(`[SystemMonitor] High Heap Usage Detected: ${(memUsage.heapUsed / 1024 / 1024).toFixed(2)} MB`);
+                // Optional: Force GC if exposed
+                if (global.gc) {
+                    console.log('[SystemMonitor] Forcing Garbage Collection...');
+                    global.gc();
+                }
+            }
 
             // Also emit as gauges for consistency
             metricsCollector.setGauge('system.cpu_percent', cpuPercent);

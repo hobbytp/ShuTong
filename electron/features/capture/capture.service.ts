@@ -8,8 +8,6 @@ import { getSetting, saveScreenshot, saveWindowSwitch } from '../../storage';
 import { Shutdownable, ShutdownPriority } from '../../infrastructure/lifecycle';
 import {
     clearPendingWindowCapture,
-    getGuardSettings,
-    getIdleTime,
     getIntervalMultiplier,
     initCaptureGuard,
     notifyWindowChange,
@@ -25,6 +23,36 @@ import {
     resetLastFrame,
     updateDedupSettings
 } from './frame-dedup';
+import { captureMonitor, testNativeCapture } from './native-capture';
+
+// Use native DXGI capture instead of Electron's WGC-based desktopCapturer
+// This bypasses the WGC E_INVALIDARG errors on dual-GPU laptops
+const USE_NATIVE_CAPTURE = true;
+let nativeCaptureAvailable = false;
+let nativeCaptureInitialized = false;
+
+// Initialize native capture immediately (will be awaited on first capture if needed)
+const nativeCapturePromise = (async () => {
+    if (!USE_NATIVE_CAPTURE) return false;
+    try {
+        console.log('[ShuTong] Testing native DXGI capture...');
+        const available = await testNativeCapture();
+        nativeCaptureAvailable = available;
+        nativeCaptureInitialized = true;
+        if (available) {
+            console.log('[ShuTong] ✅ Native DXGI capture enabled (bypassing WGC)');
+        } else {
+            console.warn('[ShuTong] ⚠️ Native capture unavailable, will use WGC');
+        }
+        return available;
+    } catch (err) {
+        console.error('[ShuTong] Native capture init error:', err);
+        nativeCaptureInitialized = true;
+        return false;
+    }
+})();
+
+
 
 /**
  * Wrapper for desktopCapturer.getSources with retry logic.
@@ -32,9 +60,25 @@ import {
  */
 // --- Circuit Breaker State ---
 let consecutiveFailures = 0;
-const MAX_CONSECUTIVE_FAILURES = 3;
-const COOL_DOWN_PERIOD_MS = 30000;
+const MAX_CONSECUTIVE_FAILURES = 2; // Trip breaker after 2 failures
+const BASE_COOL_DOWN_MS = 30000;    // Base cooldown: 30 seconds
+const MAX_COOL_DOWN_MS = 300000;    // Max cooldown: 5 minutes
 let coolDownUntil = 0;
+let currentCoolDownMs = BASE_COOL_DOWN_MS;
+
+// Memory thresholds for proactive protection
+const HARD_MEMORY_LIMIT_MB = 800;   // 800MB: Hard stop (lowered from 1GB for earlier detection)
+const ELEVATED_MEMORY_MB = 500;     // 500MB: Trip breaker on first failure if exceeded
+
+// Memory growth rate detection
+let lastMemoryCheckMB = 0;
+let lastMemoryCheckTime = Date.now();
+const MEMORY_GROWTH_THRESHOLD_MB_PER_SEC = 10; // If growing faster than 10MB/s, trip breaker
+
+// Track WGC state for diagnostics
+let totalWGCCalls = 0;
+let totalWGCFailures = 0;
+let lastWGCSuccess = Date.now();
 
 /**
  * Wrapper for desktopCapturer.getSources with retry logic and Circuit Breaker.
@@ -43,17 +87,53 @@ let coolDownUntil = 0;
  */
 async function getSourcesWithRetry(
     options: Electron.SourcesOptions,
-    maxRetries: number = 2
+    maxRetries: number = 1 // Reduced default retries to 1
 ): Promise<Electron.DesktopCapturerSource[]> {
     // 1. Check Circuit Breaker
     if (Date.now() < coolDownUntil) {
-        console.warn(`[ShuTong] Capture skipped (Circuit Breaker active for ${(coolDownUntil - Date.now()) / 1000}s)`);
+        // Log only once per minute to avoid spam
+        if (Math.random() < 0.05) {
+            console.warn(`[ShuTong] Capture skipped (Circuit Breaker active for ${((coolDownUntil - Date.now()) / 1000).toFixed(0)}s)`);
+        }
         metrics.setGauge('capture.circuit_breaker_state', 1, { source: 'wgc' });
         return [];
     }
 
+    // 2. Safety Valve: Check Memory Usage and Growth Rate
+    const mem = process.memoryUsage();
+    const rssMB = mem.rss / 1024 / 1024;
+    const now = Date.now();
+    const timeDeltaSec = (now - lastMemoryCheckTime) / 1000;
+
+    // Hard Limit: If RSS > 800MB, WGC is likely leaking. Stop immediately.
+    if (rssMB > HARD_MEMORY_LIMIT_MB) {
+        console.error(`[ShuTong] 🚨 OFF-HEAP MEMORY LEAK DETECTED (RSS: ${rssMB.toFixed(0)}MB). Stopping capture to protect system.`);
+        coolDownUntil = Date.now() + 5 * 60 * 1000; // 5 minutes
+        stopRecording(); // Hard stop
+        return [];
+    }
+
+    // Memory Growth Detection: If memory growing too fast, WGC is silently leaking
+    if (lastMemoryCheckMB > 0 && timeDeltaSec > 5) {
+        const growthMBPerSec = (rssMB - lastMemoryCheckMB) / timeDeltaSec;
+        if (growthMBPerSec > MEMORY_GROWTH_THRESHOLD_MB_PER_SEC) {
+            console.warn(`[ShuTong] ⚠️ RAPID MEMORY GROWTH DETECTED: ${growthMBPerSec.toFixed(1)}MB/s. Tripping circuit breaker.`);
+            currentCoolDownMs = Math.min(currentCoolDownMs * 2, MAX_COOL_DOWN_MS);
+            coolDownUntil = Date.now() + currentCoolDownMs;
+            consecutiveFailures = MAX_CONSECUTIVE_FAILURES;
+            metrics.incCounter('capture.circuit_breaker_opened_total', { source: 'memory_growth' });
+            metrics.setGauge('capture.circuit_breaker_state', 1, { source: 'wgc' });
+            lastMemoryCheckMB = rssMB;
+            lastMemoryCheckTime = now;
+            return [];
+        }
+    }
+    lastMemoryCheckMB = rssMB;
+    lastMemoryCheckTime = now;
+
     // Circuit is closed (healthy)
     metrics.setGauge('capture.circuit_breaker_state', 0, { source: 'wgc' });
+    totalWGCCalls++;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
@@ -62,44 +142,71 @@ async function getSourcesWithRetry(
             const validSources = sources.filter(s => !s.thumbnail.isEmpty());
 
             if (validSources.length > 0) {
-                // Success! Reset breaker
+                // Success! Reset breaker and exponential backoff
                 if (consecutiveFailures > 0) {
-                    console.log(`[ShuTong] WGC recovered after ${consecutiveFailures} failures.`);
+                    console.log(`[ShuTong] WGC recovered after ${consecutiveFailures} failures. Total: ${totalWGCCalls} calls, ${totalWGCFailures} failures.`);
                     consecutiveFailures = 0;
+                    currentCoolDownMs = BASE_COOL_DOWN_MS; // Reset exponential backoff
                     metrics.setGauge('capture.consecutive_failures', 0, { source: 'wgc' });
                 }
+                lastWGCSuccess = Date.now();
                 return validSources;
             }
 
-            console.warn(`[ShuTong] WGC returned empty thumbnails, retrying (${attempt + 1}/${maxRetries})...`);
+            // Empty thumbnails - WGC returned but capture failed
+            totalWGCFailures++;
+            console.warn(`[ShuTong] WGC returned empty thumbnails (${attempt + 1}/${maxRetries + 1}). Total failures: ${totalWGCFailures}`);
 
             if (attempt === maxRetries) {
                 // Treated as failure if we still have empty sources
+                // Apply same exponential backoff logic as catch block
+                consecutiveFailures++;
+                if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES || rssMB > ELEVATED_MEMORY_MB) {
+                    // Double the cooldown (exponential backoff)
+                    currentCoolDownMs = Math.min(currentCoolDownMs * 2, MAX_COOL_DOWN_MS);
+                    coolDownUntil = Date.now() + currentCoolDownMs;
+                    console.error(`[ShuTong] 🔴 CIRCUIT BREAKER TRIPPED (empty thumbnails). Cooldown: ${currentCoolDownMs / 1000}s`);
+                    metrics.incCounter('capture.circuit_breaker_opened_total', { source: 'wgc_empty' });
+                    metrics.setGauge('capture.circuit_breaker_state', 1, { source: 'wgc' });
+                }
             }
 
-            await new Promise(r => setTimeout(r, 2000)); // Increased backoff: 500ms -> 2000ms
+            await new Promise(r => setTimeout(r, 2000));
         } catch (err) {
-            console.warn(`[ShuTong] desktopCapturer failed (${attempt + 1}/${maxRetries}):`, err);
+            totalWGCFailures++;
+            console.warn(`[ShuTong] desktopCapturer exception (${attempt + 1}/${maxRetries + 1}):`, err);
+
+            // PROACTIVE: Trip breaker immediately if memory is already elevated
+            // This prevents the leak from spiraling to critical levels
+            if (rssMB > ELEVATED_MEMORY_MB) {
+                currentCoolDownMs = Math.min(currentCoolDownMs * 2, MAX_COOL_DOWN_MS);
+                console.error(`[ShuTong] ⚠️ Capture failed while memory elevated (${rssMB.toFixed(0)}MB). Cooldown: ${currentCoolDownMs / 1000}s`);
+                coolDownUntil = Date.now() + currentCoolDownMs;
+                consecutiveFailures = MAX_CONSECUTIVE_FAILURES;
+                metrics.incCounter('capture.circuit_breaker_opened_total', { source: 'wgc_proactive' });
+                metrics.setGauge('capture.circuit_breaker_state', 1, { source: 'wgc' });
+                return [];
+            }
 
             if (attempt === maxRetries) {
-                // Final failure for this cycle
                 consecutiveFailures++;
                 metrics.setGauge('capture.consecutive_failures', consecutiveFailures, { source: 'wgc' });
                 metrics.incCounter('capture.errors_total', { error_category: 'wgc_timeout' });
 
-                console.error(`[ShuTong] Capture cycle failed. Consecutive failures: ${consecutiveFailures}`);
+                console.error(`[ShuTong] Capture cycle failed. Consecutive: ${consecutiveFailures}, Total failures: ${totalWGCFailures}`);
 
-                // Trip the breaker if threshold reached
                 if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                    coolDownUntil = Date.now() + COOL_DOWN_PERIOD_MS;
-                    console.error(`[ShuTong] 🔴 CIRCUIT BREAKER TRIPPED. Pausing capture for ${COOL_DOWN_PERIOD_MS / 1000}s.`);
+                    // Double the cooldown (exponential backoff)
+                    currentCoolDownMs = Math.min(currentCoolDownMs * 2, MAX_COOL_DOWN_MS);
+                    coolDownUntil = Date.now() + currentCoolDownMs;
+                    console.error(`[ShuTong] 🔴 CIRCUIT BREAKER TRIPPED. Cooldown: ${currentCoolDownMs / 1000}s (next will be ${Math.min(currentCoolDownMs * 2, MAX_COOL_DOWN_MS) / 1000}s)`);
                     metrics.incCounter('capture.circuit_breaker_opened_total', { source: 'wgc' });
                     metrics.setGauge('capture.circuit_breaker_state', 1, { source: 'wgc' });
                 }
-                return []; // Return empty instead of throwing
+                return [];
             }
 
-            await new Promise(r => setTimeout(r, 2000)); // Increased backoff
+            await new Promise(r => setTimeout(r, 3000));
         }
     }
     return [];
@@ -109,6 +216,13 @@ let captureInterval: NodeJS.Timeout | null = null;
 let isRecording = false;
 let currentIntervalMs = 1000; // Track current interval for dynamic updates
 let lastCapturedWindowApp: string | null = null;
+
+// Observability State
+export type CaptureStage = 'IDLE' | 'GET_CONFIG' | 'GET_SOURCES' | 'FIND_SOURCE' | 'GET_THUMBNAIL' | 'PROCESS_BITMAP' | 'DEDUP_CHECK' | 'SAVE_IO';
+let currentCaptureStage: CaptureStage = 'IDLE';
+let captureStartTime = 0;
+let isCapturingFrame = false;
+const CAPTURE_WATCHDOG_MS = 15000; // Force reset if stuck > 15s
 
 // --- Smart Keyframe State ---
 interface PendingFrame {
@@ -149,6 +263,7 @@ interface CaptureConfig {
         similarityThreshold: number;
         enableSimilarityDedup: boolean;
     };
+    captureEngine: 'auto' | 'native' | 'wgc';
 }
 
 interface ActiveWindowInfo {
@@ -179,6 +294,7 @@ function getCaptureConfig(): CaptureConfig {
     // Frame Deduplication Settings
     const similarityThresholdStr = getSetting('dedup_similarity_threshold');
     const enableDedupStr = getSetting('dedup_enable');
+    const captureEngineStr = getSetting('capture_engine');
 
     const [width, height] = (resolutionStr || '1920x1080').split('x').map(Number);
 
@@ -215,7 +331,8 @@ function getCaptureConfig(): CaptureConfig {
         dedup: {
             similarityThreshold,
             enableSimilarityDedup
-        }
+        },
+        captureEngine: (captureEngineStr as 'auto' | 'native' | 'wgc') || 'auto'
     };
 }
 
@@ -375,6 +492,9 @@ export function startRecording() {
     eventBus.emitEvent('recording:state-changed', { isRecording: true });
     console.log('[ShuTong] Started recording');
 
+    // Native capture is initialized at module load time
+    // It will be awaited on first capture if not yet ready
+
     let lastConfig = getCaptureConfig();
 
     // Initialize Smart Capture Guard with settings
@@ -408,15 +528,44 @@ export function startRecording() {
     // Set up debounced capture callback (triggers capture after window switch settles)
     onDebouncedCapture(() => {
         const config = getCaptureConfig();
-        captureFrame(config);
+        triggerCapture(config);
     });
 
-    currentIntervalMs = Math.round(lastConfig.interval * getIntervalMultiplier());
-    captureFrame(lastConfig);
+    const triggerCapture = async (config: CaptureConfig) => {
+        if (isCapturingFrame) {
+            const elapsed = Date.now() - captureStartTime;
+            if (elapsed > CAPTURE_WATCHDOG_MS) {
+                console.warn(`[ShuTong] ⚠️ Capture Watchdog triggered! Resetting stuck lock. Stuck at: ${currentCaptureStage} for ${elapsed}ms`);
+                metrics.incCounter('capture.watchdog_reset_total', { stage: currentCaptureStage });
+                isCapturingFrame = false;
+            } else {
+                console.warn(`[ShuTong] Capture skipped (Previous capture still running). Stage: ${currentCaptureStage}, Elapsed: ${elapsed}ms`);
+                return;
+            }
+        }
+
+        isCapturingFrame = true;
+        captureStartTime = Date.now();
+        currentCaptureStage = 'GET_CONFIG';
+
+        try {
+            await captureFrame(config);
+        } catch (err) {
+            console.error('[ShuTong] Trigger capture error:', err);
+        } finally {
+            isCapturingFrame = false;
+            captureStartTime = 0;
+            currentCaptureStage = 'IDLE';
+        }
+    };
+
+    // Initial trigger
+    triggerCapture(lastConfig);
+
     captureInterval = setInterval(() => {
         const newConfig = getCaptureConfig();
 
-        // Only update guard settings if they actually changed (avoid excessive logging)
+        // Only update guard settings if they actually changed
         const currentSettings = {
             idleThresholdSeconds: lastConfig.guard.idleThreshold,
             windowSwitchDebounceMs: lastConfig.guard.debounceMs,
@@ -429,6 +578,7 @@ export function startRecording() {
             enableIdleDetection: newConfig.guard.enableIdleDetection,
             enableLockDetection: newConfig.guard.enableLockDetection,
         };
+
         if (JSON.stringify(currentSettings) !== JSON.stringify(newSettings) ||
             JSON.stringify(lastConfig.excludedApps) !== JSON.stringify(newConfig.excludedApps)) {
             updateGuardSettings({
@@ -440,7 +590,7 @@ export function startRecording() {
             });
         }
 
-        // Update dedup settings at runtime
+        // Update dedup settings
         if (lastConfig.dedup.similarityThreshold !== newConfig.dedup.similarityThreshold ||
             lastConfig.dedup.enableSimilarityDedup !== newConfig.dedup.enableSimilarityDedup) {
             updateDedupSettings({
@@ -449,23 +599,20 @@ export function startRecording() {
             });
         }
 
-        // Dynamic interval: apply battery mode multiplier and restart timer if interval changed
+        // Dynamic interval logic
         const effectiveInterval = Math.round(newConfig.interval * getIntervalMultiplier());
         if (effectiveInterval !== currentIntervalMs) {
-            console.log(`[ShuTong] Interval changed from ${currentIntervalMs}ms to ${effectiveInterval}ms (base: ${newConfig.interval}ms, multiplier: ${getIntervalMultiplier()})`);
+            console.log(`[ShuTong] Interval changed from ${currentIntervalMs}ms to ${effectiveInterval}ms`);
             currentIntervalMs = effectiveInterval;
             if (captureInterval) {
                 clearInterval(captureInterval);
                 captureInterval = setInterval(() => {
-                    const config = getCaptureConfig();
-                    captureFrame(config);
+                    triggerCapture(getCaptureConfig());
                 }, currentIntervalMs);
             }
         }
 
-        captureFrame(newConfig);
-
-        // Update lastConfig for next iteration comparison
+        triggerCapture(newConfig);
         lastConfig = newConfig;
     }, lastConfig.interval);
 }
@@ -585,6 +732,7 @@ async function captureFrame(config: CaptureConfig) {
     metrics.incCounter('capture.frames_total');
 
     try {
+        currentCaptureStage = 'GET_CONFIG';
         // Pre-check disk space
         const hasSpace = await checkDiskSpace(config.minDiskSpaceGB);
         if (!hasSpace) {
@@ -598,6 +746,7 @@ async function captureFrame(config: CaptureConfig) {
             return;
         }
 
+        currentCaptureStage = 'FIND_SOURCE';
         // Get active window info for all checks
         const activeWindow = await getActiveWindow();
         const currentApp = activeWindow?.owner.name || null;
@@ -639,6 +788,7 @@ async function captureFrame(config: CaptureConfig) {
 
         // Handle Window Switch: Commit all pending frames as 'exit'
         if (windowSwitched) {
+            currentCaptureStage = 'SAVE_IO'; // Switch handling involves IO
             const dwellTime = Date.now() - windowEnterTime;
 
             // Iterate all pending frames and save them if dwell time was sufficient
@@ -664,6 +814,9 @@ async function captureFrame(config: CaptureConfig) {
 
         // Collect Captures
         // -------------------------------------------------------------------------
+        currentCaptureStage = 'GET_SOURCES';
+        const sourceTimer = metrics.startTimer('capture.get_sources_duration_seconds');
+
         const captures: {
             thumbnail: Electron.NativeImage,
             monitorId: string,
@@ -675,8 +828,65 @@ async function captureFrame(config: CaptureConfig) {
         // Get displays for ROI calculation
         const displays = screen.getAllDisplays().sort((a, b) => a.bounds.x - b.bounds.x);
 
-        if (config.captureMode === 'window' && activeWindow) {
-            // Window-level capture
+        // ========== CAPTURE ENGINE SELECTION ==========
+        // Priority:
+        // 1. "WGC" mode -> Force WGC (Skip native)
+        // 2. "Native" mode -> Force Native (Try even if not auto-detected)
+        // 3. "Auto" mode -> Use Native if available, fallback to WGC
+
+        const forceWGC = config.captureEngine === 'wgc';
+        const forceNative = config.captureEngine === 'native';
+        const useNative = !forceWGC && (forceNative || (USE_NATIVE_CAPTURE && nativeCaptureAvailable));
+
+        let nativeCaptureSuccess = false;
+
+        // Try Native Capture
+        if (useNative) {
+            // Ensure initialization check
+            if (!nativeCaptureInitialized) {
+                // If forced or auto, wait for it
+                await nativeCapturePromise;
+            }
+
+            // Double check availability after wait, unless forced
+            if (nativeCaptureAvailable || forceNative) {
+                try {
+                    const nativeResult = await captureMonitor(config.screenIndex);
+                    if (nativeResult) {
+                        captures.push({
+                            thumbnail: nativeResult.image,
+                            monitorId: nativeResult.sourceId,
+                            appName: activeWindow?.owner.name || null,
+                            captureType: 'screen'
+                        });
+                        sourceTimer.end();
+                        nativeCaptureSuccess = true;
+
+                        if (forceNative || Math.random() < 0.01) {
+                            console.log(`[ShuTong] Used Native Capture (Engine: ${config.captureEngine})`);
+                        }
+                    } else {
+                        console.warn('[ShuTong] Native capture returned null.');
+                    }
+                } catch (err) {
+                    console.error('[ShuTong] Native capture error:', err);
+                }
+            }
+        }
+
+        // If Native failed AND we forced it, we should probably stop or warn?
+        // Current decision: If Native fails, we FALLBACK to WGC unless explicitly prevented?
+        // Robustness principle: Fallback is better than black screen unless strictly debugging.
+        // But if user sets 'Native' and it breaks, they might want to know. 
+        // We will fallback but log warning.
+
+        if (forceNative && !nativeCaptureSuccess) {
+            console.warn('[ShuTong] Forced Native capture failed. Falling back to WGC for safety.');
+        }
+
+        // ========== WGC CAPTURE PATH (fallback) ==========
+        if (captures.length === 0 && config.captureMode === 'window' && activeWindow) {
+            // Window-level capture via WGC
             const sources = await getSourcesWithRetry({
                 types: ['window'],
                 thumbnailSize: config.resolution,
@@ -684,6 +894,7 @@ async function captureFrame(config: CaptureConfig) {
             });
 
             // Use improved matching strategy
+            currentCaptureStage = 'FIND_SOURCE';
             const matchedSource = findMatchingSource(sources, activeWindow);
 
             if (matchedSource) {
@@ -696,6 +907,7 @@ async function captureFrame(config: CaptureConfig) {
             } else {
                 console.warn('[ShuTong] No window source found, falling back to screen capture');
                 // Fallback to primary screen
+                currentCaptureStage = 'GET_SOURCES'; // Retry sources
                 const screens = await getSourcesWithRetry({
                     types: ['screen'],
                     thumbnailSize: config.resolution,
@@ -711,8 +923,10 @@ async function captureFrame(config: CaptureConfig) {
                     });
                 }
             }
-        } else {
-            // Screen capture - Multi-monitor
+        }
+
+        // Screen capture via WGC (fallback if native capture failed and not in window mode)
+        if (captures.length === 0) {
             const screens = await getSourcesWithRetry({
                 types: ['screen'],
                 thumbnailSize: config.resolution,
@@ -746,17 +960,6 @@ async function captureFrame(config: CaptureConfig) {
                     }
                 }
 
-                // Push to captures list
-                // P0 Fix: Linter complained about roi possibly being undefined? No, tsconfig is strict.
-                // But wait, the linter error wasn't specific.
-                // The user just said "solve linter error".
-                // I suspect "activeWindow" might be null in some path?
-                // Or "currentTitle" is used below but not defined in this scope?
-                // Ah, "currentTitle" is used in PendingFrame creation but defined at top of function.
-                // Let's check "currentTitle".
-
-                // Also "currentWindowId" is used.
-
                 captures.push({
                     thumbnail: screenSource.thumbnail,
                     monitorId: screenSource.id,
@@ -766,6 +969,8 @@ async function captureFrame(config: CaptureConfig) {
                 });
             }
         }
+
+        sourceTimer.end(); // End source acquisition timer
 
         if (captures.length === 0) return;
 
@@ -777,26 +982,24 @@ async function captureFrame(config: CaptureConfig) {
             if (!thumbnail) continue;
             if (typeof thumbnail.isEmpty === 'function' && thumbnail.isEmpty()) continue;
 
+            currentCaptureStage = 'PROCESS_BITMAP';
+            const bitmapTimer = metrics.startTimer('capture.bitmap_processing_duration_seconds');
+
             const size = thumbnail.getSize();
             const bitmap = thumbnail.toBitmap();
-            const estimatedBytes = Math.round(bitmap.length * 0.07); // Rough estimate
+            const estimatedBytes = Math.round(bitmap.length * 0.07); // Rough PNG estimate
+
+            bitmapTimer.end();
+
+            currentCaptureStage = 'DEDUP_CHECK';
 
             let shouldSave = false;
-            let triggerType = 'onset';
-
-            // If window switched (handled above), we already cleared pending.
-            // So for the NEW frame after switch, we should treat it as ONSET if it's the first one,
-            // OR we just rely on dedup.
-            // Actually, if we cleared dedup state (`resetLastFrame`), the next `checkFrameSimilarity`
-            // will return { isSimilar: false } because there is no last frame.
-            // So it will be saved as 'onset'. This is correct.
 
             // Similarity Check
             if (config.dedup.enableSimilarityDedup) {
                 // Scale ROI to thumbnail size for accurate dedup
                 let dedupRoi = roi;
                 if (roi && monitorId) {
-                    // Try to find display to get original size
                     try {
                         const parts = monitorId.split(':');
                         if (parts.length >= 2) {
@@ -813,13 +1016,11 @@ async function captureFrame(config: CaptureConfig) {
                                 };
                             }
                         }
-                    } catch (e) {
-                        // Ignore scaling error, fallback to original ROI (might be wrong but safe)
+                    } catch (_e) {
+                        // Ignore scaling error, fallback to original ROI
                     }
                 }
 
-                // Check without updating state first (to decide logic)
-                // Actually, we can just call it with updateState=false
                 const simResult = checkFrameSimilarity(bitmap, size.width, size.height, estimatedBytes, false, monitorId, dedupRoi);
 
                 if (simResult.isSimilar) {
@@ -832,70 +1033,52 @@ async function captureFrame(config: CaptureConfig) {
                         windowTitle: currentTitle,
                         captureType: captureType,
                         windowId: currentWindowId,
-                        roi: roi // Save ORIGINAL ROI for metadata
+                        roi: roi
                     };
                     pendingFrames.set(monitorId, pendingFrame);
                 } else {
                     // DIFFERENT -> Save (Onset)
                     shouldSave = true;
-                    triggerType = 'onset';
-
-                    // Update dedup state
                     checkFrameSimilarity(bitmap, size.width, size.height, estimatedBytes, true, monitorId, dedupRoi);
-
-                    // Clear pending frame for this monitor as we are saving a new onset
                     pendingFrames.delete(monitorId);
                 }
             } else {
                 shouldSave = true;
             }
 
-            // Checkpoint Logic (Global Trigger, Per-Monitor Action)
+            // Checkpoint Logic
             const now = Date.now();
             const timeSinceLastCheckpoint = now - lastCheckpointTime;
-            const systemIdleSeconds = getIdleTime();
-            const guardSettings = getGuardSettings();
-            const isActiveInput = systemIdleSeconds < guardSettings.idleThresholdSeconds;
-
-            // If it's time for a checkpoint and user is active
-            if (timeSinceLastCheckpoint >= CHECKPOINT_INTERVAL_MS && isActiveInput) {
-                // If we have a pending frame for this monitor, save it
+            if (timeSinceLastCheckpoint >= CHECKPOINT_INTERVAL_MS) {
                 const pending = pendingFrames.get(monitorId);
                 if (pending) {
                     console.log(`[ShuTong] Saving CHECKPOINT keyframe for ${monitorId}`);
                     await savePendingFrame(pending, 'checkpoint', monitorId);
-                    pendingFrames.delete(monitorId); // Clear after checkpoint
+                    pendingFrames.delete(monitorId);
                 }
-                // We update lastCheckpointTime only after checking all? 
-                // Since we are in a loop, we should update it once outside.
-                // But we don't want to update it multiple times.
-                // Let's defer update to outside loop or check if updated.
             }
 
             if (shouldSave) {
-                // Save logic
-                const png = thumbnail.toPNG(); // PNG
+                currentCaptureStage = 'SAVE_IO';
+                const ioTimer = metrics.startTimer('capture.io_duration_seconds');
 
-                const now = new Date();
-                const dateStr = now.toISOString().split('T')[0];
-                const timeStr = now.toISOString().split('T')[1].replace(/:/g, '-').split('.')[0];
+                const png = thumbnail.toPNG();
 
+                const dateStr = new Date().toISOString().slice(0, 10);
+                const timeStr = new Date().toISOString().replace(/[:.]/g, '-');
                 const dayDir = path.join(getRecordingsRoot(), dateStr);
+
                 if (!fs.existsSync(dayDir)) {
                     fs.mkdirSync(dayDir, { recursive: true });
                 }
 
-                // Filename with monitorId
                 const safeMonitor = monitorId.replace(/[^a-zA-Z0-9]/g, '_');
-                const filePath = path.join(dayDir, `${timeStr}_${safeMonitor}.png`); // Standard capture (onset)
+                const filePath = path.join(dayDir, `${timeStr}_${safeMonitor}.png`);
+
                 await fs.promises.writeFile(filePath, png);
 
-                const unixTs = Math.floor(now.getTime() / 1000);
-                const fullCaptureType = `${captureType}:${triggerType}`;
-
-                // Phase 2: Context Extraction (Basic)
-                // const _context = parseWindowContext(appName || '', currentTitle);
-                // In future: Use context to tag screenshot metadata (e.g. project_name)
+                const unixTs = Math.floor(Date.now() / 1000);
+                const fullCaptureType = `${captureType}:onset`;
 
                 const screenshotId = saveScreenshot(
                     filePath,
@@ -911,18 +1094,19 @@ async function captureFrame(config: CaptureConfig) {
                 if (screenshotId) {
                     eventBus.emitEvent('screenshot:captured', { id: screenshotId as number, timestamp: unixTs });
                 }
+
+                ioTimer.end();
             }
         }
 
         // Update Checkpoint Timer
-        const now = Date.now();
-        if (now - lastCheckpointTime >= CHECKPOINT_INTERVAL_MS) {
-            lastCheckpointTime = now;
+        const captureEndTime = Date.now();
+        if (captureEndTime - lastCheckpointTime >= CHECKPOINT_INTERVAL_MS) {
+            lastCheckpointTime = captureEndTime;
         }
 
-        // Record successful capture for statistics (count as 1 cycle)
+        // Record successful capture for statistics
         recordCapture();
-        timer.end();
     } catch (err) {
         timer.end(); // Ensure timer ends on error
         console.error('[ShuTong] Capture failed:', err);

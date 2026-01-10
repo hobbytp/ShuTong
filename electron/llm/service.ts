@@ -1,5 +1,6 @@
 import i18next from 'i18next';
 import { Jimp } from 'jimp';
+import * as fs from 'fs/promises';
 import { getMergedLLMConfig } from '../config_manager';
 import { getCentralMetrics } from '../infrastructure/monitoring/metrics-types';
 import { Screenshot } from '../infrastructure/repositories/interfaces';
@@ -436,16 +437,21 @@ Return ONLY JSON.
     }
 
     private async processImage(screenshot: Screenshot): Promise<string> {
-        // 1. Read Image
-        const image = await Jimp.read(screenshot.file_path);
+        // Fallback: 1x1 transparent PNG to avoid breaking pipeline on corrupt/missing files
+        const FALLBACK_IMAGE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
-        // 2. (Optional) Smart ROI Crop
-        // If we have ROI metadata, we *could* crop here.
-        // However, for "context", keeping full screen is often better, 
-        // provided we have resolution.
-        // For now, let's just resize to avoid OOM/Token limits.
-        // Future: If ROI is very small (<20% screen), maybe crop to ROI + Padding?
-        // Current Plan: Just Resize.
+        let image;
+        try {
+            // 1. Read Image - Handle I/O explicitly to avoid stream issues
+            const fileBuffer = await fs.readFile(screenshot.file_path);
+
+            // 2. Parse with Jimp
+            image = await Jimp.read(fileBuffer);
+        } catch (err) {
+            // Handle both file-not-found (ENOENT) and corrupt image errors
+            console.error(`[LLMService] Failed to load image: ${screenshot.file_path}`, err);
+            return FALLBACK_IMAGE;
+        }
 
         // 3. Resize (MiniContext parity: 2048px)
         const MAX_DIM = 2048;

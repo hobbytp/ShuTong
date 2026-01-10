@@ -8,11 +8,13 @@ import {
     screenshotsForBatch,
     deleteCards as storageDeleteCards,
     getRecentCards as storageGetRecentCards,
-    updateBatchStatus
+    updateBatchStatus,
+    getFailedBatches
 } from '../../storage';
 
 export interface IAnalysisRepository {
     fetchUnprocessedScreenshots(sinceTimestamp: number, limit?: number): any[];
+    getFailedBatches(limit?: number): any[];
     saveBatchWithScreenshots(start: number, end: number, screenshotIds: number[]): number | bigint | null;
     updateBatchStatus(batchId: number, status: string, error?: string): void;
     saveTimelineCard(card: any): number | bigint | null;
@@ -27,6 +29,10 @@ export interface IAnalysisRepository {
 export class SqliteAnalysisRepository implements IAnalysisRepository {
     fetchUnprocessedScreenshots(sinceTimestamp: number, limit: number = 1000): any[] {
         return fetchUnprocessedScreenshots(sinceTimestamp, limit);
+    }
+
+    getFailedBatches(limit: number = 5): any[] {
+        return getFailedBatches(limit);
     }
 
     saveBatchWithScreenshots(start: number, end: number, screenshotIds: number[]): number | bigint | null {

@@ -3,6 +3,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { streamManager } from './stream-manager';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -24,11 +26,31 @@ export function setupVideoIPC() {
             throw error;
         }
     });
+
+    ipcMain.handle('video:open-stream', async (_event, filePath: string) => {
+        try {
+            return await streamManager.createStream(filePath);
+        } catch (error) {
+            console.error('[VideoService] Failed to open stream:', error);
+            throw error;
+        }
+    });
+
+    ipcMain.handle('video:write-chunk', async (_event, streamId: string, chunk: ArrayBuffer) => {
+        await streamManager.writeChunk(streamId, chunk);
+    });
+
+    ipcMain.handle('video:close-stream', async (_event, streamId: string) => {
+        await streamManager.closeStream(streamId);
+    });
 }
 
 export function createVideoGenerationWindow() {
+    // Always cancel any pending destruction timer first to prevent race conditions
+    // where the timer could fire during a new video generation task
+    cancelIdleDestruction();
+
     if (videoWindow && !videoWindow.isDestroyed()) {
-        cancelIdleDestruction();
         return;
     }
 
@@ -299,16 +321,37 @@ function executeVideoGeneration(
             outputPath
         };
 
-        // Ensure window is ready
-        if (videoWindow?.webContents.isLoading()) {
-            console.log('[VideoService] Window loading... queuing trigger');
-            videoWindow.webContents.once('did-finish-load', () => {
-                console.log('[VideoService] Window loaded. Sending generate-video');
-                videoWindow?.webContents.send('generate-video', sendParams);
-            });
-        } else {
-            console.log('[VideoService] Window ready. Sending generate-video');
+        // Wait for renderer to be ready before sending the message
+        // The renderer will send 'video-generator-ready' when its listener is registered
+        const sendWhenReady = () => {
+            console.log('[VideoService] Sending generate-video to renderer');
             videoWindow?.webContents.send('generate-video', sendParams);
+        };
+
+        const onRendererReady = () => {
+            ipcMain.removeListener('video-generator-ready', onRendererReady);
+            sendWhenReady();
+        };
+
+        // Check if we need to wait for either DOM load or renderer script initialization
+        if (videoWindow?.webContents.isLoading()) {
+            console.log('[VideoService] Window loading... waiting for renderer-ready signal');
+            ipcMain.once('video-generator-ready', onRendererReady);
+        } else {
+            // Window already loaded - check if renderer is ready
+            // Give the renderer a short window to signal readiness, otherwise send immediately
+            // (covers the case where window was reused and renderer is already ready)
+            const readyTimeout = setTimeout(() => {
+                ipcMain.removeListener('video-generator-ready', onRendererReady);
+                console.log('[VideoService] Renderer ready timeout - sending generate-video');
+                sendWhenReady();
+            }, 500);
+
+            ipcMain.once('video-generator-ready', () => {
+                clearTimeout(readyTimeout);
+                ipcMain.removeListener('video-generator-ready', onRendererReady);
+                sendWhenReady();
+            });
         }
     });
 }

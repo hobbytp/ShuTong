@@ -31,5 +31,8 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
 contextBridge.exposeInMainWorld('videoAPI', {
   saveVideo: async (buffer: ArrayBuffer, filePath: string) => {
     return ipcRenderer.invoke('video:save', buffer, filePath);
-  }
+  },
+  openStream: (filePath: string) => ipcRenderer.invoke('video:open-stream', filePath),
+  writeChunk: (streamId: string, chunk: ArrayBuffer) => ipcRenderer.invoke('video:write-chunk', streamId, chunk),
+  closeStream: (streamId: string) => ipcRenderer.invoke('video:close-stream', streamId),
 })

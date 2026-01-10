@@ -447,6 +447,22 @@ export function updateBatchStatus(batchId: number, status: string, reason?: stri
     }
 }
 
+export function getFailedBatches(limit: number = 5) {
+    if (!db) return [];
+    try {
+        const stmt = db.prepare(`
+            SELECT * FROM analysis_batches 
+            WHERE status = 'failed' 
+            ORDER BY batch_start_ts DESC 
+            LIMIT ?
+        `);
+        return stmt.all(limit);
+    } catch (err) {
+        console.error('[ShuTong] Failed to get failed batches:', err);
+        return [];
+    }
+}
+
 export function saveObservation(batchId: number, startTs: number, endTs: number, observation: string, model?: string, contextType?: string, entities?: string): number | bigint | undefined {
     if (!db) return;
     try {

@@ -12,5 +12,8 @@ interface Window {
 
     videoAPI?: {
         saveVideo(buffer: ArrayBuffer, filePath: string): Promise<void>;
+        openStream(filePath: string): Promise<string>;
+        writeChunk(streamId: string, chunk: ArrayBuffer): Promise<void>;
+        closeStream(streamId: string): Promise<void>;
     };
 }

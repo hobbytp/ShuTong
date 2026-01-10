@@ -16,6 +16,7 @@ export interface SingleStatPanelProps {
     invertThreshold?: boolean; // True if lower is worse
     loading?: boolean;
     error?: string | null;
+    tooltip?: string;
 }
 
 export function SingleStatPanel({
@@ -28,6 +29,7 @@ export function SingleStatPanel({
     invertThreshold = false,
     loading = false,
     error = null,
+    tooltip,
 }: SingleStatPanelProps) {
     // Determine color based on thresholds
     const numericValue = typeof value === 'number' ? value : parseFloat(String(value)) || 0;
@@ -37,7 +39,7 @@ export function SingleStatPanel({
 
     return (
         <BasePanel title={title} subtitle={subtitle} loading={loading} error={error}>
-            <div className="single-stat-container">
+            <div className="single-stat-container" title={tooltip}>
                 <div className={`single-stat-value ${colorClass}`}>
                     {typeof value === 'number' ? formatValue(value) : value}
                     {unit && <span className="single-stat-unit">{unit}</span>}

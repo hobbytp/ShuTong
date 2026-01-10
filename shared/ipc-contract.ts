@@ -139,6 +139,45 @@ export interface LLMMetricsSummary {
     lastUpdated: number;
 }
 
+// Matches actual getProductivitySummary() return from analytics.service.ts
+export interface AppUsageStat {
+    appName: string;
+    duration: number;
+    percentage: number;
+    category: 'productive' | 'neutral' | 'distraction';
+}
+
+export interface CognitiveFlowPoint {
+    timestamp: number; // unix timestamp in ms
+    focusScore: number; // 0-100
+    state: 'flow' | 'neutral' | 'distracted';
+}
+
+export interface ProductivitySummary {
+    totalActiveMinutes: number;
+    deepWorkMinutes: number;
+    topApps: AppUsageStat[];
+    focusScore: number;
+    contextSwitches: number;
+    recoveryTimeMinutes: number; // [NEW] Recommended recovery time
+    cognitiveTrend: CognitiveFlowPoint[]; // [NEW] For the chart
+}
+
+// Phase 3: Drill Down Types
+export interface AppDrillDownRequest {
+    appName: string;
+    startTs: number;
+    endTs: number;
+}
+
+export interface DrillDownItem {
+    windowTitle: string;
+    duration: number; // minutes
+    percentage: number;
+}
+
+export type AppDrillDownResponse = DrillDownItem[];
+
 // =============================================================================
 // IPC Contract Definition
 // =============================================================================
@@ -199,6 +238,7 @@ export interface IPCContract {
     // Dashboard
     // -------------------------------------------------------------------------
     'get-dashboard-stats': { args: []; return: DashboardStats };
+    'get-productivity-summary': { args: [date: string]; return: ProductivitySummary };
 
     // -------------------------------------------------------------------------
     // Pulse / AI Agent
@@ -296,6 +336,10 @@ export interface IPCContract {
         args: [startTs: number, endTs: number, limit?: number];
         return: { app: string; seconds: number }[];
     };
+    'get-app-drilldown': {
+        args: [{ appName: string; startTs: number; endTs: number }];
+        return: AppDrillDownResponse;
+    };
 
     // -------------------------------------------------------------------------
     // Guard Statistics
@@ -364,6 +408,7 @@ export interface PerformanceSnapshot {
         memoryUsedBytes: number;
         memoryTotalBytes: number;
         heapUsedBytes: number;
+        appMemoryUsedBytes: number; // [NEW] Total App RSS
         eventLoopLagMs: number;
     };
     histograms: {

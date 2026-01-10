@@ -29,6 +29,10 @@ export default defineConfig({
       main: {
         // Shortcut of `build.lib.entry`.
         entry: 'electron/main.ts',
+        onstart(args) {
+          // Enable remote debugging
+          args.startup(['.', '--inspect=5858'])
+        },
         vite: {
           build: {
             rollupOptions: {
@@ -37,7 +41,8 @@ export default defineConfig({
                 'better-sqlite3',
                 '@lancedb/lancedb',
                 'get-windows',
-                'tesseract.js'
+                'tesseract.js',
+                'node-screenshots'
               ],
             },
           },
