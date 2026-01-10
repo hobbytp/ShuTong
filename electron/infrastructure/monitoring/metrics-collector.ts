@@ -45,6 +45,8 @@ export interface PerformanceSnapshot {
         memoryTotalBytes: number;
         heapUsedBytes: number;
         appMemoryUsedBytes: number; // [NEW] Total App RSS (Main + Renderer + GPU)
+        mainProcessRSSBytes: number; // [NEW] Specifically Main Process RSS
+        externalMemoryBytes: number; // [NEW] C++ objects bound to JS
         eventLoopLagMs: number;
     };
     histograms: {
@@ -125,6 +127,8 @@ class MetricsCollector {
         memoryTotalBytes: 0,
         heapUsedBytes: 0,
         appMemoryUsedBytes: 0,
+        mainProcessRSSBytes: 0,
+        externalMemoryBytes: 0,
         eventLoopLagMs: 0,
     };
 
@@ -353,6 +357,8 @@ class MetricsCollector {
             memoryTotalBytes: 0,
             heapUsedBytes: 0,
             appMemoryUsedBytes: 0,
+            mainProcessRSSBytes: 0,
+            externalMemoryBytes: 0,
             eventLoopLagMs: 0,
         };
     }

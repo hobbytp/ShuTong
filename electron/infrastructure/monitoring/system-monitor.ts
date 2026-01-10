@@ -113,6 +113,8 @@ class SystemMonitor {
                 memoryTotalBytes: totalMem,
                 heapUsedBytes: memUsage.heapUsed,
                 appMemoryUsedBytes: totalAppMemory,
+                mainProcessRSSBytes: memUsage.rss,
+                externalMemoryBytes: memUsage.external,
                 eventLoopLagMs,
             });
 
@@ -133,6 +135,7 @@ class SystemMonitor {
             metricsCollector.setGauge('system.memory_total_bytes', totalMem);
             metricsCollector.setGauge('electron.heap_used_bytes', memUsage.heapUsed);
             metricsCollector.setGauge('electron.rss_bytes', memUsage.rss);
+            metricsCollector.setGauge('electron.external_bytes', memUsage.external);
             metricsCollector.setGauge('electron.event_loop_lag_ms', eventLoopLagMs);
 
             // Electron-specific: Process memory by type

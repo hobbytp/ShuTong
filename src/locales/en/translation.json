@@ -178,7 +178,12 @@
         "ocr_engine": "OCR Engine",
         "ocr_engine_cloud": "Cloud LLM (Default)",
         "ocr_engine_tesseract": "Local (Tesseract) - Experimental",
-        "ocr_engine_paddle": "Local (Paddle) - Experimental"
+        "ocr_engine_paddle": "Local (Paddle) - Experimental",
+        "capture_engine": "Capture Engine",
+        "capture_engine_desc": "Native = Fast/Stable, WGC = Compatibility",
+        "engine_auto": "Auto (Smart)",
+        "engine_native": "Native DXGI",
+        "engine_wgc": "Windows Graphics"
     },
     "mcp": {
         "title": "MCP Servers",
@@ -301,6 +306,8 @@
         "title": "Performance Monitor",
         "live": "Live",
         "paused": "Paused",
+        "paused": "Paused",
+        "systemHealth": "System Overview",
         "system_overview": "System Overview",
         "database": "Database",
         "ocr": "OCR Service",
@@ -320,7 +327,19 @@
             "throughput": "Throughput",
             "success_rate": "Success Rate",
             "total_tokens": "Total Tokens",
-            "frame_rate": "Frame Rate"
+            "total_tokens": "Total Tokens",
+            "total_tokens": "Total Tokens",
+            "frame_rate": "Frame Rate",
+            "memory_breakdown": "Memory Breakdown",
+            "main_rss": "Main Process RSS",
+            "total_app": "Total App Memory",
+            "heap_used": "Heap Used",
+            "external": "External (Buffers)",
+            "latency_avg": "Latency (Avg)",
+            "source_latency": "Source Latency (OS)",
+            "bitmap_process": "Bitmap Process (CPU)",
+            "disk_io": "Disk I/O",
+            "watchdog_resets": "Watchdog Resets"
         }
     },
     "insights": {

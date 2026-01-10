@@ -315,9 +315,9 @@ export function RecordingSettings() {
                                 onChange={(e) => updateSetting('capture_engine', e.target.value)}
                                 className="w-full appearance-none bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
                             >
-                                <option value="auto">Auto (Smart)</option>
-                                <option value="native">Native DXGI</option>
-                                <option value="wgc">Windows Graphics</option>
+                                <option value="auto">{t('recording.engine_auto', 'Auto (Smart)')}</option>
+                                <option value="native">{t('recording.engine_native', 'Native DXGI')}</option>
+                                <option value="wgc">{t('recording.engine_wgc', 'Windows Graphics')}</option>
                             </select>
                         </div>
                     </div>

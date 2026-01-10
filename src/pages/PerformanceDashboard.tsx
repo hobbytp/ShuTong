@@ -111,11 +111,31 @@ export function PerformanceDashboard() {
                         subtitle={`${formatBytes(system.memoryUsedBytes)} / ${formatBytes(system.memoryTotalBytes)}`}
                         thresholds={{ warning: 60, critical: 80 }}
                     />
-                    <SingleStatPanel
-                        title={t('performance.panels.app_memory', 'App Memory (RSS)')}
-                        value={formatBytes(system.appMemoryUsedBytes || system.heapUsedBytes)}
-                        tooltip={`Heap: ${formatBytes(system.heapUsedBytes)}`}
-                    />
+                    {/* Detailed Memory Breakdown Panel */}
+                    <div className="performance-panel single-stat">
+                        <div className="panel-header">
+                            <h3>{t('performance.panels.memory_breakdown', 'Memory Breakdown')}</h3>
+                            <span className="unit"></span>
+                        </div>
+                        <div className="panel-content flex flex-col gap-2 text-xs pt-2">
+                            <div className="flex justify-between">
+                                <span className="text-zinc-400">{t('performance.panels.main_rss', 'Main Process RSS')}</span>
+                                <span className="font-mono">{formatBytes(system.mainProcessRSSBytes || 0)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-zinc-400">{t('performance.panels.total_app', 'Total App Memory')}</span>
+                                <span className="font-mono">{formatBytes(system.appMemoryUsedBytes || 0)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-zinc-400">{t('performance.panels.heap_used', 'Heap Used')}</span>
+                                <span className="font-mono">{formatBytes(system.heapUsedBytes || 0)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-zinc-400">{t('performance.panels.external', 'External')}</span>
+                                <span className="font-mono">{formatBytes(system.externalMemoryBytes || 0)}</span>
+                            </div>
+                        </div>
+                    </div>
                     <SingleStatPanel
                         title={t('performance.panels.event_loop_lag', 'Event Loop Lag')}
                         value={system.eventLoopLagMs}
@@ -219,25 +239,25 @@ export function PerformanceDashboard() {
                         sparklineData={getSparklineData(history, 'capture.duration_seconds', 20)}
                     />
                     <SingleStatPanel
-                        title="Source Latency (OS)"
+                        title={t('performance.panels.source_latency', 'Source Latency (OS)')} // Changed
                         value={histograms['capture.get_sources_duration_seconds']?.avgMs || 0}
                         unit="ms"
                         thresholds={{ warning: 500, critical: 2000 }} // Windows Graphics Capture can be slow
                     />
                     <SingleStatPanel
-                        title="Bitmap Process (CPU)"
+                        title={t('performance.panels.bitmap_process', 'Bitmap Process (CPU)')} // Changed
                         value={histograms['capture.bitmap_processing_duration_seconds']?.avgMs || 0}
                         unit="ms"
                         thresholds={{ warning: 200, critical: 1000 }} // Heavy CPU use
                     />
                     <SingleStatPanel
-                        title="Disk I/O"
+                        title={t('performance.panels.disk_io', 'Disk I/O')} // Changed
                         value={histograms['capture.io_duration_seconds']?.avgMs || 0}
                         unit="ms"
                         thresholds={{ warning: 100, critical: 500 }}
                     />
                     <SingleStatPanel
-                        title="Watchdog Resets"
+                        title={t('performance.panels.watchdog_resets', 'Watchdog Resets')} // Changed
                         value={snapshot.counters['capture.watchdog_reset_total'] || 0}
                         unit=""
                         thresholds={{ warning: 1, critical: 5 }}

@@ -78,7 +78,6 @@ const MEMORY_GROWTH_THRESHOLD_MB_PER_SEC = 10; // If growing faster than 10MB/s,
 // Track WGC state for diagnostics
 let totalWGCCalls = 0;
 let totalWGCFailures = 0;
-let lastWGCSuccess = Date.now();
 
 /**
  * Wrapper for desktopCapturer.getSources with retry logic and Circuit Breaker.
@@ -149,7 +148,7 @@ async function getSourcesWithRetry(
                     currentCoolDownMs = BASE_COOL_DOWN_MS; // Reset exponential backoff
                     metrics.setGauge('capture.consecutive_failures', 0, { source: 'wgc' });
                 }
-                lastWGCSuccess = Date.now();
+
                 return validSources;
             }
 

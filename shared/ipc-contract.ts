@@ -409,6 +409,8 @@ export interface PerformanceSnapshot {
         memoryTotalBytes: number;
         heapUsedBytes: number;
         appMemoryUsedBytes: number; // [NEW] Total App RSS
+        mainProcessRSSBytes: number;
+        externalMemoryBytes: number;
         eventLoopLagMs: number;
     };
     histograms: {

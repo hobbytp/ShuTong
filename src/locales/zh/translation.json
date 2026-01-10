@@ -178,7 +178,12 @@
         "ocr_engine": "OCR 引擎",
         "ocr_engine_cloud": "云端 LLM（默认）",
         "ocr_engine_tesseract": "本地 (Tesseract) - 实验性",
-        "ocr_engine_paddle": "本地 (Paddle) - 实验性"
+        "ocr_engine_paddle": "本地 (Paddle) - 实验性",
+        "capture_engine": "截图引擎",
+        "capture_engine_desc": "Native = 性能优先, WGC = 兼容性优先",
+        "engine_auto": "自动 (智能选择)",
+        "engine_native": "Native DXGI (高性能)",
+        "engine_wgc": "Windows Graphics (兼容性)"
     },
     "mcp": {
         "title": "MCP 服务器",
@@ -301,6 +306,8 @@
         "title": "性能监控",
         "live": "实时",
         "paused": "暂停",
+        "paused": "停止",
+        "systemHealth": "系统概览",
         "system_overview": "系统概览",
         "database": "数据库",
         "ocr": "OCR 服务",
@@ -320,7 +327,19 @@
             "throughput": "吞吐量",
             "success_rate": "成功率",
             "total_tokens": "总 Token",
-            "frame_rate": "帧率"
+            "total_tokens": "总 Token",
+            "total_tokens": "总 Token",
+            "frame_rate": "帧率",
+            "memory_breakdown": "内存详情",
+            "main_rss": "主进程物理内存 (RSS)",
+            "total_app": "应用总内存",
+            "heap_used": "堆内存使用 (JS Objects)",
+            "external": "外部内存 (C++/Buffers)",
+            "latency_avg": "平均延迟",
+            "source_latency": "源截取延迟 (OS)",
+            "bitmap_process": "位图处理 (CPU)",
+            "disk_io": "磁盘写入",
+            "watchdog_resets": "看门狗重置"
         }
     },
     "insights": {
