@@ -15,7 +15,9 @@
     "postinstall": "electron-builder install-app-deps",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "stop": "node scripts/stop.js",
+    "stop:dev": "node scripts/stop.js"
   },
   "dependencies": {
     "@lancedb/lancedb": "^0.23.0",

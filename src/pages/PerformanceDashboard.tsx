@@ -112,30 +112,32 @@ export function PerformanceDashboard() {
                         thresholds={{ warning: 60, critical: 80 }}
                     />
                     {/* Detailed Memory Breakdown Panel */}
-                    <div className="performance-panel single-stat">
-                        <div className="panel-header">
-                            <h3>{t('performance.panels.memory_breakdown', 'Memory Breakdown')}</h3>
-                            <span className="unit"></span>
-                        </div>
-                        <div className="panel-content flex flex-col gap-2 text-xs pt-2">
-                            <div className="flex justify-between">
-                                <span className="text-zinc-400">{t('performance.panels.main_rss', 'Main Process RSS')}</span>
-                                <span className="font-mono">{formatBytes(system.mainProcessRSSBytes || 0)}</span>
+                    <SingleStatPanel
+                        title={t('performance.panels.memory_breakdown', 'Memory Breakdown')}
+                        value={formatBytes(system.appMemoryUsedBytes || 0)}
+                        subtitle={t('performance.panels.total_app', 'Total App Memory')}
+                        hoverContent={
+                            <div className="flex flex-col gap-1.5 w-full px-2">
+                                <div className="flex justify-between items-center">
+                                    <span className="text-zinc-500">{t('performance.panels.main_rss', 'Main RSS')}</span>
+                                    <span className="font-mono font-medium text-zinc-300">{formatBytes(system.mainProcessRSSBytes || 0)}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-zinc-500">{t('performance.panels.heap_used', 'Heap')}</span>
+                                    <span className="font-mono font-medium text-zinc-300">{formatBytes(system.heapUsedBytes || 0)}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-zinc-500">{t('performance.panels.external', 'External')}</span>
+                                    <span className="font-mono font-medium text-zinc-300">{formatBytes(system.externalMemoryBytes || 0)}</span>
+                                </div>
+                                <div className="w-full h-px bg-zinc-800 my-0.5"></div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-zinc-400">{t('performance.panels.total_app', 'Total')}</span>
+                                    <span className="font-mono font-bold text-zinc-200">{formatBytes(system.appMemoryUsedBytes || 0)}</span>
+                                </div>
                             </div>
-                            <div className="flex justify-between">
-                                <span className="text-zinc-400">{t('performance.panels.total_app', 'Total App Memory')}</span>
-                                <span className="font-mono">{formatBytes(system.appMemoryUsedBytes || 0)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-zinc-400">{t('performance.panels.heap_used', 'Heap Used')}</span>
-                                <span className="font-mono">{formatBytes(system.heapUsedBytes || 0)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-zinc-400">{t('performance.panels.external', 'External')}</span>
-                                <span className="font-mono">{formatBytes(system.externalMemoryBytes || 0)}</span>
-                            </div>
-                        </div>
-                    </div>
+                        }
+                    />
                     <SingleStatPanel
                         title={t('performance.panels.event_loop_lag', 'Event Loop Lag')}
                         value={system.eventLoopLagMs}

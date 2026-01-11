@@ -2,6 +2,7 @@
  * SingleStatPanel - Big number display with optional sparkline and threshold coloring.
  */
 
+import React from 'react';
 import { getThresholdColor } from '../../../hooks/usePerformanceMetrics';
 import { BasePanel } from './BasePanel';
 import './SingleStatPanel.css';
@@ -17,6 +18,7 @@ export interface SingleStatPanelProps {
     loading?: boolean;
     error?: string | null;
     tooltip?: string;
+    hoverContent?: React.ReactNode;
 }
 
 export function SingleStatPanel({
@@ -30,6 +32,7 @@ export function SingleStatPanel({
     loading = false,
     error = null,
     tooltip,
+    hoverContent,
 }: SingleStatPanelProps) {
     // Determine color based on thresholds
     const numericValue = typeof value === 'number' ? value : parseFloat(String(value)) || 0;
@@ -39,14 +42,22 @@ export function SingleStatPanel({
 
     return (
         <BasePanel title={title} subtitle={subtitle} loading={loading} error={error}>
-            <div className="single-stat-container" title={tooltip}>
-                <div className={`single-stat-value ${colorClass}`}>
-                    {typeof value === 'number' ? formatValue(value) : value}
-                    {unit && <span className="single-stat-unit">{unit}</span>}
+            <div className="single-stat-container relative group w-full h-full justify-center" title={!hoverContent ? tooltip : undefined}>
+                <div className={`flex flex-col items-center gap-2 transition-opacity duration-200 ${hoverContent ? 'group-hover:opacity-10 blur-0 group-hover:blur-sm' : ''}`}>
+                    <div className={`single-stat-value ${colorClass}`}>
+                        {typeof value === 'number' ? formatValue(value) : value}
+                        {unit && <span className="single-stat-unit">{unit}</span>}
+                    </div>
+
+                    {sparklineData && sparklineData.length > 1 && (
+                        <Sparkline data={sparklineData} />
+                    )}
                 </div>
 
-                {sparklineData && sparklineData.length > 1 && (
-                    <Sparkline data={sparklineData} />
+                {hoverContent && (
+                    <div className="absolute inset-0 flex flex-col justify-center items-stretch text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10 bg-[var(--panel-bg)]">
+                        {hoverContent}
+                    </div>
                 )}
             </div>
         </BasePanel>

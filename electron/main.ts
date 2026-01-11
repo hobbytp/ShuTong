@@ -711,8 +711,10 @@ async function startApp() {
 
     // Type-safe event subscription
     eventBus.subscribe('recording:state-changed', ({ isRecording }) => {
-      updateTrayMenu(() => win, isRecording);
-      win?.webContents.send('recording-state-changed', isRecording);
+      if (win && !win.isDestroyed()) {
+        updateTrayMenu(() => win, isRecording);
+        win.webContents.send('recording-state-changed', isRecording);
+      }
     });
 
     // @ts-ignore
