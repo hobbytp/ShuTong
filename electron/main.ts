@@ -293,6 +293,19 @@ async function startApp() {
     // STEP 1: Register ALL IPC handlers FIRST (SYNCHRONOUS)
     // ========================================
 
+    // 2. Hydrate Storage (HYDRATING State) - MOVED HERE to prevent IPC race conditions
+    initStorage();
+    console.log('[Main] Storage initialized (HYDRATING)');
+
+    // Register Core Services for Shutdown
+    lifecycleManager.register(storageShutdownService);
+    lifecycleManager.register(captureShutdownService);
+    lifecycleManager.register(ocrService);
+    console.log('[Main] Registered core services for graceful shutdown');
+
+    // Notify Frontend: Storage ready (Sidebar can slide in, Content blurred)
+    setAppLifecycleState('HYDRATING');
+
     setupAnalyticsIPC();
     setupVideoIPC();
     setupBackupIPC();
@@ -634,18 +647,8 @@ async function startApp() {
 
     console.log('[Main] IPC handlers registered')
 
-    // 2. Hydrate Storage (HYDRATING State)
-    initStorage();
-    console.log('[Main] Storage initialized (HYDRATING)');
-
-    // Register Core Services for Shutdown
-    lifecycleManager.register(storageShutdownService);
-    lifecycleManager.register(captureShutdownService);
-    lifecycleManager.register(ocrService);
-    console.log('[Main] Registered core services for graceful shutdown');
-
-    // Notify Frontend: Storage ready (Sidebar can slide in, Content blurred)
-    setAppLifecycleState('HYDRATING');
+    // 2. Hydrate Storage (Moved to earlier phase)
+    // initStorage() called above.
 
     // === DEV ONLY: Slow Motion Testing ===
     // Set to > 0 to add artificial delay between phases (in ms)

@@ -4,13 +4,18 @@ import path from 'path';
 
 // Use appData path (e.g. C:\Users\xxx\AppData\Roaming) + appName to find the default userData directory
 // This allows us to find the bootstrap config even if userData has already been redirected.
-const DEFAULT_USER_DATA = path.join(app.getPath('appData'), app.name);
-const BOOTSTRAP_FILE = path.join(DEFAULT_USER_DATA, 'bootstrap.json');
+function getDefaultUserData() {
+    return path.join(app.getPath('appData'), app.name);
+}
+
+function getBootstrapFile() {
+    return path.join(getDefaultUserData(), 'bootstrap.json');
+}
 
 console.log('[Bootstrap] Initialized');
-console.log(`[Bootstrap] App Name: ${app.name}`);
-console.log(`[Bootstrap] Standard User Data Path (System Default): ${DEFAULT_USER_DATA}`);
-console.log(`[Bootstrap] Bootstrap File: ${BOOTSTRAP_FILE}`);
+
+console.log(`[Bootstrap] Standard User Data Path (System Default): ${getDefaultUserData()}`);
+console.log(`[Bootstrap] Bootstrap File: ${getBootstrapFile()}`);
 
 export interface PendingMigration {
     targetPath: string;
@@ -24,11 +29,16 @@ export interface BootstrapConfig {
 
 function readConfig(): BootstrapConfig {
     try {
-        if (!fs.existsSync(DEFAULT_USER_DATA)) {
-            fs.mkdirSync(DEFAULT_USER_DATA, { recursive: true });
+        const defaultUserData = getDefaultUserData();
+        const bootstrapFile = getBootstrapFile();
+
+        console.log(`[Bootstrap] Checking config at: ${bootstrapFile} (App Name: ${app.name})`);
+
+        if (!fs.existsSync(defaultUserData)) {
+            fs.mkdirSync(defaultUserData, { recursive: true });
         }
-        if (fs.existsSync(BOOTSTRAP_FILE)) {
-            const content = fs.readFileSync(BOOTSTRAP_FILE, 'utf-8');
+        if (fs.existsSync(bootstrapFile)) {
+            const content = fs.readFileSync(bootstrapFile, 'utf-8');
             return JSON.parse(content);
         }
     } catch (err) {
@@ -39,10 +49,13 @@ function readConfig(): BootstrapConfig {
 
 function writeConfig(config: BootstrapConfig) {
     try {
-        if (!fs.existsSync(DEFAULT_USER_DATA)) {
-            fs.mkdirSync(DEFAULT_USER_DATA, { recursive: true });
+        const defaultUserData = getDefaultUserData();
+        const bootstrapFile = getBootstrapFile();
+
+        if (!fs.existsSync(defaultUserData)) {
+            fs.mkdirSync(defaultUserData, { recursive: true });
         }
-        fs.writeFileSync(BOOTSTRAP_FILE, JSON.stringify(config, null, 2));
+        fs.writeFileSync(bootstrapFile, JSON.stringify(config, null, 2));
         console.log('[Bootstrap] Config updated.');
     } catch (err) {
         console.error('[Bootstrap] Failed to write bootstrap config:', err);
