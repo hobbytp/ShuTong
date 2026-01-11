@@ -1,0 +1,24 @@
+description: "ShuTong Eval - Timeline Multimodal"
+
+prompts:
+  - file://evals/wrappers/timeline_prompt_wrapper.ts
+
+providers:
+  # NOTE: SiliconFlow's DeepSeek-V3 does NOT support vision.
+  # User must configure a vision-capable provider here.
+  # Placeholder using OpenAI format, assuming user has access or will switch.
+  - id: openai:chat:gpt-4o
+    label: "GPT-4o (Vision)"
+    config:
+      # If using OpenAI directly:
+      # apiKey: env:OPENAI_API_KEY
+      # If using a compatible vision provider (e.g. SiliconFlow Qwen-VL if available):
+      apiBaseUrl: ${OPENAI_BASE_URL}
+      apiKey: ${OPENAI_API_KEY} 
+
+defaultTest:
+  assert:
+    - type: javascript
+      value: file://evals/evaluators/timeline-judge.ts
+
+tests: file://evals/datasets/timeline_analysis.csv

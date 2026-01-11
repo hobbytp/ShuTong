@@ -1,0 +1,2 @@
+screenshot_path,expected_activity,expected_entities
+timeline_screenshots/sample_coding.png,"The user is writing TypeScript code in VS Code. The file being edited appears to be related to 'timeline.service.ts'.","[{""type"":""tool"",""name"":""VS Code""}]"
