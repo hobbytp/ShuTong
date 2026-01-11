@@ -985,6 +985,13 @@ async function captureFrame(config: CaptureConfig) {
             const bitmapTimer = metrics.startTimer('capture.bitmap_processing_duration_seconds');
 
             const size = thumbnail.getSize();
+
+            // P1: Log warning for abnormally small images (User Request)
+            if (size.width < 14 || size.height < 14) {
+                console.warn(`[ShuTong] ⚠️ Capture Warning: Extremely small thumbnail detected (${size.width}x${size.height}) from monitor ${monitorId}. App: ${appName}`);
+                // Proceeding to save for now to aid debugging, but tagged as suspicious in logs.
+            }
+
             const bitmap = thumbnail.toBitmap();
             const estimatedBytes = Math.round(bitmap.length * 0.07); // Rough PNG estimate
 

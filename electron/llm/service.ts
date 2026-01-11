@@ -216,7 +216,19 @@ Return JSON format:
 
             throw new Error("Unknown LLM response format");
 
-        } catch (err) {
+        } catch (err: any) {
+            // P0 Fix: Handle non-retriable API errors (like Image too small 400) to prevent infinite loops
+            const errorMsg = String(err);
+            if (errorMsg.includes('400') || errorMsg.includes('InvalidParameter') || errorMsg.includes('image dimensions')) {
+                console.warn('[LLMService] Non-retriable API error (skipping batch):', err);
+                // Return a placeholder observation effectively "skipping" this batch without failing the job
+                return [{
+                    start: screenshots[0].captured_at,
+                    end: screenshots[screenshots.length - 1].captured_at,
+                    text: "Analysis skipped due to invalid image data."
+                }];
+            }
+
             console.error('[LLMService] Single chunk transcription failed:', err);
             throw err;
         }
@@ -437,8 +449,9 @@ Return ONLY JSON.
     }
 
     private async processImage(screenshot: Screenshot): Promise<string> {
-        // Fallback: 1x1 transparent PNG to avoid breaking pipeline on corrupt/missing files
-        const FALLBACK_IMAGE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+        // Fallback: 16x16 black PNG to meet VolcEngine min dimension (14x14)
+        // Previous 1x1 caused 400 errors.
+        const FALLBACK_IMAGE = "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAAHnlligAAAAEUlEQVR42mNk+M+ABzAxAIr/A2tWj776AAAAAElFTkSuQmCC";
 
         let image;
         try {
