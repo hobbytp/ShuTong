@@ -403,7 +403,7 @@
                     "maxOutputTokens": 32768,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
-                    "ratelimit":{
+                    "ratelimit": {
                         "rpm": 15000,
                         "tpm": 1000000
                     },
@@ -420,7 +420,7 @@
                     "maxOutputTokens": 65536,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
-                    "ratelimit":{
+                    "ratelimit": {
                         "rpm": 600,
                         "tpm": 1000000
                     },
@@ -438,7 +438,7 @@
                     "maxOutputTokens": 32768,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
-                    "ratelimit":{
+                    "ratelimit": {
                         "rpm": 15000,
                         "tpm": 1200000
                     },
@@ -456,7 +456,7 @@
                     "maxOutputTokens": 4096,
                     "supportsFunctionCalling": false,
                     "supportsVision": true,
-                    "ratelimit":{
+                    "ratelimit": {
                         "rpm": 600,
                         "tpm": 6000000
                     },
@@ -474,7 +474,7 @@
                     "maxOutputTokens": 16384,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
-                    "ratelimit":{
+                    "ratelimit": {
                         "rpm": 15000,
                         "tpm": 1200000
                     },
@@ -591,7 +591,7 @@
                     "maxOutputTokens": 8000,
                     "supportsFunctionCalling": false,
                     "supportsVision": true,
-                    "ratelimit":{
+                    "ratelimit": {
                         "rpm": 1000,
                         "tpm": 80000
                     },
@@ -621,7 +621,7 @@
                     "maxOutputTokens": 16384,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
-                    "ratelimit":{
+                    "ratelimit": {
                         "rpm": 500,
                         "tpm": 2000000
                     },
@@ -638,7 +638,7 @@
                     "maxOutputTokens": 160000,
                     "supportsFunctionCalling": true,
                     "supportsVision": false,
-                    "ratelimit":{
+                    "ratelimit": {
                         "rpm": 1000,
                         "tpm": 100000
                     },
@@ -670,7 +670,7 @@
                     "maxVecDimension": 1024,
                     "supportsFunctionCalling": false,
                     "supportsVision": false,
-                    "ratelimit":{
+                    "ratelimit": {
                         "rpm": 2000,
                         "tpm": 500000
                     },
@@ -689,7 +689,7 @@
                     "maxVecDimension": 4096,
                     "supportsFunctionCalling": false,
                     "supportsVision": false,
-                    "ratelimit":{
+                    "ratelimit": {
                         "rpm": 2000,
                         "tpm": 1000000
                     },
@@ -1067,6 +1067,24 @@
             "model": "Qwen/Qwen3-235B-A22B-Thinking-2507",
             "temperature": 0.6,
             "description": "Pulse Agent用的模型"
+        },
+        "SPROUT_MGR_AGENT": {
+            "provider": "DashScope",
+            "model": "qwen-max",
+            "temperature": 0.6,
+            "description": "Sprout Manager用的模型"
+        },
+        "SPROUT_AGENT": {
+            "provider": "DashScope",
+            "model": "qwen-flash",
+            "temperature": 0.4,
+            "description": "Sprout Agent用的模型"
+        },
+        "SPROUT_REPORTOR": {
+            "provider": "DashScope",
+            "model": "qwen-long",
+            "temperature": 0.2,
+            "description": "Sprout Reportor用的模型"
         }
     }
 }

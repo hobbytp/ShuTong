@@ -398,6 +398,14 @@ export interface IPCContract {
     'performance:getSnapshot': { args: []; return: PerformanceSnapshot };
     'performance:subscribe': { args: []; return: void };
     'performance:unsubscribe': { args: []; return: void };
+
+    // -------------------------------------------------------------------------
+    // AutoExpert / Sprout
+    // -------------------------------------------------------------------------
+    'sprout:start-session': {
+        args: [seed: string, config?: any];
+        return: { success: boolean; threadId?: string; error?: string };
+    };
 }
 
 // Performance Snapshot type (matches metrics-collector.ts)

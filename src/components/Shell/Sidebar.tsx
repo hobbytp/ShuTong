@@ -1,4 +1,4 @@
-import { Activity, Brain, Clock, FileText, Gauge, Home, PlayCircle, Settings, Sparkles } from 'lucide-react';
+import { Activity, Brain, Clock, FileText, Gauge, Home, PlayCircle, Settings, Sparkles, Sprout } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
@@ -18,6 +18,7 @@ export function Sidebar({ activePage, onNavigate, isHydrated = true }: SidebarPr
         { id: 'home', icon: Home, label: t('sidebar.home', 'Home') },
         { id: 'timeline', icon: Clock, label: t('sidebar.timeline', 'Timeline') },
         { id: 'pulse', icon: Sparkles, label: t('sidebar.pulse', 'Pulse') },
+        { id: 'sprout', icon: Sprout, label: t('sidebar.sprout', 'Sprout') },
         { id: 'insights', icon: Brain, label: t('sidebar.insights', 'Insights') },
         { id: 'analytics', icon: Activity, label: t('sidebar.analytics', 'Analytics') },
         { id: 'journal', icon: FileText, label: t('sidebar.journal', 'Journal') },

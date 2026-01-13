@@ -1,4 +1,18 @@
+// Load environment variables FIRST, before any LangChain imports
+import 'dotenv/config';
+
 import { app, BrowserWindow, dialog, screen as electronScreen, ipcMain, nativeImage, net, protocol, shell } from 'electron';
+import { execSync } from 'node:child_process';
+
+// Force UTF-8 encoding for Windows terminal
+if (process.platform === 'win32') {
+  try {
+    execSync('chcp 65001', { stdio: 'ignore' });
+  } catch (e) {
+    // Ignore errors in non-interactive environments
+  }
+}
+
 import { createLLMProviderFromConfig } from './llm/providers';
 
 import { autoUpdater } from 'electron-updater';
@@ -438,6 +452,66 @@ async function startApp() {
         return { success: true, results };
       } catch (err: any) {
         return { success: false, error: err.message, results: [] };
+      }
+    });
+
+    ipcMain.handle('sprout:start-session', async (_, seed: string, config?: any) => {
+      try {
+        const { autoExpertAgent } = await import('./features/sprout/agent');
+        const threadId = `sprout-${Date.now()}`;
+
+        // Create a promise that resolves with initial experts from first supervisor output
+        let resolveInitialExperts!: (experts: any[]) => void;
+        const initialExpertsPromise = new Promise<any[]>((resolve) => {
+          resolveInitialExperts = resolve;
+          // Timeout fallback in case experts never come
+          setTimeout(() => resolve([]), 5000);
+        });
+
+        // Start streaming in background
+        (async () => {
+          try {
+            const iterator = autoExpertAgent.streamSession(seed, threadId, config);
+            let expertsResolved = false;
+
+            for await (const chunk of iterator) {
+              // Check for initial experts from supervisor node
+              if (!expertsResolved) {
+                const supervisorData = chunk.supervisor;
+                if (supervisorData?.experts && Array.isArray(supervisorData.experts) && supervisorData.experts.length > 0) {
+                  resolveInitialExperts(supervisorData.experts);
+                  expertsResolved = true;
+                }
+              }
+
+              if (win && !win.isDestroyed()) {
+                win.webContents.send(`sprout:update:${threadId}`, chunk);
+              }
+            }
+
+            // Resolve with empty if no experts found
+            if (!expertsResolved) {
+              resolveInitialExperts([]);
+            }
+
+            if (win && !win.isDestroyed()) {
+              win.webContents.send(`sprout:complete:${threadId}`, { status: 'done' });
+            }
+          } catch (e: any) {
+            console.error("[Sprout] Stream error:", e);
+            if (win && !win.isDestroyed()) {
+              win.webContents.send(`sprout:error:${threadId}`, { error: e.message });
+            }
+          }
+        })();
+
+        // Wait for initial experts before returning
+        const initialExperts = await initialExpertsPromise;
+        console.log('[Sprout] Returning initial experts to frontend:', initialExperts.length);
+
+        return { success: true, threadId, initialExperts };
+      } catch (err: any) {
+        return { success: false, error: err.message };
       }
     });
 

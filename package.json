@@ -6,7 +6,7 @@
   "author": "RayTan",
   "type": "module",
   "scripts": {
-    "dev": "cross-env NODE_OPTIONS=--max-old-space-size=4096 vite",
+    "dev": "chcp.com 65001 >nul && cross-env NODE_OPTIONS=--max-old-space-size=4096 vite",
     "build": "tsc && vite build && electron-builder",
     "build:dir": "tsc && vite build && electron-builder --dir",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
@@ -42,6 +42,7 @@
     "dotenv": "^17.2.3",
     "electron-updater": "^6.6.2",
     "extract-zip": "^2.0.1",
+    "framer-motion": "^12.25.0",
     "get-windows": "^9.0.0",
     "i18next": "^25.7.3",
     "i18next-fs-backend": "^2.6.1",
