@@ -26,6 +26,7 @@ import { analyticsService } from './features/analytics/analytics.service';
 import { backupService, setupBackupIPC } from './features/backup';
 import { captureShutdownService, getIsRecording, startRecording, stopRecording } from './features/capture';
 import { setupAnalyticsIPC } from './features/timeline';
+import { setupSproutIPC } from './features/sprout';
 import { ocrService } from './features/timeline/ocr.service';
 import { createVideoGenerationWindow, setupVideoIPC, setupVideoSubscribers } from './features/video';
 import { eventBus } from './infrastructure/events';
@@ -323,6 +324,7 @@ async function startApp() {
     setupAnalyticsIPC();
     setupVideoIPC();
     setupBackupIPC();
+    setupSproutIPC();
 
     // Initialize Analytics Service (IPC)
     void analyticsService;
@@ -455,65 +457,11 @@ async function startApp() {
       }
     });
 
-    ipcMain.handle('sprout:start-session', async (_, seed: string, config?: any) => {
-      try {
-        const { autoExpertAgent } = await import('./features/sprout/agent');
-        const threadId = `sprout-${Date.now()}`;
 
-        // Create a promise that resolves with initial experts from first supervisor output
-        let resolveInitialExperts!: (experts: any[]) => void;
-        const initialExpertsPromise = new Promise<any[]>((resolve) => {
-          resolveInitialExperts = resolve;
-          // Timeout fallback in case experts never come
-          setTimeout(() => resolve([]), 5000);
-        });
 
-        // Start streaming in background
-        (async () => {
-          try {
-            const iterator = autoExpertAgent.streamSession(seed, threadId, config);
-            let expertsResolved = false;
+    // Initialize Analytics Service (IPC)
+    void analyticsService;
 
-            for await (const chunk of iterator) {
-              // Check for initial experts from supervisor node
-              if (!expertsResolved) {
-                const supervisorData = chunk.supervisor;
-                if (supervisorData?.experts && Array.isArray(supervisorData.experts) && supervisorData.experts.length > 0) {
-                  resolveInitialExperts(supervisorData.experts);
-                  expertsResolved = true;
-                }
-              }
-
-              if (win && !win.isDestroyed()) {
-                win.webContents.send(`sprout:update:${threadId}`, chunk);
-              }
-            }
-
-            // Resolve with empty if no experts found
-            if (!expertsResolved) {
-              resolveInitialExperts([]);
-            }
-
-            if (win && !win.isDestroyed()) {
-              win.webContents.send(`sprout:complete:${threadId}`, { status: 'done' });
-            }
-          } catch (e: any) {
-            console.error("[Sprout] Stream error:", e);
-            if (win && !win.isDestroyed()) {
-              win.webContents.send(`sprout:error:${threadId}`, { error: e.message });
-            }
-          }
-        })();
-
-        // Wait for initial experts before returning
-        const initialExperts = await initialExpertsPromise;
-        console.log('[Sprout] Returning initial experts to frontend:', initialExperts.length);
-
-        return { success: true, threadId, initialExperts };
-      } catch (err: any) {
-        return { success: false, error: err.message };
-      }
-    });
 
     ipcMain.handle('get-timeline-cards', (_, limit, offset, search, category) => {
       return getTimelineCards(limit, offset, search, category);
@@ -717,6 +665,11 @@ async function startApp() {
 
     ipcMain.handle('get-language', () => {
       return getSetting('language') || 'en';
+    });
+
+    ipcMain.handle('app:open-external', async (_, url: string) => {
+      await shell.openExternal(url);
+      return { success: true };
     });
 
     console.log('[Main] IPC handlers registered')

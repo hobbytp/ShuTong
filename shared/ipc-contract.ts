@@ -9,6 +9,8 @@
  * - Renderer: import { invoke } from '@/lib/ipc'
  */
 
+import { SproutSession, SproutMessage, SproutReport } from './sprout';
+
 // =============================================================================
 // Common Types (shared between Main and Renderer)
 // =============================================================================
@@ -189,6 +191,7 @@ export interface IPCContract {
     'window-min': { args: []; return: void };
     'window-max': { args: []; return: void };
     'window-close': { args: []; return: void };
+    'app:open-external': { args: [url: string]; return: { success: boolean } };
 
     // -------------------------------------------------------------------------
     // Capture
@@ -406,7 +409,11 @@ export interface IPCContract {
         args: [seed: string, config?: any];
         return: { success: boolean; threadId?: string; error?: string };
     };
+    'sprout:history': { args: []; return: SproutSession[] };
+    'sprout:load': { args: [id: string]; return: { session: SproutSession; messages: SproutMessage[]; report: SproutReport | null } };
+    'sprout:delete': { args: [id: string]; return: void };
 }
+
 
 // Performance Snapshot type (matches metrics-collector.ts)
 export interface PerformanceSnapshot {

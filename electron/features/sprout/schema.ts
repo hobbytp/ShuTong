@@ -1,4 +1,7 @@
 import { BaseMessage } from "@langchain/core/messages";
+import { SproutReport } from "@shared/sprout";
+
+export * from "@shared/sprout";
 
 export interface AgentPersona {
     id: string;
@@ -12,15 +15,6 @@ export interface AgentPersona {
     relevance: number;
 }
 
-export interface SproutReport {
-    core_meaning: string;
-    connections: string[];
-    pathways: {
-        theory: string;
-        practice: string;
-        inversion: string;
-    };
-}
 
 export interface AutoExpertConfig {
     dynamism: 'safe' | 'default' | 'wild';
@@ -82,51 +76,5 @@ export const DEFAULT_AUTO_EXPERT_STATE: Partial<AutoExpertState> = {
     user_id: 'local'
 };
 
-export const sproutStateChannels = {
-    messages: {
-        reducer: (x: any, y: any) => (x || []).concat(y || []),
-        default: () => []
-    },
-    seed: {
-        reducer: (x: any, y: any) => y ?? x,
-        default: () => ''
-    },
-    context_summary: {
-        reducer: (x: any, y: any) => y ?? x,
-        default: () => ''
-    },
-    experts: {
-        reducer: (x: any, y: any) => {
-            // Merge experts, avoiding duplicates by ID
-            const combined = [...(x || []), ...(y || [])];
-            const unique = new Map();
-            combined.forEach((e: any) => unique.set(e.id, e));
-            return Array.from(unique.values());
-        },
-        default: () => []
-    },
-    next_speaker: {
-        reducer: (x: any, y: any) => y ?? x,
-        default: () => undefined
-    },
-    report: {
-        reducer: (x: any, y: any) => y ?? x,
-        default: () => undefined
-    },
-    config: {
-        reducer: (x: any, y: any) => ({ ...x, ...y }),
-        default: () => ({ dynamism: 'default', execution_mode: 'sequential', max_rounds: 3, expansion_level: 'none', language: 'en' })
-    },
-    current_round: {
-        reducer: (x: any, y: any) => y ?? x,
-        default: () => 0
-    },
-    thread_id: {
-        reducer: (x: any, y: any) => y ?? x,
-        default: () => 'default'
-    },
-    user_id: {
-        reducer: (x: any, y: any) => y ?? x,
-        default: () => 'local'
-    }
-};
+// Note: State channels are now defined via Annotation API in agent.ts (LangGraph v1.0+ pattern)
+// The sproutStateChannels export has been removed as it was a duplicate

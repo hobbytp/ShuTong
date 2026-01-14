@@ -367,35 +367,44 @@ function createTables(database: Database.Database): void {
         }
     }
 
+
     try {
         database.prepare('ALTER TABLE window_switches ADD COLUMN window_title TEXT').run();
         // Migrate existing rows to copy from to_title
         database.prepare('UPDATE window_switches SET window_title = to_title WHERE window_title IS NULL').run();
     } catch (e: any) {
         if (!e.message.includes('duplicate column name')) {
-            // Check if column already exists (e.g. from previous manual intervention) - actually to_title exists, window_title might not
-            // Wait, window_title is already in the original CREATE TABLE? 
-            // Let's check line 266: to_title TEXT NOT NULL.
-            // But the query fails on 'app_name' and 'duration'.
-            // window_switches has 'to_app' and 'to_title' in CREATE TABLE (line 265-266).
-            // But the query in analytics.repository.ts uses 'app_name' and 'duration'.
-
-            // Ah, wait. The error is `no such column: app_name`.
-            // The query in analytics.repository.ts (line 144) is:
-            // SELECT app_name, SUM(duration) ... FROM window_switches ...
-
-            // But the table definition (line 260) is:
-            // CREATE TABLE IF NOT EXISTS window_switches (
-            // ...
-            // to_app TEXT NOT NULL,
-            // to_title TEXT NOT NULL,
-            // ...
-
-            // So we need to migrate `to_app` -> `app_name` and `to_title` -> `window_title` OR update the query.
-            // However, `duration` is also missing from CREATE TABLE.
-            // We need to add `duration` and `app_name` via migration.
-            // And we should probably populate them.
             console.error('[Database] Migration failed for window_title:', e);
         }
     }
+
+    // Sprouts Feature Tables
+    database.exec(`
+        CREATE TABLE IF NOT EXISTS sprouts (
+            id TEXT PRIMARY KEY,
+            topic TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('active', 'completed')),
+            created_at INTEGER NOT NULL,
+            heatmap_score INTEGER DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_sprouts_created_at ON sprouts(created_at);
+
+        CREATE TABLE IF NOT EXISTS sprout_messages (
+            id TEXT PRIMARY KEY,
+            sprout_id TEXT NOT NULL REFERENCES sprouts(id) ON DELETE CASCADE,
+            role TEXT NOT NULL,
+            name TEXT,
+            content TEXT NOT NULL,
+            timestamp INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sprout_messages_sprout_id ON sprout_messages(sprout_id);
+        CREATE INDEX IF NOT EXISTS idx_sprout_messages_timestamp ON sprout_messages(timestamp);
+        
+        CREATE TABLE IF NOT EXISTS sprout_reports (
+            id TEXT PRIMARY KEY,
+            sprout_id TEXT NOT NULL REFERENCES sprouts(id) ON DELETE CASCADE,
+            json_data TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sprout_reports_sprout_id ON sprout_reports(sprout_id);
+    `);
 }

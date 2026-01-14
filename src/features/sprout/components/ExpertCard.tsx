@@ -1,5 +1,6 @@
 import { cn } from '../../../lib/utils';
 import { motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
 export interface ExpertCardProps {
     id: string;
@@ -14,6 +15,7 @@ export interface ExpertCardProps {
 }
 
 export function ExpertCard({ name, role, emoji, description, relevance, isActive, onClick }: ExpertCardProps) {
+    const { t } = useTranslation();
     return (
         <motion.div
             className={cn(
@@ -44,7 +46,7 @@ export function ExpertCard({ name, role, emoji, description, relevance, isActive
                 <div className="w-full h-1 bg-zinc-800 rounded-full mt-auto mb-2 overflow-hidden">
                     <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${relevance}%` }} />
                 </div>
-                <span className="text-xs text-zinc-500">{relevance}% Match</span>
+                <span className="text-xs text-zinc-500">{relevance}% {t('sprouts.match')}</span>
 
                 {/* Tooltip on Hover (Simple CSS based for now) */}
                 <div className="absolute inset-0 bg-zinc-950/90 p-4 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-center items-center text-sm">

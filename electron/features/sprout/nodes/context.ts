@@ -3,7 +3,7 @@ import { AutoExpertState } from "../schema";
 
 export async function contextRetrievalNode(state: AutoExpertState) {
     const { seed } = state;
-    console.log(`[AutoExpert] Retrieving context for seed: "${seed.substring(0, 50)}..."`);
+    console.log(`[Sprouts] Retrieving context for seed: "${seed.substring(0, 50)}..."`);
 
     try {
         // 1. Vector Search for relevant activities/notes
@@ -18,7 +18,7 @@ export async function contextRetrievalNode(state: AutoExpertState) {
             context_summary: contextSummary
         };
     } catch (error) {
-        console.error("[AutoExpert] Context retrieval failed:", error);
+        console.error("[Sprouts] Context retrieval failed:", error);
         return { context_summary: "" };
     }
 }

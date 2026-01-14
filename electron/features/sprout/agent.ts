@@ -42,7 +42,7 @@ const SproutStateAnnotation = Annotation.Root({
     }),
     config: Annotation<AutoExpertConfig>({
         reducer: (x, y) => ({ ...x, ...y }),
-        default: () => ({ dynamism: 'default', execution_mode: 'sequential', max_rounds: 3, language: 'en' }),
+        default: () => ({ dynamism: 'default', execution_mode: 'sequential', max_rounds: 3, expansion_level: 'none', language: 'en' }),
     }),
     current_round: Annotation<number>({
         reducer: (_, y) => y ?? _,
@@ -99,11 +99,17 @@ export class AutoExpertAgent {
             apiKey = apiKey.trim();
         }
 
-        console.error(`[AutoExpert] Role: ${targetRole}`);
-        console.error(`[AutoExpert] Provider: ${providerName}`);
-        console.error(`[AutoExpert] Model: ${roleConfig.model}`);
-        console.error(`[AutoExpert] BaseURL: [${baseURL}]`); // Brackets to see whitespace
-        console.error(`[AutoExpert] API Key: [${apiKey}]`); // WARNING: FULL KEY EXPOSED FOR DEBUGGING
+        console.log(`[Sprouts] Role: ${targetRole}`);
+        console.log(`[Sprouts] Provider: ${providerName}`);
+        console.log(`[Sprouts] Model: ${roleConfig.model}`);
+        console.log(`[Sprouts] BaseURL: ${baseURL || '(default)'}`);
+        console.log(`[Sprouts] API Key: ${apiKey ? `${apiKey.substring(0, 8)}***` : '⚠️ NOT SET!'}`);
+
+        // Validate API key
+        if (!apiKey) {
+            console.error(`[Sprouts] ⚠️ WARNING: No API key for provider "${providerName}"!`);
+            console.error(`[Sprouts] Set environment variable: ${providerConfig.apiKeyEnv}`);
+        }
 
         const client = new ChatOpenAI({
             configuration: {

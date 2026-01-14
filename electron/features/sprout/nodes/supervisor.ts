@@ -60,12 +60,6 @@ export class SupervisorNode {
         }
         console.log('[Supervisor] lastExpertSpeaker:', lastExpertSpeaker);
 
-        // --- Dynamic Expansion Logic ---
-        // Check if we should consider adding an expert
-        // Trigger: End of a round (everyone spoke once) OR specific keywords?
-        // Simpler: Every few turns?
-        // Let's do it if we are starting a NEW round (i.e. we just cycled through).
-
         let currentIdx = -1;
         if (lastExpertSpeaker) {
             currentIdx = experts.findIndex(e => e.name === lastExpertSpeaker);
@@ -77,36 +71,52 @@ export class SupervisorNode {
         }
 
         // Round Robin Next Index
-        // If currentIdx is -1 (shouldn't happen if we strictly follow name), fallback 0
         const nextIdx = (currentIdx + 1) % experts.length;
 
-        // Did we wrap around?
+        // Did we wrap around? (New Round)
         if (nextIdx === 0) {
             nextRound++;
 
-            // Check expansion if enabled
-            if (appConfig.expansion_level && appConfig.expansion_level !== 'none') {
-                const initialCount = 3; // minimal assumption, ideally tracked in state
-                const currentCount = experts.length;
-                const limit = appConfig.expansion_level === 'moderate' ? initialCount + 3 : 99;
+            // --- Supervisor Orchestration (Round Review + Dynamic Recruitment) ---
+            console.log('[Supervisor] Round complete. Reviewing round...');
+            const roundReview = await this.reviewRound(state);
 
-                if (currentCount < limit) {
-                    // Check if we need more expertise
-                    console.log('[Supervisor] Checking for dynamic expansion...');
-                    const newExpert = await this.dynamicRecruitment(state);
-                    if (newExpert) {
-                        console.log('[Supervisor] Recruiting new expert:', newExpert.name);
-                        return {
-                            experts: [newExpert], // Reducer merges this
-                            next_speaker: newExpert.name,
-                            current_round: nextRound,
-                            messages: [new AIMessage({
-                                content: `Recruiting new expert: ${newExpert.name} (${newExpert.emoji}) - ${newExpert.role}`,
-                                name: 'Supervisor'
-                            })]
-                        };
-                    }
+            if (roundReview) {
+                const newMessages: AIMessage[] = [];
+                let updatedExperts: AgentPersona[] | undefined;
+                let nextSpeaker = experts[nextIdx].name;
+
+                // Handle dynamic recruitment for 'branch' direction
+                if (roundReview.direction === 'branch' && roundReview.new_expert) {
+                    const newExpert: AgentPersona = {
+                        id: roundReview.new_expert.name.toLowerCase().replace(/\s+/g, '_'),
+                        ...roundReview.new_expert
+                    };
+                    console.log('[Supervisor] Recruiting new expert for branch:', newExpert.name);
+                    updatedExperts = [newExpert]; // Reducer will merge
+                    nextSpeaker = newExpert.name; // Let new expert speak first
+
+                    newMessages.push(new AIMessage({
+                        content: `🌿 New branch detected! Recruiting ${newExpert.emoji} ${newExpert.name} (${newExpert.role}) to explore this direction.`,
+                        name: 'Supervisor'
+                    }));
                 }
+
+                // Add instruction message if present
+                if (roundReview.instruction) {
+                    console.log('[Supervisor] Injecting instruction:', roundReview.instruction);
+                    newMessages.push(new AIMessage({
+                        content: roundReview.instruction,
+                        name: 'Supervisor'
+                    }));
+                }
+
+                return {
+                    experts: updatedExperts,
+                    next_speaker: nextSpeaker,
+                    current_round: nextRound,
+                    messages: newMessages
+                };
             }
         }
 
@@ -116,52 +126,112 @@ export class SupervisorNode {
         };
     }
 
-    private async dynamicRecruitment(state: AutoExpertState): Promise<AgentPersona | null> {
-        const { messages, experts } = state;
-        // Analyze recent conversation
-        const recentMsgs = messages.slice(-5).map(m => `${m.name}: ${m.content}`).join('\n');
+    private async reviewRound(state: AutoExpertState): Promise<{
+        summary: string;
+        direction: 'deepen' | 'debate' | 'branch' | 'continue';
+        instruction?: string;
+        new_expert?: { name: string; role: string; emoji: string; description: string; relevance: number };
+    } | null> {
+        const { messages, experts, config } = state;
+        const language = config.language || 'en';
         const expertNames = experts.map(e => e.name).join(', ');
+        const expansionLevel = config.expansion_level || 'none';
+        const canRecruit = expansionLevel !== 'none' && (
+            expansionLevel === 'unlimited' || experts.length < 6
+        );
 
-        const systemPrompt = `You are the AutoExpert Host.
+        // Get messages from the *last* round (approximate by experts.length)
+        // IMPORTANT: Only include messages with ACTUAL CONTENT, not empty tool_call-only messages
+        const lastRoundMsgs = messages.slice(-(experts.length * 3)) // buffer for multi-turn
+            .filter(m => {
+                // Must be from an expert
+                if (!m.name || !experts.some(e => e.name === m.name)) return false;
+                // Must have actual text content (not just tool_calls)
+                const content = typeof m.content === 'string' ? m.content : '';
+                return content.trim().length > 0;
+            })
+            .map(m => `${m.name}: ${m.content}`)
+            .join('\n');
+
+        console.log('[Supervisor] reviewRound lastRoundMsgs preview:', lastRoundMsgs.substring(0, 500));
+
+        const recruitmentClause = canRecruit ? `
+4. If direction is "branch" and a NEW specialist perspective would benefit the discussion:
+   - Generate a "new_expert" object with: name, role, emoji, description, relevance (0-100).
+   - The new expert should be DIFFERENT from existing experts: ${expertNames}.
+   - If not needed, set new_expert to null.` : '';
+
+        const systemPrompt = `You are the Sprouts Cognitive Director.
 Current Experts: ${expertNames}
-Recent Conversation:
-${recentMsgs}
+User Language: ${language}
+Expansion Policy: ${expansionLevel}
 
-Determine if the discussion has stalled or requires a specific NEW perspective that is currently missing.
-If yes, generate a NEW expert profile. If no, return null.
-Expansion Policy: ${state.config.expansion_level}
-User Language: ${state.config.language || 'en'} (Ensure new expert profile is in this language)
+Analyze the recent conversation from the last round:
+${lastRoundMsgs}
+
+Your Role:
+You are NOT a passive moderator. You are a "Cognitive Director" ensuring the discussion reaches maximum depth and novelty.
+You are allergic to platitudes, surface-level agreement, and generic advice.
+
+Your Tasks:
+1. **Diagnosis**: What is the current "Cognitive State" of the room?
+   - *Groupthink Alert*: Are they agreeing too much?
+   - *Abstraction Trap*: Are they stuck in high-level theory without examples?
+   - *Weed Weaving*: Are they lost in irrelevant details?
+
+2. **Strategic Pivot (Direction)**:
+   - "deepen": Good path, but hit it harder with a mental model (e.g. First Principles, Inversion).
+   - "debate": Force a conflict. Assign a "Devil's Advocate" position to one expert.
+   - "branch": This path is dead or exhausted. Pivot to a specific adjacent field (e.g. Biology, History).
+   - "continue": ONLY if the flow is exceptionally high-quality.
+
+3. **Directing (Instruction)**:
+   - Issue a specific, slightly provocative command to the panel or a specific expert.
+   - Example directly: "@Prof. X, stop listing features. Analyze this using 'Shannon's Entropy'. Go."
+   - Example general: "Everyone is being too polite. I want you to attack the premise that [Seed] is even desirable."
+
+${recruitmentClause}
 
 Return JSON:
 {
-  "recruit": boolean,
-  "reason": "string",
-  "new_expert": { "name": "...", "role": "...", "emoji": "...", "description": "...", "relevance": 80 } | null
+  "summary": "Brief diagnosis of the cognitive state.",
+  "direction": "deepen" | "debate" | "branch" | "continue",
+  "instruction": "The provocative directive."${canRecruit ? ',\n  "new_expert": { "name": "...", "role": "...", "emoji": "...", "description": "...", "relevance": 95 } | null' : ''}
 }`;
 
         try {
-            const response = await this.model.invoke([new SystemMessage(systemPrompt)], {
-                response_format: { type: "json_object" }
-            });
-            let content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
+            const metaStr = this.metadata ? ` (Provider: ${this.metadata.provider}, Model: ${this.metadata.modelName})` : '';
+            console.log(`[Supervisor] Generating Round Review${metaStr}...`);
 
-            // Strip markdown code fences if present
+            const response = await this.model.invoke([
+                new SystemMessage(systemPrompt),
+                new HumanMessage("Analyze the conversation and return the JSON response.")
+            ]);
+            // Note: response_format removed as it causes empty responses with some providers
+
+            // Check for empty response
+            if (!response || !response.content) {
+                console.error(`[Supervisor${metaStr}] LLM returned empty response!`);
+                return null;
+            }
+
+            let content = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
+            console.log(`[Supervisor] Raw response: ${content.substring(0, 200)}...`);
+
             if (content.startsWith('```')) {
                 content = content.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
             }
 
             const parsed = JSON.parse(content);
+            console.log("[Supervisor] Review generated:", parsed);
+            return parsed;
 
-            if (parsed.recruit && parsed.new_expert) {
-                return {
-                    id: parsed.new_expert.name.toLowerCase().replace(/\s+/g, '_'),
-                    ...parsed.new_expert
-                };
-            }
-        } catch (e) {
-            console.warn("Dynamic recruitment failed", e);
+        } catch (e: any) {
+            const metaStr = this.metadata ? ` (Provider: ${this.metadata.provider}, Model: ${this.metadata.modelName})` : '';
+            console.error(`[Supervisor${metaStr}] Round Review failed:`, e.message);
+            console.error(`[Supervisor${metaStr}] Full error stack:`, e.stack);
+            return null;
         }
-        return null;
     }
 
     private async initialRecruitment(state: AutoExpertState) {
@@ -170,11 +240,16 @@ Return JSON:
         const language = config.language || 'en';
         const numExperts = config.dynamism === 'wild' ? 5 : 3;
 
-        const systemPrompt = `You are the AutoExpert Host.
-Your goal is to assemble a dynamic panel of ${numExperts} experts to analyze the User's "Seed" topic.
-Use the provided Context to tailor the selection (e.g., if context shows user is a developer, pick technical experts).
+        const systemPrompt = `You are the Sprouts Cognitive Curator.
+Your goal is to assemble a "Cognitive Hit Squad" of ${numExperts} experts to analyze the User's "Seed" topic.
+Don't just pick generic roles (like "Writer", "Coder"). Pick experts with **specific lenses/mental models**.
 
-IMPORTANT: The user's language is "${language}". ensure the experts you recruit are fluent in this language and appropriate for the cultural context if applicable.
+Examples:
+- Instead of "Marketing Expert", pick "Evolutionary Psychologist (Viral Dynamics)".
+- Instead of "Engineer", pick "Systems Theorist (Gall's Law)".
+- Instead of "Designer", pick "Biomimicry Architect".
+
+The user's language is "${language}".
 Return the "role" and "description" in ${language}.
 
 Return a JSON object with a list of experts:
@@ -182,9 +257,9 @@ Return a JSON object with a list of experts:
   "experts": [
     {
       "name": "Prof. X",
-      "role": "Cognitive Scientist",
+      "role": "Cognitive Scientist (Embodied Cognition)",
       "emoji": "🧠",
-      "description": "Focuses on mental models and learning.",
+      "description": "Analyzes how physical constraints shape thought.",
       "relevance": 95
     }
   ]
@@ -198,18 +273,16 @@ ${context_summary || "No specific background context."}
 Recruit the experts.`;
 
         try {
-            console.warn("Initial recruitment system prompt:", systemPrompt);
-            console.warn("Initial recruitment user message:", userMessage);
+            console.log("[Supervisor] Initial recruitment prompt:", systemPrompt.substring(0, 200));
             const response = await this.model.invoke([
                 new SystemMessage(systemPrompt),
                 new HumanMessage(userMessage)  // User input uses HumanMessage per LangChain best practices
-            ], {
-                //response_format: { type: "json_object" }
-            });
+            ]);
+            // Note: response_format removed as it causes empty responses with some providers
 
-            console.warn("Initial recruitment response:", response);
+            console.log("[Supervisor] Initial recruitment response received");
             let content = response.content as string;
-            console.warn("Initial recruitment content:", content);
+            console.log("[Supervisor] Parsing recruitment content...");
 
             // Strip markdown code fences if present (LLMs often wrap JSON in ```json ... ```)
             if (content.startsWith('```')) {
@@ -217,12 +290,11 @@ Recruit the experts.`;
             }
 
             const parsed = JSON.parse(content);
-            console.warn("Initial recruitment parsed:", parsed);
             const experts: AgentPersona[] = parsed.experts.map((e: any) => ({
                 id: e.name.toLowerCase().replace(/\s+/g, '_'),
                 ...e
             }));
-            console.warn("Initial recruitment experts:", experts);
+            console.log("[Supervisor] Recruited experts:", experts.map(e => e.name).join(', '));
 
             return {
                 experts,

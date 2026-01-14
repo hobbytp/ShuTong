@@ -1,7 +1,7 @@
 import { AIMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
 import { AutoExpertState } from "../schema";
-import { searchDuckDuckGoInstantAnswer, WebSearchResult } from "../../../research/web-search";
+import { searchWeb, WebSearchResult } from "../../../research/web-search";
 
 export class ExpertNode {
     private model: ChatOpenAI;
@@ -20,12 +20,22 @@ export class ExpertNode {
             return { messages: [] }; // Should not happen
         }
 
+        // Get current date for recency-aware web searches
+        const currentDate = new Date().toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+
         const systemPrompt = `You are ${expertProfile.emoji} ${expertProfile.name}, a ${expertProfile.role}.
 Your description: ${expertProfile.description}
+
+Current Date: ${currentDate}
 
 You are participating in a brainstorming session about: "${seed}".
 Review the conversation so far. Add your unique perspective, build on others' ideas, or politely disagree.
 You have access to a "web_search" tool. Use it if you need to verify facts, look up checking concepts, or find real-world examples to support your points.
+When searching, prioritize recent information (within the last 1-2 years) where applicable.
 
 IMPORTANT: Respond in the language: "${state.config.language || 'en'}".
 
@@ -54,7 +64,27 @@ Start your response with your emoji.`;
         const modelWithTools = this.model.bindTools([searchTool]);
 
         // Filter messages to relevant context window
-        const recentMessages = messages.slice(-10);
+        // IMPORTANT: Filter out ToolMessages AND AIMessages with tool_calls.
+        // Tool calls are only valid within the ReAct loop that generated them.
+        // LangChain requires tool_calls AIMessage to be followed by matching ToolMessage.
+        // Including orphaned tool-related messages causes API errors.
+        const recentMessages = messages
+            .filter(m => {
+                // Filter out ToolMessages
+                const msgType = (m as any).getType?.();
+                if (msgType === 'tool') return false;
+                if (m.name === 'web_search') return false;
+
+                // Filter out AIMessages that have tool_calls
+                const toolCalls = (m as any).tool_calls;
+                if (toolCalls && Array.isArray(toolCalls) && toolCalls.length > 0) {
+                    return false;
+                }
+
+                return true;
+            })
+            .slice(-10);
+
         let currentMessages = [
             new SystemMessage(systemPrompt),
             ...recentMessages
@@ -90,7 +120,7 @@ Start your response with your emoji.`;
                         console.log(`[Expert:${expertProfile.name}] Searching:`, toolCall.args.query);
                         let searchResult = "";
                         try {
-                            const results = await searchDuckDuckGoInstantAnswer(toolCall.args.query as string);
+                            const results = await searchWeb(toolCall.args.query as string);
                             searchResult = results.slice(0, 3).map((r: WebSearchResult) => `[${r.title}](${r.url}): ${r.snippet}`).join("\n\n");
                             if (!searchResult) searchResult = "No results found.";
                         } catch (err: any) {
