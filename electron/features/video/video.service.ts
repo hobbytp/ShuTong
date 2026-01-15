@@ -71,6 +71,7 @@ export function createVideoGenerationWindow() {
         y: -2000,
         width: 1,
         height: 1,
+        skipTaskbar: true, // Hide from Windows taskbar to avoid user confusion
         icon: nativeImage.createFromPath(iconPath),
         webPreferences: {
             nodeIntegration: false,
