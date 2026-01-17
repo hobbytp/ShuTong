@@ -710,7 +710,7 @@ export function getJournalEntries(): JournalEntry[] {
 
 // --- Phase 7: UI Accessors ---
 
-export function getTimelineCards(limit = 50, offset = 0, search?: string, category?: string) {
+export function getTimelineCards(limit = 50, offset = 0, search?: string, category?: string, startTs?: number, endTs?: number) {
     if (!db) return [];
     try {
         let query = 'SELECT * FROM timeline_cards';
@@ -725,6 +725,16 @@ export function getTimelineCards(limit = 50, offset = 0, search?: string, catego
         if (category && category !== 'All') {
             conditions.push('category = ?');
             params.push(category);
+        }
+
+        if (startTs !== undefined) {
+            conditions.push('start_ts >= ?');
+            params.push(startTs);
+        }
+
+        if (endTs !== undefined) {
+            conditions.push('end_ts <= ?');
+            params.push(endTs);
         }
 
         if (conditions.length > 0) {

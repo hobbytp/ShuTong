@@ -267,7 +267,7 @@ export interface IPCContract {
     // Research Proposals
     // -------------------------------------------------------------------------
     'generate-research-proposal': {
-        args: [];
+        args: [payload?: { timeRange?: { start: number; end: number; label?: string } }];
         return: { success: boolean; card?: PulseCard; error?: string };
     };
     'dismiss-research-proposal': {

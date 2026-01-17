@@ -377,11 +377,11 @@ async function startApp() {
       }
     });
 
-    ipcMain.handle('generate-research-proposal', async () => {
+    ipcMain.handle('generate-research-proposal', async (_, payload?: { timeRange?: { start: number; end: number; label?: string } }) => {
       try {
-        const { generateResearchProposalCard } = await import('./research/pulse-research');
+        const { generateResearchProposalCard } = await import('./features/pulse/research/pulse-research');
 
-        const result = await generateResearchProposalCard();
+        const result = await generateResearchProposalCard(payload?.timeRange);
         if ('error' in result) return { success: false, error: result.error };
         const card = getPulseCardById(result.cardId);
         return { success: true, card };
@@ -392,7 +392,7 @@ async function startApp() {
 
     ipcMain.handle('dismiss-research-proposal', async (_evt, cardId: string) => {
       try {
-        const { dismissResearchProposal } = await import('./research/pulse-research');
+        const { dismissResearchProposal } = await import('./features/pulse/research/pulse-research');
         const result = await dismissResearchProposal(cardId);
         if ('error' in result) return { success: false, error: result.error };
         return { success: true };
@@ -403,7 +403,7 @@ async function startApp() {
 
     ipcMain.handle('start-research-from-proposal', async (_evt, payload: { cardId: string; mode: 'auto' | 'fast' | 'deep' }) => {
       try {
-        const { startResearchFromProposal } = await import('./research/pulse-research');
+        const { startResearchFromProposal } = await import('./features/pulse/research/pulse-research');
         const result = await startResearchFromProposal(payload.cardId, payload.mode);
         if ('error' in result) return { success: false, error: result.error };
         return { success: true, deliverableCardIds: result.deliverableCardIds };
@@ -414,7 +414,7 @@ async function startApp() {
 
     ipcMain.handle('save-deliverable', async (_evt, cardId: string) => {
       try {
-        const { saveDeliverable } = await import('./research/pulse-research');
+        const { saveDeliverable } = await import('./features/pulse/research/pulse-research');
         const result = await saveDeliverable(cardId);
         if ('error' in result) return { success: false, error: result.error };
         return { success: true };
@@ -425,7 +425,7 @@ async function startApp() {
 
     ipcMain.handle('discard-deliverable', async (_evt, cardId: string) => {
       try {
-        const { discardDeliverable } = await import('./research/pulse-research');
+        const { discardDeliverable } = await import('./features/pulse/research/pulse-research');
         const result = await discardDeliverable(cardId);
         if ('error' in result) return { success: false, error: result.error };
         return { success: true };

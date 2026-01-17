@@ -197,6 +197,7 @@ async function processBatch(batchId: number, screenshotsOverride?: AnalysisScree
                 try {
                     const entities = JSON.parse(obs.entities);
                     if (Array.isArray(entities) && entities.length > 0) {
+                        //[Hobby] TBD:
                         // Use 'local' user ID for now as PulseAgent defaults to it
                         // Run in background to not block analysis
                         // Dynamic import to avoid premature instantiation
