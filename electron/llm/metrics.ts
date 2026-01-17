@@ -107,18 +107,18 @@ export class LLMMetricsCollector {
         const centralMetrics = getCentralMetrics();
         if (centralMetrics) {
             // Counter: llm.requests_total
-            centralMetrics.incCounter('llm.requests_total', 1, {
+            centralMetrics.incCounter('llm.requests_total', {
                 provider: metric.provider,
                 model: metric.model,
-            });
+            }, 1);
 
             // Counter: llm.errors_total (only on failure)
             if (!metric.success && metric.errorCategory) {
                 // P3: Use consistent lowercase naming for error categories
-                centralMetrics.incCounter('llm.errors_total', 1, {
+                centralMetrics.incCounter('llm.errors_total', {
                     provider: metric.provider,
                     error_category: metric.errorCategory.replace(/_/g, ''), // e.g., rate_limit -> ratelimit
-                });
+                }, 1);
             }
 
             // Histogram: llm.request_duration_seconds

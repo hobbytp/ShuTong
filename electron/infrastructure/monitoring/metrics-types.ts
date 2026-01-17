@@ -6,9 +6,9 @@
  */
 
 export interface CentralMetricsInterface {
-    incCounter(name: string, value: number, labels?: Record<string, string>): void;
-    setGauge(name: string, value: number, labels?: Record<string, string>): void;
-    observeHistogram(name: string, value: number, labels?: Record<string, string>): void;
+    incCounter(name: string, labels?: Record<string, string | number | boolean>, value?: number): void;
+    setGauge(name: string, value: number, labels?: Record<string, string | number | boolean>): void;
+    observeHistogram(name: string, value: number, labels?: Record<string, string | number | boolean>): void;
 }
 
 // Lazy-loaded metrics instance (cached)
@@ -29,4 +29,13 @@ export function getCentralMetrics(): CentralMetricsInterface | null {
         }
     }
     return _metricsInstance;
+}
+
+/**
+ * Manually set the central metrics instance (Dependency Injection).
+ * Call this from main.ts to ensure proper initialization in production.
+ */
+export function setCentralMetrics(instance: CentralMetricsInterface): void {
+    _metricsInstance = instance;
+    _metricsChecked = true;
 }

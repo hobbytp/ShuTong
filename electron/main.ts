@@ -31,7 +31,8 @@ import { ocrService } from './features/timeline/ocr.service';
 import { createVideoGenerationWindow, setupVideoIPC, setupVideoSubscribers } from './features/video';
 import { eventBus } from './infrastructure/events';
 import { lifecycleManager } from './infrastructure/lifecycle';
-import { setupPerformanceIPC } from './infrastructure/monitoring';
+import { setupPerformanceIPC, metricsCollector } from './infrastructure/monitoring'; // [MODIFIED] Added metricsCollector
+import { setCentralMetrics } from './infrastructure/monitoring/metrics-types'; // [NEW]
 import { getLLMMetrics } from './llm/metrics';
 import { copyUserData } from './migration-utils';
 import { storageShutdownService } from './storage';
@@ -497,6 +498,8 @@ async function startApp() {
 
     // Performance Monitoring
     setupPerformanceIPC();
+    // [NEW] Inject Central Metrics into LLM subsystem to fix 0 metrics issue
+    setCentralMetrics(metricsCollector);
 
     ipcMain.handle('set-llm-provider-config', (_, providerName, config) => {
       setLLMProviderConfig(providerName, config);
