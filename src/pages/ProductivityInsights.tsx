@@ -8,13 +8,14 @@
  */
 
 import { Brain, TrendingUp, Zap, Clock, Activity } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MetricCard } from '../components/Insights/MetricCard';
 import { AppUsageChart } from '../components/Insights/AppUsageChart';
 import { CognitiveFlowChart } from '../components/Insights/CognitiveFlowChart';
 import { BatteryCharging } from 'lucide-react';
 import type { ProductivitySummary } from '../lib/ipc';
+import { resolveTimeRangePreset } from '../../shared/time-range';
 
 // Placeholder data for Phase 1
 const MOCK_DATA: ProductivitySummary = {
@@ -38,35 +39,41 @@ export function ProductivityInsights() {
     const [data, setData] = useState<ProductivitySummary>(MOCK_DATA);
     const [yesterdayData, setYesterdayData] = useState<ProductivitySummary | null>(null);
     const [_isLoading, setIsLoading] = useState(true);
+    const [timeRange, setTimeRange] = useState<'today' | 'yesterday' | 'this_week' | 'last_7_days' | 'last_30_days'>('today');
 
-    // Calculate time range for the current view (Today)
-    // In a real app with a date picker, this would come from state.
-    const now = new Date();
-    const startTs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const endTs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).getTime();
+    // Calculate time range for the current view using shared utility
+    const resolvedRange = useMemo(() => resolveTimeRangePreset(timeRange), [timeRange]);
+    const startTs = resolvedRange ? resolvedRange.startTs * 1000 : Date.now() - 86400000;
+    const endTs = resolvedRange ? resolvedRange.endTs * 1000 : Date.now();
 
-    // Fetch data from backend (Phase 1: Mock, Phase 2: Real IPC)
-    // Fetch data from backend (Phase 1: Mock, Phase 2: Real IPC)
+    // Fetch data from backend
     const fetchData = useCallback(async () => {
         setIsLoading(true);
         try {
             const { invoke } = await import('../lib/ipc');
-            // Today
-            const summary = await invoke('get-productivity-summary', new Date().toISOString());
+            // Fetch with time range
+            const dateStr = timeRange === 'today'
+                ? new Date().toISOString()
+                : new Date(startTs).toISOString();
+            const summary = await invoke('get-productivity-summary', dateStr);
             setData(summary);
 
-            // Yesterday (Ghost Mode)
-            const yesterday = new Date();
-            yesterday.setDate(yesterday.getDate() - 1);
-            const ySummary = await invoke('get-productivity-summary', yesterday.toISOString());
-            setYesterdayData(ySummary);
+            // Yesterday data for Ghost Mode (only fetch if viewing today)
+            if (timeRange === 'today') {
+                const yesterday = new Date();
+                yesterday.setDate(yesterday.getDate() - 1);
+                const ySummary = await invoke('get-productivity-summary', yesterday.toISOString());
+                setYesterdayData(ySummary);
+            } else {
+                setYesterdayData(null);
+            }
 
         } catch (e) {
             console.error('[ProductivityInsights] Failed to fetch data:', e);
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [timeRange, startTs]);
 
     useEffect(() => {
         fetchData();
@@ -81,12 +88,30 @@ export function ProductivityInsights() {
     return (
         <div className="h-full p-6 overflow-auto bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950">
             {/* Header */}
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-                    <Brain className="w-8 h-8 text-indigo-400" />
-                    {t('insights.title', 'Productivity Insights')}
-                </h1>
-                <p className="text-zinc-400 mt-1">{t('insights.subtitle', 'Understand your focus and work patterns')}</p>
+            <div className="mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold text-white flex items-center gap-3">
+                        <Brain className="w-8 h-8 text-indigo-400" />
+                        {t('insights.title', 'Productivity Insights')}
+                    </h1>
+                    <p className="text-zinc-400 mt-1">{t('insights.subtitle', 'Understand your focus and work patterns')}</p>
+                </div>
+
+                {/* Time Range Selector */}
+                <div className="flex items-center gap-3">
+                    <span className="text-sm text-zinc-400">{t('pulse.time_range_label', 'Time Range')}:</span>
+                    <select
+                        value={timeRange}
+                        onChange={(e) => setTimeRange(e.target.value as any)}
+                        className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                    >
+                        <option value="today">{t('pulse.time_today', 'Today')}</option>
+                        <option value="yesterday">{t('pulse.time_yesterday', 'Yesterday')}</option>
+                        <option value="this_week">{t('pulse.time_this_week', 'This Week')}</option>
+                        <option value="last_7_days">{t('pulse.time_last_7_days', 'Last 7 Days')}</option>
+                        <option value="last_30_days">{t('pulse.time_last_30_days', 'Last 30 Days')}</option>
+                    </select>
+                </div>
             </div>
 
             {/* Bento Grid */}

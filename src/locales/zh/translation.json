@@ -260,7 +260,14 @@
         "ask_anything": "询问关于您活动的任何问题...",
         "thinking": "思考中...",
         "ask_question": "提问...",
-        "send": "发送"
+        "send": "发送",
+        "time_range_label": "时间范围",
+        "time_today": "今日",
+        "time_yesterday": "昨日",
+        "time_this_week": "本周",
+        "time_last_7_days": "最近7天",
+        "time_last_30_days": "最近30天",
+        "time_all": "全部时间"
     },
     "analytics": {
         "title": "活动分析",

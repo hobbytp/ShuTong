@@ -12,6 +12,7 @@ import { AIMessage, BaseMessage, HumanMessage, SystemMessage } from "@langchain/
 import { RunnableConfig } from "@langchain/core/runnables";
 import { END, START, StateGraph } from "@langchain/langgraph";
 import { ChatOpenAI } from "@langchain/openai";
+import { resolveTimeRangePreset, TimeRangePreset } from "../../../../shared/time-range";
 import { getLLMConfigForMain } from "../../../config_manager";
 import { getSetting } from "../../../storage";
 import { vectorStorage } from "../../../storage/vector-storage";
@@ -96,8 +97,8 @@ export class PulseAgent {
 
         console.log(`[PulseAgent] Retrieving context for: "${query.substring(0, 50)}..."`);
 
-        // Semantic search using the VectorStorage singleton
-        const activities = await vectorStorage.search(query, 10);
+        // Semantic search using the VectorStorage singleton with optional time range
+        const activities = await vectorStorage.search(query, 10, state.time_range);
 
         return {
             relevant_activities: activities
@@ -742,10 +743,12 @@ If the user expresses preferences or shares personal information, acknowledge it
 
     /**
      * Generate a specific Pulse card type
+     * @param type - Type of card to generate
+     * @param options - Generation options including user_id and timeRangePreset
      */
     public async generateCard(
         type: 'briefing' | 'action' | 'sprouting' | 'challenge',
-        options?: { user_id?: string }
+        options?: { user_id?: string; timeRangePreset?: TimeRangePreset }
     ) {
         const implicitQuery = type === 'briefing' ? "summary of today's activities" :
             type === 'action' ? "tasks and action items" :
@@ -753,6 +756,8 @@ If the user expresses preferences or shares personal information, acknowledge it
                     "recent important work and topics";
 
         const userId = options?.user_id || 'local';
+        // Resolve time range preset (defaults to 'today' for card generation)
+        const timeRange = resolveTimeRangePreset(options?.timeRangePreset || 'today');
         // Use a dedicated thread for card generation to avoid polluting conversation history
         // or use a random one if we don't want persistence at all.
         // For now, let's use a fixed one per card type to allow some continuity if needed,
@@ -764,7 +769,8 @@ If the user expresses preferences or shares personal information, acknowledge it
                 messages: [new HumanMessage(implicitQuery)],
                 target_card_type: type,
                 current_time: new Date().toISOString(),
-                user_id: userId
+                user_id: userId,
+                time_range: timeRange
             },
             {
                 configurable: {

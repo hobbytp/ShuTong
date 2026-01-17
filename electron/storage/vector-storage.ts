@@ -295,9 +295,12 @@ export class VectorStorage implements Shutdownable {
     }
 
     /**
-     * Semantic search for activities
+     * Semantic search for activities with optional time range filtering
+     * @param query - Search query text
+     * @param limit - Maximum results to return
+     * @param timeRange - Optional time range filter (startTs/endTs in Unix seconds)
      */
-    public async search(query: string, limit: number = 10): Promise<ActivityVector[]> {
+    public async search(query: string, limit: number = 10, timeRange?: { startTs: number; endTs: number }): Promise<ActivityVector[]> {
         if (!this.embeddings || (!this.activityTable && !this.observationTable)) {
             if (this.embeddingsDisabledReason) {
                 this.logEmbeddingsDisabledOnce();
@@ -312,19 +315,32 @@ export class VectorStorage implements Shutdownable {
 
             const results: ActivityVector[] = [];
 
+            // Build WHERE clause for time filtering
+            const whereClause = timeRange
+                ? `start_ts >= ${timeRange.startTs} AND end_ts <= ${timeRange.endTs}`
+                : undefined;
+
+            if (whereClause) {
+                console.log(`[VectorStorage] Applying time filter: ${whereClause}`);
+            }
+
             // Search Activity Table
             if (this.activityTable) {
-                const acts = await this.activityTable.vectorSearch(queryVector)
-                    .limit(limit)
-                    .toArray();
+                let queryBuilder = this.activityTable.vectorSearch(queryVector);
+                if (whereClause) {
+                    queryBuilder = queryBuilder.where(whereClause);
+                }
+                const acts = await queryBuilder.limit(limit).toArray();
                 results.push(...(acts as ActivityVector[]));
             }
 
             // Search Observation Table
             if (this.observationTable) {
-                const obs = await this.observationTable.vectorSearch(queryVector)
-                    .limit(limit)
-                    .toArray();
+                let queryBuilder = this.observationTable.vectorSearch(queryVector);
+                if (whereClause) {
+                    queryBuilder = queryBuilder.where(whereClause);
+                }
+                const obs = await queryBuilder.limit(limit).toArray();
                 results.push(...(obs as ActivityVector[]));
             }
 

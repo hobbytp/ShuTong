@@ -1,6 +1,8 @@
 import { AlertCircle, ChevronRight, Lightbulb, Loader2, MessageCircle, Sparkles, Target, Zap } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { AgentChat } from '../components/AgentChat';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
@@ -89,6 +91,7 @@ export function PulseFeed() {
     const [deliverableBusy, setDeliverableBusy] = useState<Record<string, boolean>>({});
     const [proposalMode, setProposalMode] = useState<Record<string, ResearchMode>>({});
     const [chatOpen, setChatOpen] = useState(false);
+    const [timeRange, setTimeRange] = useState<'today' | 'yesterday' | 'this_week' | 'all'>('today');
 
     useEffect(() => {
         const loadCards = async () => {
@@ -131,7 +134,7 @@ export function PulseFeed() {
         if (!window.ipcRenderer) return;
         setGenerating(type);
         try {
-            const result = await window.ipcRenderer.invoke('generate-pulse-card', type);
+            const result = await window.ipcRenderer.invoke('generate-pulse-card', type, timeRange);
             if (result.success && result.card) {
                 const newCard: PulseCard = {
                     id: `${type}-${Date.now()}`,
@@ -148,7 +151,7 @@ export function PulseFeed() {
         } finally {
             setGenerating(null);
         }
-    }, []);
+    }, [timeRange]);
 
     const generateProposal = useCallback(async () => {
         if (!window.ipcRenderer) return;
@@ -258,6 +261,23 @@ export function PulseFeed() {
                         {t('pulse.ask_pulse', 'Ask Pulse')}
                     </Button>
                 </div>
+            </div>
+
+            {/* Time Range Selector */}
+            <div className="mb-4 flex items-center gap-3">
+                <span className="text-sm text-zinc-400">{t('pulse.time_range_label', 'Time Range')}:</span>
+                <select
+                    value={timeRange}
+                    onChange={(e) => setTimeRange(e.target.value as any)}
+                    className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                >
+                    <option value="today">{t('pulse.time_today', 'Today')}</option>
+                    <option value="yesterday">{t('pulse.time_yesterday', 'Yesterday')}</option>
+                    <option value="this_week">{t('pulse.time_this_week', 'This Week')}</option>
+                    <option value="last_7_days">{t('pulse.time_last_7_days', 'Last 7 Days')}</option>
+                    <option value="last_30_days">{t('pulse.time_last_30_days', 'Last 30 Days')}</option>
+                    <option value="all">{t('pulse.time_all', 'All Time')}</option>
+                </select>
             </div>
 
             {/* Quick Actions */}
@@ -431,7 +451,9 @@ export function PulseFeed() {
                                                 </div>
                                             );
                                         })() : (
-                                            <p className="text-sm text-zinc-400 whitespace-pre-wrap">{card.content}</p>
+                                            <div className="text-sm text-zinc-400 prose prose-invert prose-sm max-w-none">
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{card.content}</ReactMarkdown>
+                                            </div>
                                         )}
 
                                         {card.suggested_actions && card.suggested_actions.length > 0 && (

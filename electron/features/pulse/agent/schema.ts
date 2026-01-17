@@ -1,4 +1,5 @@
 import { BaseMessage } from "@langchain/core/messages";
+import { TimeRange } from "../../../../shared/time-range";
 import { ActivityVector } from "../../../storage/vector-storage";
 import { Memory } from "./memory-store";
 
@@ -35,6 +36,10 @@ export interface PulseState {
      * User identifier (default: 'local' for local-first app)
      */
     user_id: string;
+    /**
+     * Time range filter for context retrieval
+     */
+    time_range?: TimeRange;
 }
 
 /**
@@ -84,5 +89,9 @@ export const graphStateChannels = {
     user_id: {
         reducer: (x: string, y: string) => y ?? x,
         default: () => 'local'
+    },
+    time_range: {
+        reducer: (x: TimeRange | undefined, y: TimeRange | undefined) => y ?? x,
+        default: () => undefined
     }
 };

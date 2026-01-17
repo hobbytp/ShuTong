@@ -356,12 +356,11 @@ async function startApp() {
       }
     });
 
-    ipcMain.handle('generate-pulse-card', async (_, type: string) => {
+    ipcMain.handle('generate-pulse-card', async (_, type: string, timeRangePreset?: string) => {
       try {
         const { pulseAgent } = await import('./features/pulse/agent/pulse-agent');
 
-        // @ts-ignore
-        const card = await pulseAgent.generateCard(type);
+        const card = await pulseAgent.generateCard(type as any, { timeRangePreset: timeRangePreset as any });
         const cardWithMeta = {
           id: `${type}-${Date.now()}`,
           type,

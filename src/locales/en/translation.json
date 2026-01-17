@@ -260,7 +260,14 @@
         "ask_anything": "Ask anything about your activities...",
         "thinking": "Thinking...",
         "ask_question": "Ask a question...",
-        "send": "Send"
+        "send": "Send",
+        "time_range_label": "Time Range",
+        "time_today": "Today",
+        "time_yesterday": "Yesterday",
+        "time_this_week": "This Week",
+        "time_last_7_days": "Last 7 Days",
+        "time_last_30_days": "Last 30 Days",
+        "time_all": "All Time"
     },
     "analytics": {
         "title": "Activity Analytics",
