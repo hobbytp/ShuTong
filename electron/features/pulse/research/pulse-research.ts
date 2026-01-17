@@ -1,3 +1,4 @@
+import i18next from 'i18next';
 import { getLLMProvider } from '../../../llm/providers';
 import { getPulseCardById, getPulseCards, getTimelineCards, savePulseCard, updatePulseCard } from '../../../storage';
 import { searchDuckDuckGoInstantAnswer, WebSearchResult } from './web-search';
@@ -81,7 +82,8 @@ export async function generateResearchProposalCard(timeRange?: { start: number; 
 
     // Add Time Range info to context FIRST so LLM knows the scope
     const rangeLabel = timeRange?.label || `${new Date(rangeStart * 1000).toLocaleString()} - ${new Date(rangeEnd * 1000).toLocaleString()}`;
-    contextLines.push(`Time Range: ${rangeLabel}`);
+    const timeRangePrefix = i18next.t('pulse.time_range_label', 'Time Range');
+    contextLines.push(`${timeRangePrefix}: ${rangeLabel}`);
     console.log(`[PulseResearch] Generating proposal for time range: ${rangeLabel} (${rangeStart} - ${rangeEnd})`);
 
     if (recentPulse.length > 0) {
@@ -101,7 +103,12 @@ export async function generateResearchProposalCard(timeRange?: { start: number; 
     const context = contextLines.join('\n');
     // Only Time Range line means no actual data
     if (recentPulse.length === 0 && recentTimeline.length === 0) {
-        return { error: `No activity found in the selected time range (${rangeLabel}).` };
+        return {
+            error: i18next.t('pulse.no_activity_in_range', {
+                defaultValue: 'No activity found in the selected time range ({{range}}).',
+                range: rangeLabel
+            })
+        };
     }
 
     const provider = getLLMProvider('PULSE_AGENT');

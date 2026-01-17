@@ -463,8 +463,8 @@ async function startApp() {
     void analyticsService;
 
 
-    ipcMain.handle('get-timeline-cards', (_, limit, offset, search, category) => {
-      return getTimelineCards(limit, offset, search, category);
+    ipcMain.handle('get-timeline-cards', (_, limit, offset, search, category, startTs, endTs) => {
+      return getTimelineCards(limit, offset, search, category, startTs, endTs);
     });
 
     ipcMain.handle('get-card-details', (_, cardId) => {

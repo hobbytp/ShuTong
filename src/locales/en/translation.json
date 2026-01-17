@@ -267,7 +267,8 @@
         "time_this_week": "This Week",
         "time_last_7_days": "Last 7 Days",
         "time_last_30_days": "Last 30 Days",
-        "time_all": "All Time"
+        "time_all": "All Time",
+        "no_activity_in_range": "No activity found in the selected time range ({{range}})."
     },
     "analytics": {
         "title": "Activity Analytics",

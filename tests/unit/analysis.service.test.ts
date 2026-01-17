@@ -27,7 +27,8 @@ const mocks = vi.hoisted(() => ({
     }),
     mockGetSetting: vi.fn().mockReturnValue('1000'),
     mockScreenshotsForBatch: vi.fn().mockReturnValue([]),
-    mockGetRepositories: vi.fn().mockReturnValue([])
+    mockGetRepositories: vi.fn().mockReturnValue([]),
+    mockGetFailedBatches: vi.fn().mockReturnValue([])
 }));
 
 // 2. Mock dependencies
@@ -56,9 +57,11 @@ vi.mock('../../electron/features/timeline/analysis.repository', () => ({
         saveObservation: mocks.mockSaveObservation,
         getSetting: mocks.mockGetSetting,
         screenshotsForBatch: mocks.mockScreenshotsForBatch,
-        getRepositories: mocks.mockGetRepositories
+        getRepositories: mocks.mockGetRepositories,
+        getFailedBatches: mocks.mockGetFailedBatches
     }
 }));
+
 
 vi.mock('../../electron/config_manager', () => ({
     getMergedLLMConfig: mocks.mockGetMergedLLMConfig
@@ -102,7 +105,7 @@ describe('AnalysisService', () => {
         mocks.mockFetchUnprocessedScreenshots.mockReturnValueOnce(mockScreenshots);
 
         await processRecordings();
-        
+
         // Verify transcribeBatch called with the result of getPromptForContext
         expect(mocks.mockTranscribeBatch).toHaveBeenCalledWith(
             expect.any(Array),
@@ -161,7 +164,7 @@ describe('AnalysisService', () => {
 
     it('should fetch screenshots with a limit to prevent OOM', async () => {
         mocks.mockFetchUnprocessedScreenshots.mockReturnValueOnce([]);
-        
+
         await processRecordings();
 
         // Expect 2nd argument to be the limit (e.g., 1000 or 500)
@@ -173,17 +176,17 @@ describe('AnalysisService', () => {
             { id: 1, timestamp: 1000 }
         ]);
         mocks.mockTranscribeBatch.mockResolvedValueOnce([
-            { 
-                start: 1000, 
-                end: 1010, 
-                text: 'Coding in VSCode', 
+            {
+                start: 1000,
+                end: 1010,
+                text: 'Coding in VSCode',
                 context_type: 'activity_context',
-                entities: JSON.stringify([{ name: 'VSCode', type: 'tool' }]) 
+                entities: JSON.stringify([{ name: 'VSCode', type: 'tool' }])
             }
         ]);
-        
+
         await processRecordings();
-        
+
         // Use the imported mocked instance
         const { pulseAgent } = await import('../../electron/features/pulse/agent/pulse-agent');
         expect(pulseAgent.ingestStructuredEntities)

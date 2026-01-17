@@ -51,6 +51,13 @@ const mocks = vi.hoisted(() => {
 
     const mockIpcMain = {
         on: vi.fn(),
+        once: vi.fn().mockImplementation((event: string, callback: (...args: any[]) => void) => {
+            // Immediately invoke callback for 'video-generator-ready' to simulate renderer ready
+            if (event === 'video-generator-ready') {
+                setImmediate(() => callback());
+            }
+        }),
+        handle: vi.fn(),
         removeListener: vi.fn()
     };
 
@@ -92,7 +99,10 @@ describe('Video Service', () => {
     it('should send generate-video IPC message', async () => {
         const promise = generateVideo(['img1.png'], 'output.mp4');
 
-        // Simulate window ready
+        // Wait for setImmediate callback to fire (video-generator-ready simulation)
+        await new Promise(resolve => setImmediate(resolve));
+
+        // Now the send should have been called
         expect(mocks.mockWebContents.send).toHaveBeenCalledWith('generate-video', expect.objectContaining({
             images: ['img1.png'],
             outputPath: 'output.mp4'
@@ -101,6 +111,9 @@ describe('Video Service', () => {
 
     it('should resolve promise when video-generated is received', async () => {
         const promise = generateVideo(['img1.png'], 'output.mp4');
+
+        // Wait for setImmediate callback to fire
+        await new Promise(resolve => setImmediate(resolve));
 
         // Get the requestId sent
         const sendCall = mocks.mockWebContents.send.mock.calls.find(call => call[0] === 'generate-video');
@@ -121,6 +134,9 @@ describe('Video Service', () => {
     it('should reject promise when video-error is received', async () => {
         const promise = generateVideo(['img1.png'], 'output.mp4');
 
+        // Wait for setImmediate callback to fire
+        await new Promise(resolve => setImmediate(resolve));
+
         const sendCall = mocks.mockWebContents.send.mock.calls.find(call => call[0] === 'generate-video');
         expect(sendCall).toBeDefined();
         const requestId = sendCall![1].requestId;
@@ -138,6 +154,10 @@ describe('Video Service', () => {
         vi.useFakeTimers();
 
         const promise = generateVideo(['img1.png'], 'output.mp4');
+
+        // Run only the next timer (setImmediate for video-generator-ready callback)
+        // This doesn't run the 5-minute timeout
+        await vi.advanceTimersToNextTimerAsync();
 
         const sendCall = mocks.mockWebContents.send.mock.calls.find(call => call[0] === 'generate-video');
         expect(sendCall).toBeDefined();

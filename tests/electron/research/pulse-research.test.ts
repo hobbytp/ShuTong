@@ -1,7 +1,103 @@
-import { describe, it, expect } from 'vitest';
-import { computeScopeScore, generateQueryVariants } from '../../../electron/research/pulse-research';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { computeScopeScore, generateQueryVariants, generateResearchProposalCard } from '../../../electron/features/pulse/research/pulse-research';
+import * as storage from '../../../electron/storage';
+import * as providers from '../../../electron/llm/providers';
+
+const { mockStorage, mockProvider, mockI18n } = vi.hoisted(() => ({
+    mockStorage: {
+        getPulseCards: vi.fn().mockReturnValue([]),
+        getTimelineCards: vi.fn().mockReturnValue([]),
+        savePulseCard: vi.fn(),
+        updatePulseCard: vi.fn(),
+        getPulseCardById: vi.fn(),
+    },
+    mockProvider: {
+        generateContent: vi.fn().mockResolvedValue(JSON.stringify({
+            title: 'Test Proposal',
+            question: 'What is the impact of X?',
+            evidence: ['Evidence 1']
+        }))
+    },
+    mockI18n: {
+        t: vi.fn().mockImplementation((key, options) => {
+            if (key === 'pulse.time_range_label') return 'Time Range';
+            if (options && typeof options === 'object' && options.defaultValue) {
+                return options.defaultValue.replace('{{range}}', options.range || '');
+            }
+            return key;
+        })
+    }
+}));
+
+vi.mock('i18next', () => ({
+    default: mockI18n
+}));
+
+vi.mock('../../../electron/storage', () => mockStorage);
+
+
+vi.mock('../../../electron/llm/providers', () => ({
+    getLLMProvider: vi.fn().mockReturnValue(mockProvider),
+}));
+
 
 describe('Pulse Research Heuristics', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    describe('generateResearchProposalCard', () => {
+        it('should use default 24h range if no timeRange provided', async () => {
+            await generateResearchProposalCard();
+
+            expect(mockStorage.getTimelineCards).toHaveBeenCalledWith(
+                50,
+                0,
+                undefined,
+                undefined,
+                expect.any(Number), // rangeStart
+                expect.any(Number)  // rangeEnd
+            );
+
+            const [, , , , start, end] = (mockStorage.getTimelineCards as any).mock.calls[0];
+            expect(end - start).toBeCloseTo(86400, 1); // 24h
+        });
+
+        it('should use provided timeRange and label', async () => {
+            const timeRange = {
+                start: 1000,
+                end: 2000,
+                label: 'Custom Range'
+            };
+
+            mockStorage.getTimelineCards.mockReturnValue([{ title: 'Card', summary: 'Summary' }]);
+            await generateResearchProposalCard(timeRange);
+
+            expect(mockStorage.getTimelineCards).toHaveBeenCalledWith(
+                50,
+                0,
+                undefined,
+                undefined,
+                1000,
+                2000
+            );
+
+            const prompt = (mockProvider.generateContent as any).mock.calls[0][0].prompt;
+            expect(prompt).toContain('Time Range: Custom Range');
+        });
+
+        it('should return error if no activity found in range', async () => {
+            mockStorage.getPulseCards.mockReturnValue([]);
+            mockStorage.getTimelineCards.mockReturnValue([]);
+
+            const result = await generateResearchProposalCard({ start: 100, end: 200 });
+
+            expect(result).toEqual({
+                error: expect.stringContaining('No activity found')
+            });
+        });
+    });
+
     describe('computeScopeScore', () => {
         it('should score low for simple queries', () => {
             const res = computeScopeScore('what is python');
@@ -54,3 +150,4 @@ describe('Pulse Research Heuristics', () => {
         });
     });
 });
+

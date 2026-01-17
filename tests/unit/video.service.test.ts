@@ -12,7 +12,7 @@ vi.mock('electron', () => {
     const send = vi.fn();
 
     // IMPORTANT: Use a regular function, NOT an arrow function, so it can be new-ed
-    const BrowserWindow = vi.fn(function() {
+    const BrowserWindow = vi.fn(function () {
         return {
             loadURL,
             loadFile,
@@ -33,6 +33,7 @@ vi.mock('electron', () => {
         ipcMain: {
             handle: vi.fn(),
             on: vi.fn(),
+            once: vi.fn(),
             removeListener: vi.fn()
         },
         nativeImage: {
@@ -67,7 +68,7 @@ describe('VideoService Window Management', () => {
     it('should reuse the window for sequential tasks', async () => {
         generateVideo(['img1.png'], 'out1.mp4');
         expect(BrowserWindow).toHaveBeenCalledTimes(1);
-        
+
         generateVideo(['img2.png'], 'out2.mp4');
         expect(BrowserWindow).toHaveBeenCalledTimes(1);
     });
@@ -75,7 +76,7 @@ describe('VideoService Window Management', () => {
     it('should destroy window after idle timeout', async () => {
         generateVideo(['img1.png'], 'out.mp4');
         expect(BrowserWindow).toHaveBeenCalledTimes(1);
-        
+
         // Get the mock instance and request ID
         const mockWindow = (BrowserWindow as any).mock.results[0].value;
         const sendCall = mockWindow.webContents.send.mock.calls.find((call: any) => call[0] === 'generate-video');
@@ -86,13 +87,13 @@ describe('VideoService Window Management', () => {
         const onCompleteCall = (ipcMain.on as any).mock.calls.find((call: any) => call[0] === 'video-generated');
         expect(onCompleteCall).toBeDefined();
         const onCompleteCallback = onCompleteCall[1];
-        
+
         // Trigger completion
         onCompleteCallback({}, { requestId, outputPath: 'out.mp4' });
 
         // Fast forward 30 seconds
         vi.advanceTimersByTime(30000);
-        
+
         expect(mockWindow.destroy).toHaveBeenCalledTimes(1);
     });
 });

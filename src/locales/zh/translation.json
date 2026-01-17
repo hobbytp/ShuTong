@@ -267,7 +267,8 @@
         "time_this_week": "本周",
         "time_last_7_days": "最近7天",
         "time_last_30_days": "最近30天",
-        "time_all": "全部时间"
+        "time_all": "全部时间",
+        "no_activity_in_range": "选定时间范围内未找到活动 ({{range}})。"
     },
     "analytics": {
         "title": "活动分析",

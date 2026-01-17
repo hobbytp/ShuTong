@@ -91,7 +91,7 @@ export function PulseFeed() {
     const [deliverableBusy, setDeliverableBusy] = useState<Record<string, boolean>>({});
     const [proposalMode, setProposalMode] = useState<Record<string, ResearchMode>>({});
     const [chatOpen, setChatOpen] = useState(false);
-    const [timeRange, setTimeRange] = useState<'today' | 'yesterday' | 'this_week' | 'all'>('today');
+    const [timeRange, setTimeRange] = useState<'today' | 'yesterday' | 'this_week' | 'last_7_days' | 'last_30_days' | 'all'>('today');
 
     useEffect(() => {
         const loadCards = async () => {
@@ -153,20 +153,47 @@ export function PulseFeed() {
         }
     }, [timeRange]);
 
+    const getTimeRangeTimestamps = useCallback(() => {
+        const now = Math.floor(Date.now() / 1000);
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+        const startOfToday = Math.floor(startOfDay.getTime() / 1000);
+
+        switch (timeRange) {
+            case 'today':
+                return { start: startOfToday, end: now, label: t('pulse.time_today', 'Today') };
+            case 'yesterday':
+                return { start: startOfToday - 86400, end: startOfToday, label: t('pulse.time_yesterday', 'Yesterday') };
+            case 'this_week':
+                // Actually "this week" could be last 7 days or since Monday
+                // Let's use last 7 days for consistency with other labels
+                return { start: now - 86400 * 7, end: now, label: t('pulse.time_this_week', 'This Week') };
+            case 'last_7_days':
+                return { start: now - 86400 * 7, end: now, label: t('pulse.time_last_7_days', 'Last 7 Days') };
+            case 'last_30_days':
+                return { start: now - 86400 * 30, end: now, label: t('pulse.time_last_30_days', 'Last 30 Days') };
+            case 'all':
+                return { start: 0, end: now, label: t('pulse.time_all', 'All Time') };
+            default:
+                return { start: now - 86400, end: now, label: t('pulse.time_today', 'Today') };
+        }
+    }, [timeRange, t]);
+
     const generateProposal = useCallback(async () => {
         if (!window.ipcRenderer) return;
         setProposalGenerating(true);
         try {
-            const result = await window.ipcRenderer.invoke('generate-research-proposal');
+            const range = getTimeRangeTimestamps();
+            const result = await window.ipcRenderer.invoke('generate-research-proposal', { timeRange: range });
             if (result.success) {
                 await reloadCards();
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error('Failed to generate proposal:', err);
         } finally {
             setProposalGenerating(false);
         }
-    }, [reloadCards]);
+    }, [reloadCards, getTimeRangeTimestamps]);
 
     const dismissProposal = useCallback(async (cardId: string) => {
         if (!window.ipcRenderer) return;

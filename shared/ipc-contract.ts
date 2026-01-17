@@ -218,7 +218,7 @@ export interface IPCContract {
     // Timeline
     // -------------------------------------------------------------------------
     'get-timeline-cards': {
-        args: [limit: number, offset: number, search?: string, category?: string];
+        args: [limit: number, offset: number, search?: string, category?: string, startTs?: number, endTs?: number];
         return: TimelineCard[];
     };
     'get-card-details': { args: [cardId: number]; return: CardDetails | null };
