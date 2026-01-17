@@ -67,29 +67,41 @@ function pickCitations(results: WebSearchResult[], max: number): { title: string
     return citations;
 }
 
-export async function generateResearchProposalCard(): Promise<{ cardId: string } | { error: string }> {
+export async function generateResearchProposalCard(timeRange?: { start: number; end: number, label?: string }): Promise<{ cardId: string } | { error: string }> {
     const recentPulse = getPulseCards(8);
-    const recentTimeline = getTimelineCards(10, 0);
+
+    // Default to last 24h if no time range provided
+    const rangeStart = timeRange?.start ?? (nowSeconds() - 86400);
+    const rangeEnd = timeRange?.end ?? nowSeconds();
+
+    // Fetch timeline cards within range, limit 50 for context
+    const recentTimeline = getTimelineCards(50, 0, undefined, undefined, rangeStart, rangeEnd);
 
     const contextLines: string[] = [];
 
+    // Add Time Range info to context FIRST so LLM knows the scope
+    const rangeLabel = timeRange?.label || `${new Date(rangeStart * 1000).toLocaleString()} - ${new Date(rangeEnd * 1000).toLocaleString()}`;
+    contextLines.push(`Time Range: ${rangeLabel}`);
+    console.log(`[PulseResearch] Generating proposal for time range: ${rangeLabel} (${rangeStart} - ${rangeEnd})`);
+
     if (recentPulse.length > 0) {
-        contextLines.push('Recent Pulse Cards:');
+        contextLines.push('\nRecent Pulse Cards:');
         for (const c of recentPulse) {
             contextLines.push(`- [${c.type}] ${c.title}: ${c.content}`);
         }
     }
 
     if (recentTimeline.length > 0) {
-        contextLines.push('Recent Timeline Cards:');
+        contextLines.push('\nRecent Timeline Cards:');
         for (const c of recentTimeline as any[]) {
             contextLines.push(`- ${c.title}: ${c.summary}`);
         }
     }
 
     const context = contextLines.join('\n');
-    if (!context.trim()) {
-        return { error: 'No recent activity context available.' };
+    // Only Time Range line means no actual data
+    if (recentPulse.length === 0 && recentTimeline.length === 0) {
+        return { error: `No activity found in the selected time range (${rangeLabel}).` };
     }
 
     const provider = getLLMProvider('PULSE_AGENT');
